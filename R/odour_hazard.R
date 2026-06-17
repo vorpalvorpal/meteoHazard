@@ -68,11 +68,18 @@
 #' Zou, S.C. et al. (2003). Volatile organic compound emissions from landfills.
 #' \emph{Atmospheric Environment}, 37(16), 2197--2211.
 #'
+#' @param datetime Optional `POSIXct` vector, one value per row. When supplied,
+#'   the rows are checked for consecutive hourly spacing -- the 3-hour pressure
+#'   tendency and 24-hour rainfall lookback assume it -- and a warning is issued
+#'   if they are not (the computation proceeds on row order regardless).
+#'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
 #'   [generate_odour_risk_index()] for the combined convenience wrapper.
 #' @export
-odour_hazard <- function(met_data, stability = c("turner", "shear")) {
+odour_hazard <- function(met_data, stability = c("turner", "shear"),
+                         datetime = NULL) {
   stability <- match.arg(stability)
+  .assert_hourly(datetime)
 
   required_cols <- c(
     "wind_speed_10m", "direct_radiation", "cloud_cover",
@@ -122,11 +129,11 @@ odour_hazard <- function(met_data, stability = c("turner", "shear")) {
   )
 
   # Post-rain piston effect; active-rain guard MUST be the first branch
-  # (P_24 includes currently-falling rain).
-  P_24 <- vapply(seq_len(n_t), function(i) {
-    if (i == 1L) return(0.0)
-    sum(precip_safe[max(1L, i - 24L):(i - 1L)])
-  }, numeric(1))
+  # (P_24 includes currently-falling rain). P_24[i] sums the 24 preceding rows
+  # via a cumulative-sum window: cs[i] - cs[max(1, i-24)].
+  cs   <- cumsum(c(0, precip_safe))
+  idx  <- seq_len(n_t)
+  P_24 <- cs[idx] - cs[pmax(1L, idx - 24L)]
   R_mod <- dplyr::case_when(
     precip_safe > 0.5 ~ 0.0,
     P_24 > 15         ~ 0.20,
@@ -282,4 +289,29 @@ odour_hazard <- function(met_data, stability = c("turner", "shear")) {
     alpha <= 0.40 ~ 4.0 + (alpha - 0.22) / 0.18,
     TRUE          ~ 5.0
   )
+}
+
+
+# ---- Consecutive-hourly spacing guard -------------------------------------- #
+# The pressure-tendency and rainfall lookbacks index by row, assuming each row
+# is the next consecutive hour. When the caller supplies a datetime, warn (do
+# not abort) if the rows are not regularly spaced one hour apart.
+.assert_hourly <- function(datetime) {
+  if (is.null(datetime)) return(invisible())
+  if (!inherits(datetime, "POSIXct")) {
+    cli::cli_abort(
+      "{.arg datetime} must be a {.cls POSIXct} vector, not {.cls {class(datetime)}}.",
+      class = "meteoHazard_input_error"
+    )
+  }
+  if (length(datetime) > 1) {
+    gaps <- as.numeric(diff(datetime), units = "secs")
+    if (any(is.na(gaps)) || any(abs(gaps - 3600) > 1)) {
+      cli::cli_warn(c(
+        "{.arg datetime} is not consecutive hourly; row order is used regardless.",
+        "i" = "The 3-hour pressure tendency and 24-hour rainfall lookback assume one row per hour."
+      ))
+    }
+  }
+  invisible()
 }
