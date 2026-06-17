@@ -5,6 +5,32 @@ reframed as a collection of meteorological hazard predictors for waste
 management. The Thermal Work Limit (`generate_twl()`) is the first implemented
 function; `predict_odour()` and `predict_litter()` are stubs.
 
+## Odour model: hazard / exposure split
+
+* The monolithic `generate_odour_risk_index()` is split into two layers,
+  mirroring the litter functions: `odour_hazard()` (receptor-independent,
+  direction-agnostic) and `odour_exposure()` (geometry-aware).
+  `generate_odour_risk_index()` is now a backward-compatible convenience wrapper
+  over the two.
+* `odour_hazard()` returns a relative **ventilation index** (source emission
+  divided by wind speed times mixing depth), capturing the dominant
+  calm/stable/shallow-boundary-layer signal without baking in receptor
+  geometry. Stability now uses the Pasquill-Turner insolation/cloud scheme by
+  default (self-consistent with the Briggs dispersion curves), with the legacy
+  10 m/80 m shear exponent available via `stability = "shear"`;
+  `wind_speed_80m` is therefore now optional. The temperature response
+  (`V_mod`) is widened, and a new stability-dependent peak-to-mean factor
+  accounts for the sub-minute concentration peaks that drive odour annoyance.
+* `odour_exposure()` reconstructs the Pasquill-Gifford Gaussian relative
+  concentration per receptor and maps it to a 0–100 worst-case band. Direction
+  is now physically coupled to distance and stability (replacing the old fixed
+  10-degree gate), with forecast-direction uncertainty added as a separate
+  term, and receptors upwind of the source are correctly excluded from the
+  plume. The terrain-aware drainage / morning-fumigation refinement is
+  relocated here, gated on the optional `drainage_axes`.
+* The model defaults are provisional and uncalibrated (#8); the 0–100 mapping
+  is tunable via `map_c50`.
+
 ## TWL function-chain hardening (#1)
 
 * `generate_twl()` now validates its inputs up front, before any API call,

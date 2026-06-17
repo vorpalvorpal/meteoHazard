@@ -2,281 +2,50 @@
 % Please edit documentation in R/odour_risk.R
 \name{generate_odour_risk_index}
 \alias{generate_odour_risk_index}
-\title{Landfill Odour Dispersal Risk Score}
+\title{Landfill odour risk index (combined hazard + exposure)}
 \usage{
-generate_odour_risk_index(met_data, receptors, drainage_axes = NULL)
+generate_odour_risk_index(
+  met_data,
+  receptors,
+  drainage_axes = NULL,
+  stability = c("turner", "shear"),
+  datetime = NULL
+)
 }
 \arguments{
-\item{met_data}{A data frame (or tibble) with one row per hourly timestep,
-containing the 12 columns listed above. \code{NA} values are permitted
-and handled conservatively. Row order is assumed to represent consecutive
-hourly timesteps (required for the 3-hour pressure tendency and 24-hour
-rainfall lookback).}
+\item{met_data}{A data frame, one row per consecutive hourly timestep, with
+the columns required by both layers (see \code{\link[=odour_hazard]{odour_hazard()}} and
+\code{\link[=odour_exposure]{odour_exposure()}}). \code{NA} values are permitted and handled conservatively.}
 
-\item{receptors}{A data frame with one row per receptor location and two
-columns:
-\describe{
-\item{\code{bearing}}{Bearing from the landfill centroid to the
-receptor, in degrees from north (0–360).}
-\item{\code{distance}}{Distance from the landfill centroid to the
-receptor, in metres. Must be strictly positive.}
-}}
-
-\item{drainage_axes}{Optional data frame enabling terrain-aware drainage
-flow and morning fumigation parameterisation. When \code{NULL} (default),
-drainage and fumigation logic is skipped and generic calm handling
-applies. When provided, must contain:
-\describe{
-\item{\code{bearing_from}}{Bearing (0–360°) representing the direction
-FROM which drainage flow arrives at the landfill.}
-\item{\code{weight}}{Relative strength of each drainage axis (must be
+\item{receptors}{A data frame, one row per receptor, with \code{bearing} (degrees
+from north, 0-360, landfill to receptor) and \code{distance} (m, strictly
 positive).}
-}}
+
+\item{drainage_axes}{Optional data frame enabling the terrain-aware katabatic
+drainage and morning fumigation refinement (\code{bearing_from} 0-360, \code{weight}
+positive). When \code{NULL} (default) that logic is skipped.}
+
+\item{stability}{Stability estimator (\code{"turner"} or \code{"shear"}); see
+\code{\link[=odour_hazard]{odour_hazard()}}.}
+
+\item{datetime}{Optional \code{POSIXct} vector for the consecutive-hourly spacing
+check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
 }
 \value{
-A numeric vector of length \code{nrow(met_data)}. Each element is
-the raw risk score for that timestep (maximum across receptors). Scores
-are not clamped — values above 1.0 are possible under extreme conditions.
+A numeric vector of length \code{nrow(met_data)}: the worst-case 0-100
+odour exposure across receptors for each hour.
 }
 \description{
-Computes an hourly odour risk score for each timestep in a meteorological
-forecast, representing the worst-case impact at any of the specified receptor
-locations downwind of a landfill site.
+Convenience wrapper that computes the meteorological odour \code{\link[=odour_hazard]{odour_hazard()}}
+and maps it through the geometry-aware \code{\link[=odour_exposure]{odour_exposure()}} layer in one call,
+returning the worst-case 0-100 odour exposure across the receptors for each
+forecast hour.
 }
 \details{
-The function does not query the API. The calling code is responsible for
-fetching the required hourly variables from the Open-Meteo
-\code{/v1/forecast} endpoint (with \code{&wind_speed_unit=ms}) and passing
-them as a data frame. Row order is assumed to represent consecutive hourly
-timesteps; timestamps are not used.
+This is the entry point for the common case; use \code{\link[=odour_hazard]{odour_hazard()}} alone for a
+receptor-independent site index, or \code{\link[=odour_exposure]{odour_exposure()}} directly to reuse a
+precomputed hazard. See \code{specs/Odour_v2.md} for the model.
 }
-\section{Model architecture}{
-
-
-For each timestep \eqn{t} and each receptor \eqn{j}, the risk score is:
-
-\deqn{R_{t,j} = W_{\mathrm{dir},j} \times W_{\mathrm{spd}} \times
-  F_{\mathrm{disp},j} \times W_{\mathrm{rain}} \times G}
-
-During fumigation, \eqn{G} is replaced by \eqn{G_{\mathrm{eff}}} and
-\eqn{W_{\mathrm{dir},j}} has a floor applied. The returned score for
-timestep \eqn{t} is the maximum across all receptors:
-\deqn{R_t = \max_j R_{t,j}}
-
-No clamping to \eqn{[0, 1]} is applied — the raw product is returned
-directly. Individual factor bounds: \eqn{W_{\mathrm{dir}} \in [0, 1]},
-\eqn{W_{\mathrm{spd}} \in [0.05, 1.0]},
-\eqn{F_{\mathrm{disp}} \in [0.003, 1.0]},
-\eqn{W_{\mathrm{rain}} \in [0.05, 1.0]},
-\eqn{G \in [\sim 0.80, \sim 1.80]}. Theoretical maximum raw score
-\eqn{\approx 1.80}.
-}
-
-\section{Factor summary}{
-
-\describe{
-\item{\eqn{W_{\mathrm{dir},j}}}{Gaussian wind direction profile \eqn{[0,
-    1]}. \eqn{\exp(-0.5(\Delta\theta/\sigma_{\mathrm{dir}})^2)} with
-\eqn{\sigma_{\mathrm{dir}} = 10^\circ}. Computed per receptor.}
-\item{\eqn{W_{\mathrm{spd}}}}{Wind speed factor \eqn{[0.05, 1.0]}.
-Peak at light winds (0.5–2 m/s); declines as dilution increases above
-2 m/s; collapses to 0.05 above 8 m/s.}
-\item{\eqn{F_{\mathrm{disp},j}}}{Unified dispersion factor \eqn{[0.003,
-    1.0]}. Replaces the separate \eqn{S_{\mathrm{stab}}}, \eqn{M_h}, and
-\eqn{D_j} of the previous implementation with a single
-physics-based Pasquill-Gifford Gaussian plume factor accounting for
-distance-, stability-, and BL-height-dependent dispersion geometry.
-Computed per receptor and per timestep.}
-\item{\eqn{W_{\mathrm{rain}}}}{Rainfall scavenging factor \eqn{[0.05,
-    1.0]}. Below-cloud washout of soluble odorants during precipitation.}
-\item{\eqn{G}}{Generation modifier \eqn{[\sim 0.80, \sim 1.80]}.
-Additive structure separating bulk gas pathway from surface
-volatilisation:
-\eqn{G = (1 + \Delta P_{\mathrm{mod}} + R_{\mathrm{mod}} +
-    S_{\mathrm{seal}} + H_{\mathrm{mod}}) + V_{\mathrm{mod}}}.}
-}
-}
-
-\section{Required \code{met_data} columns}{
-
-
-All columns correspond to Open-Meteo hourly forecast parameters
-(request with \code{&wind_speed_unit=ms}). All 12 columns are required.
-\tabular{ll}{
-\code{wind_direction_10m}      \tab Wind direction (°, FROM which wind blows) \cr
-\code{wind_speed_10m}          \tab Wind speed at 10 m (m/s) \cr
-\code{wind_speed_80m}          \tab Wind speed at 80 m (m/s) — for stability \cr
-\code{boundary_layer_height}   \tab Planetary BL height (m) \cr
-\code{temperature_2m}          \tab Air temperature at 2 m (°C) \cr
-\code{pressure_msl}            \tab Mean sea level pressure (hPa) \cr
-\code{precipitation}           \tab Hourly precipitation (mm) \cr
-\code{relative_humidity_2m}    \tab Relative humidity at 2 m (\\%) \cr
-\code{cloud_cover}             \tab Total cloud cover (0–100 \\%) \cr
-\code{direct_radiation}        \tab Direct solar radiation, preceding hour mean (W/m²) \cr
-\code{soil_moisture_0_to_1cm}  \tab Volumetric water content, 0–1 cm depth (m³/m³) \cr
-\code{soil_moisture_1_to_3cm}  \tab Volumetric water content, 1–3 cm depth (m³/m³)
-}
-}
-
-\section{Alert tier classification}{
-
-
-The risk score maps to operational tiers (provisional; subject to
-calibration against complaint records):
-\tabular{rll}{
-\strong{Score} \tab \strong{Tier} \tab \strong{Response} \cr
-< 0.15         \tab LOW       \tab Normal operations \cr
-0.15–0.40      \tab MODERATE  \tab Heightened awareness; check cover integrity \cr
-0.40–0.80      \tab HIGH      \tab Active mitigation — reduce tipping face, deploy suppression \cr
-\> 0.80        \tab VERY HIGH \tab Maximum response — consider ceasing tipping
-}
-}
-
-\section{Calm wind handling}{
-
-
-When \code{wind_speed_10m} < 0.5 m/s (or is \code{NA}):
-\itemize{
-\item \eqn{W_{\mathrm{dir},j} = 0.5} for all receptors.
-\item \eqn{W_{\mathrm{spd}} = 0.7}.
-\item Stability index \eqn{s = 4.25} (moderately-to-strongly stable).
-}
-
-When \code{drainage_axes} is provided and drainage mode is active (calm,
-dark, clear sky), \eqn{W_{\mathrm{dir},j}} and \eqn{W_{\mathrm{spd}}}
-are overridden to terrain-specific values (see §6 drainage flow section).
-}
-
-\section{NA handling}{
-
-
-\tabular{ll}{
-\code{wind_direction_10m} \code{NA} \tab \eqn{W_{\mathrm{dir},j} = 0.5} \cr
-\code{wind_speed_10m} \code{NA}     \tab Treat as calm (<0.5 m/s) \cr
-\code{wind_speed_80m} \code{NA}     \tab \eqn{s = 4.25} (calm stability) \cr
-\code{boundary_layer_height} \code{NA} \tab \eqn{h = 200} m if calm; \eqn{h = 500} m if not calm \cr
-\code{temperature_2m} \code{NA}     \tab \eqn{V_{\mathrm{mod}} = 0} \cr
-\code{pressure_msl} \code{NA}       \tab \eqn{\Delta P_{\mathrm{mod}} = 0} \cr
-\code{precipitation} \code{NA}      \tab Treat as 0 mm \cr
-\code{relative_humidity_2m} \code{NA} \tab \eqn{H_{\mathrm{mod}} = 0} \cr
-\code{cloud_cover} \code{NA}        \tab 50\\% (neutral; does not block drainage) \cr
-\code{direct_radiation} \code{NA}   \tab 0 W/m² (allows drainage activation) \cr
-\code{soil_moisture_0_to_1cm} \code{NA} \tab 0 (dry) → \eqn{S_{\mathrm{seal}} = 0} \cr
-\code{soil_moisture_1_to_3cm} \code{NA} \tab 0 (dry) → \eqn{S_{\mathrm{seal}} = 0}
-}
-}
-
-\section{F_disp physical basis}{
-
-
-Ground-level concentration from a continuous ground-level area source at
-downwind distance \eqn{x} is proportional to:
-\deqn{C(x) \propto 1 / (u \cdot \sigma_y(x) \cdot h_{\mathrm{eff}}(x))}
-where \eqn{h_{\mathrm{eff}}(x) = \min(\sigma_z(x), h)} is the effective
-vertical mixing depth. \eqn{F_{\mathrm{disp}}} captures the dispersion
-geometry component \eqn{\propto 1 / (\sigma_y \cdot h_{\mathrm{eff}})},
-normalised so that \eqn{F_{\mathrm{disp}} = 1.0} at the reference
-condition (class F, 250 m). \eqn{W_{\mathrm{spd}}} remains as a separate
-heuristic wind-speed factor.
-}
-
-\section{Drainage flow and morning fumigation}{
-
-
-When \code{drainage_axes} is provided, the model accounts for katabatic
-drainage flow in the creek valleys surrounding the site. At night under
-clear skies, cold air drains toward the landfill (protective). After
-sunrise, the flow reverses (anabatic) and the overnight odour pool is
-transported upslope toward receptors during a fumigation window.
-
-Drainage mode activates when: \code{direct_radiation < 10} W/m²,
-\code{wind_speed_10m < 0.5} m/s, and \code{cloud_cover < 70}\\%.
-During drainage: \eqn{W_{\mathrm{spd}} = 0.3}; \eqn{W_{\mathrm{dir},j}}
-is 0.05 (on drainage axis) to 0.10 (off axis).
-
-Fumigation activates when \code{direct_radiation > 50} W/m² and at least
-one of the preceding 6 hours was dark. During fumigation: G is boosted by
-\eqn{1 + 0.5 \times \mathrm{severity}} and \eqn{W_{\mathrm{dir},j}} has
-a floor of \eqn{0.6 \times \mathrm{severity} \times \mathrm{alignment}_j}.
-Fumigation severity scales linearly with overnight drainage or stable
-accumulation hours (capped at 1.0 for 8+ hours), decaying over a 3-hour
-window.
-}
-
-\references{
-Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}.
-ATDL Contribution File No. 79. NOAA.
-Basis for the σ_y and σ_z Pasquill-Gifford parameterisations.
-
-Turner, D.B. (1970). \emph{Workbook of Atmospheric Dispersion Estimates}.
-US EPA AP-26.
-
-Gifford, F.A. (1976). Turbulent diffusion-typing schemes: A review.
-\emph{Nuclear Safety}, 17(1), 68–86.
-
-Irwin, J.S. (1979). A theoretical variation of the wind profile power-law
-exponent as a function of surface roughness and stability.
-\emph{Atmospheric Environment}, 13(1), 191–194.
-\doi{10.1016/0004-6981(79)90013-7}.
-
-Counihan, J. (1975). Adiabatic atmospheric boundary layers: A review and
-analysis of data from the period 1880–1972.
-\emph{Atmospheric Environment}, 9(10), 871–905.
-
-Schauberger, G. et al. (2002). Calculating direction-dependent separation
-distance by a dispersion model. \emph{Biosystems Engineering}, 82(1), 25–37.
-\doi{10.1006/jaer.2001.0943}.
-
-Hsu, S.A., Meindl, E.A. and Gilhousen, D.B. (1994). Determining the
-power-law wind-profile exponent. \emph{J. Appl. Meteorol.}, 33(6), 757–765.
-
-Seibert, P. et al. (2000). Review and intercomparison of operational methods
-for the determination of the mixing height. \emph{Atmos. Environ.},
-34(7), 1001–1027.
-
-Seinfeld, J.H. and Pandis, S.N. (2016). \emph{Atmospheric Chemistry and
-Physics}. 3rd edn. Wiley. Ch. 18 (mixing), Ch. 19 (scavenging).
-
-Hanna, S.R. (1983). Lateral turbulence intensity and plume meandering
-during stable conditions. \emph{J. Appl. Meteorol.}, 22(8), 1424–1430.
-
-Czepiel, P.M. et al. (2003). The influence of atmospheric pressure on
-landfill methane emissions. \emph{Waste Management}, 23(7), 593–598.
-
-Xu, L. et al. (2014). Surface-atmosphere exchange in a landfill.
-\emph{Waste Management}, 34(12), 2571–2580.
-
-Rees, J.F. (1980). Optimisation of methane production and refuse
-decomposition in landfills by temperature control.
-\emph{J. Chem. Technol. Biotechnol.}, 30(1), 458–465.
-
-Zou, S.C. et al. (2003). Characterization of ambient volatile organic
-compounds at a landfill site. \emph{Chemosphere}, 51(9), 1015–1022.
-
-Yesiller, N. et al. (2005). Heat generation in municipal solid waste
-landfills. \emph{Waste Management}, 25(4), 336–348.
-
-Hanson, J.L. et al. (2010). Thermal analysis of decomposition in waste.
-\emph{J. Geotech. Geoenviron. Eng.}, 136(10), 1395–1405.
-
-Moldrup, P. et al. (2001). Three-porosity model for predicting the gas
-diffusion coefficient in undisturbed soil.
-\emph{Soil Sci. Soc. Am. J.}, 65(3), 613–623.
-
-McBain, M.C. et al. (2005). Micrometeorological measurements of N₂O and
-CH₄ emissions from a municipal solid waste landfill.
-\emph{Waste Manage. Res.}, 23(5), 409–419.
-
-Whiteman, C.D. (2000). \emph{Mountain Meteorology: Fundamentals and
-Applications}. Oxford University Press.
-
-Zardi, D. and Whiteman, C.D. (2013). Diurnal mountain wind systems.
-In: Chow, F.K. et al. (eds) \emph{Mountain Weather Research and
-Forecasting}. Springer.
-
-Whiteman, C.D. (1982). Breakup of temperature inversions in deep mountain
-valleys: Part I. \emph{J. Appl. Meteorol.}, 21(3), 270–289.
-
-Banta, R.M. (1984). Daytime boundary-layer evolution over mountainous
-terrain. Part I. \emph{Mon. Weather Rev.}, 112(2), 340–356.
+\seealso{
+\code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=odour_exposure]{odour_exposure()}}.
 }

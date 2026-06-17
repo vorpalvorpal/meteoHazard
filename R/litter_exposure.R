@@ -114,7 +114,7 @@ litter_exposure <- function(
   checkmate::assert_number(default_permeability, lower = 0, upper = 1)
 
   # ---- Downwind bearing (reciprocal of the blows-from direction) ----------- #
-  theta_down <- (wind_direction_10m + 180) %% 360
+  theta_down <- .downwind_bearing(wind_direction_10m)
 
   alpha <- unname(LITTER_COMPASS_DEGREES[site$arc_start])
   beta  <- unname(LITTER_COMPASS_DEGREES[site$arc_end])
