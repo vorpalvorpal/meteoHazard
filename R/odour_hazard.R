@@ -33,7 +33,7 @@
 #'   \item{\eqn{G}}{Source generation modifier
 #'     \eqn{1 + \Delta P_{mod} + R_{mod} + S_{seal} + H_{mod} + V_{mod}}
 #'     (barometric pumping, post-rain piston, soil sealing, humidity, surface
-#'     volatilisation), range ~[0.80, 1.95].}
+#'     volatilisation), range about 0.80 to 1.95.}
 #'   \item{\eqn{PM(s)}}{Peak-to-mean ratio, rising with stability from
 #'     `PM_MIN` (unstable) to `PM_MAX` (very stable); odour annoyance is driven
 #'     by sub-minute peaks that hourly-average dispersion smooths out.}

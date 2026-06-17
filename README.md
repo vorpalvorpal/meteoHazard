@@ -7,7 +7,8 @@ An R package that turns meteorological data into **management-relevant predictio
 | Function | Hazard | Status |
 |---|---|---|
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
-| `generate_odour_risk_index()` | **Odour nuisance** — downwind odour dispersion | ✅ Implemented |
+| `odour_hazard()` | **Odour nuisance hazard** — site ventilation index (direction-agnostic) | ✅ Implemented |
+| `odour_exposure()` | **Odour nuisance exposure** — downwind impact, given receptors & geometry | ✅ Implemented |
 | `generate_litter_risk_index()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
 | `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
 
@@ -99,17 +100,21 @@ twl_colour(twl)
 
 ## Odour dispersal risk
 
-`generate_odour_risk_index()` computes an hourly odour risk score for a landfill, representing the worst-case impact at any of the specified downwind receptors. It couples emission generation with atmospheric dispersion through a physics-based Pasquill-Gifford Gaussian-plume factor (distance-, stability-, and boundary-layer-height-dependent), and optionally accounts for terrain-driven katabatic drainage flow and morning fumigation.
+The odour model is split into two layers, mirroring the litter functions:
 
-Unlike `generate_twl()`, this function does **not** call the weather API. The caller fetches the required hourly variables from the [Open-Meteo `/v1/forecast` endpoint](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
+* `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard: source emission strength divided by atmospheric ventilation (the ventilation index). It answers *how strong is the odour situation around the site this hour*, and returns a relative index (baseline = 1.0).
+* `odour_exposure()` — the **geometry-aware** layer: it maps the hazard onto each receptor through a Pasquill-Gifford Gaussian plume (distance decay and a stability- and distance-aware directional term, plus forecast-direction uncertainty), and returns the worst-case 0–100 exposure across receptors. The optional `drainage_axes` argument enables a terrain-aware katabatic-drainage / morning-fumigation refinement.
+
+`generate_odour_risk_index()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
 ```r
 library(meteoHazard)
 
-# met_data: one row per hour, with the 12 required Open-Meteo columns
-# (wind_direction_10m, wind_speed_10m, wind_speed_80m, boundary_layer_height,
-#  temperature_2m, pressure_msl, precipitation, relative_humidity_2m,
-#  cloud_cover, direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm)
+# met_data: one row per hour, with the required Open-Meteo columns
+# (wind_direction_10m, wind_speed_10m, boundary_layer_height, temperature_2m,
+#  pressure_msl, precipitation, relative_humidity_2m, cloud_cover,
+#  direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm).
+# wind_speed_80m is only needed for the optional stability = "shear" estimator.
 
 # receptors: bearing (° from site centroid) and distance (m) to each location
 receptors <- data.frame(
@@ -120,16 +125,16 @@ receptors <- data.frame(
 odour <- generate_odour_risk_index(met_data, receptors)
 ```
 
-The raw score is **not** clamped (theoretical maximum ≈ 1.80). Suggested operational tiers (subject to calibration against complaint records):
+The 0–100 exposure maps to provisional operational tiers (subject to calibration against complaint records; the mapping is tunable via the `map_c50` argument):
 
-| Score | Tier | Response |
+| Exposure | Tier | Response |
 |---|---|---|
-| < 0.15 | LOW | Normal operations |
-| 0.15 – 0.40 | MODERATE | Heightened awareness; check cover integrity |
-| 0.40 – 0.80 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
-| > 0.80 | VERY HIGH | Maximum response — consider ceasing tipping |
+| < 15 | LOW | Normal operations |
+| 15 – 40 | MODERATE | Heightened awareness; check cover integrity |
+| 40 – 70 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
+| > 70 | VERY HIGH | Maximum response — consider ceasing tipping |
 
-Passing the optional `drainage_axes` argument enables terrain-aware drainage and fumigation handling — see `?generate_odour_risk_index` for the full model description and references.
+Stability defaults to Pasquill-Turner (insolation/cloud and wind), with a legacy 10 m/80 m shear estimator available via `stability = "shear"`. See `?odour_hazard` and `?odour_exposure` (and `specs/Odour_v2.md`) for the full model and references.
 
 ## Wind-blown litter
 
