@@ -47,3 +47,46 @@ TWL_CONSTANTS <- list(
   TWL_FLOOR                 = 60, # W/m^2, lower clamp on TWL
   TWL_CEILING               = 380 # W/m^2, upper clamp on TWL
 )
+
+#' Constants for the odour hazard and exposure model
+#'
+#' Shared parameters for [odour_hazard()] and [odour_exposure()]. The odour
+#' model is a two-layer screening tool: a receptor-independent **hazard**
+#' (source emission divided by atmospheric ventilation) and a geometry-aware
+#' **exposure** layer (Gaussian-plume distance and direction). These constants
+#' carry the tunable, partly-uncalibrated parameters; see the calibration issue
+#' referenced in `NEWS.md`.
+#'
+#' \describe{
+#'   \item{U_CALM_FLOOR}{Lower clamp on wind speed (m/s) used in the `1/u`
+#'     advective-dilution term, 0.5. Below this the anemometer is near its
+#'     noise floor and Gaussian-plume theory is invalid.}
+#'   \item{SIGMA_FC_DEG}{Forecast wind-direction uncertainty (degrees), 12.
+#'     Convolved with the physical plume half-width to widen the directional
+#'     Gaussian (separate from, not a substitute for, the stability-dependent
+#'     physical width).}
+#'   \item{V_MOD_MAX}{Maximum surface-volatilisation contribution to the
+#'     generation modifier `G`, 0.30. Widened from an earlier 0.15; high
+#'     calibration uncertainty (Henry's-law doubling per ~10 C; Zou 2003).}
+#'   \item{PM_MIN, PM_MAX}{Peak-to-mean ratio bounds, 1.0 (unstable) to 3.0
+#'     (very stable). Accounts for sub-minute concentration peaks that drive
+#'     odour annoyance but are averaged out of ~hourly Gaussian sigmas.
+#'     Conservative default; high calibration uncertainty.}
+#'   \item{H_MIX_FALLBACK_STABLE, H_MIX_FALLBACK_UNSTABLE}{Mixing-depth
+#'     fallbacks (m) when `boundary_layer_height` is `NA`: 200 (stable/calm,
+#'     shallow nocturnal boundary layer) and 600 (neutral/unstable).}
+#'   \item{SIGMA_Y_COEF}{Briggs (1973) rural lateral-dispersion leading
+#'     coefficients for Pasquill-Gifford classes A-F (indices 1-6), used as
+#'     `sigma_y = c_y * x / sqrt(1 + 0.0001 * x)`.}
+#' }
+#' @keywords internal
+ODOUR_CONSTANTS <- list(
+  U_CALM_FLOOR             = 0.5, # m/s, lower clamp on wind in 1/u
+  SIGMA_FC_DEG             = 12, # deg, forecast wind-direction uncertainty
+  V_MOD_MAX                = 0.30, # max surface-volatilisation bump in G
+  PM_MIN                   = 1.0, # peak-to-mean at unstable (s = 0)
+  PM_MAX                   = 3.0, # peak-to-mean at very stable (s = 5)
+  H_MIX_FALLBACK_STABLE    = 200, # m, NA boundary-layer fallback when calm
+  H_MIX_FALLBACK_UNSTABLE  = 600, # m, NA boundary-layer fallback otherwise
+  SIGMA_Y_COEF             = c(0.22, 0.16, 0.11, 0.08, 0.06, 0.04) # A-F
+)
