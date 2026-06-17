@@ -60,14 +60,6 @@ describe("dust_emission_potential() [v2]", {
     expect_lt(f_crust, f_base)
   })
 
-  it("drag partition (roughness_z0) lowers the flux versus the default no-partition", {
-    skip_if_no_dust_v2()
-    # roughness_z0 > z0s = d/30 raises the effective threshold (f_eff < 1).
-    f_none <- dust_emission_potential(20L, 10, 0, 70, 0.02, roughness_z0 = NULL)
-    f_rough <- dust_emission_potential(20L, 10, 0, 70, 0.02, roughness_z0 = 0.001)
-    expect_lt(f_rough, f_none)
-  })
-
   it("rejects an invalid Tyler sieve number", {
     skip_if_no_dust_v2()
     expect_error(dust_emission_potential(7L, 10, 0, 60, 0.02))

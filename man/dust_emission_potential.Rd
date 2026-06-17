@@ -11,7 +11,6 @@ dust_emission_potential(
   wind_gusts_10m,
   soil_moisture,
   z0 = 0.005,
-  roughness_z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
   threshold_multiplier = 1
@@ -35,11 +34,6 @@ aggregate size of the erodible surface. Must be one of the tabulated values
 \item{z0}{Aerodynamic roughness length for the wind profile (m). Default
 0.005.}
 
-\item{roughness_z0}{Optional. Total aerodynamic roughness (m) of a surface
-that carries non-erodible protective elements (gravel, clods, sparse veg),
-enabling the MB95 drag partition. \code{NULL} (default) means no partition
-(\code{f_eff = 1}) — appropriate for a smooth, trafficked surface.}
-
 \item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
 
 \item{gust_factor}{Gust-duration factor converting the 3-second gust to the
@@ -58,10 +52,10 @@ adjusted) threshold.
 Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
 surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
-an optional Marticorena & Bergametti (1995) drag partition for non-erodible
-roughness, an Owen/White saltation flux, and the MB95 sandblasting
-efficiency. The returned flux is in relative units; for an operational,
-bounded index use \code{\link[=generate_dust_risk_index]{generate_dust_risk_index()}}.
+an Owen/White saltation flux, and the Marticorena & Bergametti (1995)
+sandblasting efficiency. The erodible surface is assumed smooth (no
+non-erodible roughness drag partition). The returned flux is in relative
+units; for an operational, bounded index use \code{\link[=generate_dust_risk_index]{generate_dust_risk_index()}}.
 }
 \details{
 The function does not query any API. The caller supplies the per-hour
