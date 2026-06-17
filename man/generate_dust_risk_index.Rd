@@ -9,7 +9,6 @@ generate_dust_risk_index(
   tyler_sieve_no = 20L,
   clay_percent = 10,
   z0 = 0.005,
-  roughness_z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
   crust = FALSE,
@@ -25,7 +24,7 @@ least \code{wind_speed_10m} (km/h), \code{wind_gusts_10m} (km/h), and
 \code{soil_moisture_0_to_1cm} (m^3/m^3); plus \code{precipitation} (mm) when
 \code{crust = TRUE}.}
 
-\item{tyler_sieve_no, clay_percent, z0, roughness_z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_emission_potential]{dust_emission_potential()}}.}
+\item{tyler_sieve_no, clay_percent, z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_emission_potential]{dust_emission_potential()}}.}
 
 \item{crust}{Logical. Enable the precipitation-driven crust-persistence gate.
 Default \code{FALSE}. When \code{TRUE}, \code{met_data$precipitation} is required.}

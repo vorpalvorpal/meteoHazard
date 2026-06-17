@@ -3,10 +3,10 @@
 #' Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
 #' surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 #' threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
-#' an optional Marticorena & Bergametti (1995) drag partition for non-erodible
-#' roughness, an Owen/White saltation flux, and the MB95 sandblasting
-#' efficiency. The returned flux is in relative units; for an operational,
-#' bounded index use [generate_dust_risk_index()].
+#' an Owen/White saltation flux, and the Marticorena & Bergametti (1995)
+#' sandblasting efficiency. The erodible surface is assumed smooth (no
+#' non-erodible roughness drag partition). The returned flux is in relative
+#' units; for an operational, bounded index use [generate_dust_risk_index()].
 #'
 #' The function does not query any API. The caller supplies the per-hour
 #' meteorological vectors (from Open-Meteo) and one-time site-survey parameters.
@@ -22,10 +22,6 @@
 #'   0--1 cm layer (m^3/m^3), in `0`–`1`.
 #' @param z0 Aerodynamic roughness length for the wind profile (m). Default
 #'   0.005.
-#' @param roughness_z0 Optional. Total aerodynamic roughness (m) of a surface
-#'   that carries non-erodible protective elements (gravel, clods, sparse veg),
-#'   enabling the MB95 drag partition. `NULL` (default) means no partition
-#'   (`f_eff = 1`) — appropriate for a smooth, trafficked surface.
 #' @param bulk_density Dry bulk density (Mg/m^3). Default 1.6.
 #' @param gust_factor Gust-duration factor converting the 3-second gust to the
 #'   fastest-mile driving wind. Default 0.84 (Durst).
@@ -53,7 +49,6 @@ dust_emission_potential <- function(
   wind_gusts_10m,
   soil_moisture,
   z0                   = 0.005,
-  roughness_z0         = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
   threshold_multiplier = 1
@@ -71,7 +66,6 @@ dust_emission_potential <- function(
   checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = FALSE, len = n)
   checkmate::assert_numeric(soil_moisture, lower = 0, upper = 1, any.missing = FALSE, len = n)
   checkmate::assert_number(z0, lower = 1e-9, upper = 10 - 1e-9)
-  if (!is.null(roughness_z0)) checkmate::assert_number(roughness_z0, lower = 1e-9)
   checkmate::assert_number(bulk_density, lower = 1e-9)
   checkmate::assert_number(gust_factor, lower = 0, upper = 1)
   checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = FALSE)
@@ -99,20 +93,6 @@ dust_emission_potential <- function(
   # ---- Combined threshold: wetness vs crust hand off via the maximum ------- #
   u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier)
 
-  # ---- Optional MB95 drag partition for non-erodible roughness ------------- #
-  # Off by default (f_eff = 1). When a separately characterised element
-  # roughness is supplied, roughness reduces the stress on the erodible grains,
-  # raising the effective threshold.
-  if (is.null(roughness_z0)) {
-    f_eff <- 1
-  } else {
-    z0s   <- d / 30      # smooth erodible-surface roughness
-    X     <- 0.1         # MB95 reference length (m)
-    f_eff <- 1 - log(roughness_z0 / z0s) / log(0.35 * (X / z0s)^0.8)
-    f_eff <- min(1, max(1e-6, f_eff))
-  }
-  u_star_t_eff <- u_star_t / f_eff
-
   # ---- Effective friction velocity (gust-driven, fastest-mile proxy) ------- #
   U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m) / 3.6  # km/h -> m/s
   u_star <- kappa * U_fm / log(z / z0)
@@ -120,7 +100,7 @@ dust_emission_potential <- function(
   # ---- Saltation flux (Owen 1964 / White 1979) ----------------------------- #
   # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess factor
   # is computed only where u* exceeds the threshold, so it is never negative.
-  excess  <- ifelse(u_star > u_star_t_eff, 1 - (u_star_t_eff / u_star)^2, 0)
+  excess  <- ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
   Q       <- (rho_a / g) * u_star^3 * excess
 
   # ---- Vertical dust flux: MB95 sandblasting efficiency -------------------- #
@@ -144,7 +124,7 @@ dust_emission_potential <- function(
 #'   least `wind_speed_10m` (km/h), `wind_gusts_10m` (km/h), and
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
 #'   `crust = TRUE`.
-#' @param tyler_sieve_no,clay_percent,z0,roughness_z0,bulk_density,gust_factor
+#' @param tyler_sieve_no,clay_percent,z0,bulk_density,gust_factor
 #'   Site and model parameters forwarded to [dust_emission_potential()].
 #' @param crust Logical. Enable the precipitation-driven crust-persistence gate.
 #'   Default `FALSE`. When `TRUE`, `met_data$precipitation` is required.
@@ -167,7 +147,6 @@ generate_dust_risk_index <- function(
   tyler_sieve_no       = 20L,
   clay_percent         = 10,
   z0                   = 0.005,
-  roughness_z0         = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
   crust                = FALSE,
@@ -203,8 +182,7 @@ generate_dust_risk_index <- function(
 
   common <- list(
     tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent,
-    z0 = z0, roughness_z0 = roughness_z0, bulk_density = bulk_density,
-    gust_factor = gust_factor
+    z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
   )
 
   flux <- do.call(dust_emission_potential, c(common, list(
