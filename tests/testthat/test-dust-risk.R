@@ -123,18 +123,21 @@ describe("generate_dust_risk_index() [v2]", {
     expect_true(all(diff(out) >= 0))
   })
 
-  it("with crust enabled, a rain event suppresses later dry hours that decay back", {
+  it("with crust enabled, a rain event suppresses dry hours that recover with time", {
     skip_if_no_dust_v2()
-    # Hour 1 rains (5 mm >= threshold), hours 2.. are dry but recently crusted.
+    # Hour 1 rains (>= threshold); the rest are dry. Crust raises the threshold,
+    # decaying over crust_decay_hours. Use a long series so the late hours fully
+    # recover, making both the suppression and the recovery observable.
     met <- dust_met(gust = 70, wind = 0, sm = 0.02,
-                    precip = c(5, 0, 0, 0), n = 4)
+                    precip = c(5, rep(0, 120)), n = 121)
     on  <- generate_dust_risk_index(met, crust = TRUE,
-                                    crust_factor_max = 3, crust_decay_hours = 72)
+                                    crust_factor_max = 3, crust_decay_hours = 24)
     off <- generate_dust_risk_index(met, crust = FALSE)
-    # Crust suppresses the post-rain hours relative to no-crust.
+    # Just after rain: crust suppresses relative to no-crust.
     expect_lt(on[2], off[2])
-    # Recovery: suppression eases as time since rain grows.
-    expect_lt(on[2], on[4])
+    # Long after rain: crust has decayed, so the hour recovers toward no-crust.
+    expect_gt(on[121], on[2])
+    expect_equal(on[121], off[121], tolerance = DUST_TOL)
   })
 
   it("ignores precipitation when crust is disabled", {
