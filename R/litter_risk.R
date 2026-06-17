@@ -350,6 +350,8 @@
 #' The \eqn{v^2} dependence in \eqn{f_G} follows from the standard
 #' aerodynamic drag equation \eqn{F_D = \frac{1}{2}\rho C_D A v^2}; see any
 #' introductory aerodynamics or boundary-layer meteorology text.
+#'
+#' @export
 litter_risk_index <- function(
   wind_gusts_10m,
   wind_speed_10m,

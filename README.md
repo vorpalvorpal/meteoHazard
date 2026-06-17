@@ -7,8 +7,8 @@ An R package that turns meteorological data into **management-relevant predictio
 | Function | Hazard | Status |
 |---|---|---|
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
-| `predict_odour()` | **Odour nuisance** — downwind odour dispersion | 🚧 Planned (stub) |
-| `predict_litter()` | **Wind-blown litter** — material escaping the site boundary | 🚧 Planned (stub) |
+| `generate_odour_risk_index()` | **Odour nuisance** — downwind odour dispersion | ✅ Implemented |
+| `generate_litter_risk_index()` | **Wind-blown litter** — material escaping the site boundary | ✅ Implemented |
 
 ## Installation
 
@@ -35,9 +35,10 @@ install.packages(".", repos = NULL, type = "source")
 
 The package requires R (>= 4.1) and the following packages, which are installed automatically:
 
+- `checkmate`
+- `cli`
 - `dplyr`
 - `httr2`
-- `cli`
 - `purrr`
 
 ## Thermal Work Limit (TWL)
@@ -95,13 +96,66 @@ twl_colour(twl)
 | 115 – 140 | Buffer | Orange |
 | < 115 | Withdrawal | Red |
 
-## Odour prediction (planned)
+## Odour dispersal risk
 
-`predict_odour()` will estimate odour-nuisance potential at downwind receptors by coupling source emissions with atmospheric dispersion (wind speed/direction and atmospheric stability). It is currently a stub and not yet implemented.
+`generate_odour_risk_index()` computes an hourly odour risk score for a landfill, representing the worst-case impact at any of the specified downwind receptors. It couples emission generation with atmospheric dispersion through a physics-based Pasquill-Gifford Gaussian-plume factor (distance-, stability-, and boundary-layer-height-dependent), and optionally accounts for terrain-driven katabatic drainage flow and morning fumigation.
 
-## Wind-blown litter (planned)
+Unlike `generate_twl()`, this function does **not** call the weather API. The caller fetches the required hourly variables from the [Open-Meteo `/v1/forecast` endpoint](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
-`predict_litter()` will estimate the risk of lightweight material becoming airborne and escaping the site boundary, driven by wind speed and gusts. It is currently a stub and not yet implemented.
+```r
+library(meteoHazard)
+
+# met_data: one row per hour, with the 12 required Open-Meteo columns
+# (wind_direction_10m, wind_speed_10m, wind_speed_80m, boundary_layer_height,
+#  temperature_2m, pressure_msl, precipitation, relative_humidity_2m,
+#  cloud_cover, direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm)
+
+# receptors: bearing (° from site centroid) and distance (m) to each location
+receptors <- data.frame(
+  bearing  = c(90, 270),
+  distance = c(500, 800)
+)
+
+odour <- generate_odour_risk_index(met_data, receptors)
+```
+
+The raw score is **not** clamped (theoretical maximum ≈ 1.80). Suggested operational tiers (subject to calibration against complaint records):
+
+| Score | Tier | Response |
+|---|---|---|
+| < 0.15 | LOW | Normal operations |
+| 0.15 – 0.40 | MODERATE | Heightened awareness; check cover integrity |
+| 0.40 – 0.80 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
+| > 0.80 | VERY HIGH | Maximum response — consider ceasing tipping |
+
+Passing the optional `drainage_axes` argument enables terrain-aware drainage and fumigation handling — see `?generate_odour_risk_index` for the full model description and references.
+
+## Wind-blown litter risk
+
+`generate_litter_risk_index()` computes an hourly **Litter Risk Index (LRI)** in the range 0–100 for windblown litter dispersal at a landfill. It uses a multiplicative model with two wetness gates (active rainfall and soil moisture), driven primarily by gust energy and modulated by sustained wind, atmospheric instability, and wind direction relative to sensitive receptors.
+
+As with odour, the caller supplies pre-fetched Open-Meteo data (one row per hour). Receptor directions are given as compass arcs — wind blowing *from* a direction inside an arc is treated as blowing *toward* that receptor.
+
+```r
+# met_data columns: wind_gusts_10m, wind_speed_10m, wind_direction_10m,
+#   precipitation, soil_moisture_0_to_1cm, cape, is_day
+
+litter <- generate_litter_risk_index(
+  met_data,
+  receptor_arcs = list(c("W", "N"))   # one receptor: wind from W clockwise to N
+)
+```
+
+The vector API `litter_risk_index()` takes the individual columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (gust thresholds, soil-moisture gates, off-wind attenuation, etc.). Suggested tier mapping (high uncertainty — requires site calibration):
+
+| LRI | Tier | Meaning |
+|---|---|---|
+| 0 – 19 | LOW | Dispersal unlikely |
+| 20 – 44 | MODERATE | Enhanced controls warranted |
+| 45 – 69 | HIGH | Dispersal likely without intervention |
+| 70 – 100 | EXTREME | Maximum controls or cessation required |
+
+See `?generate_litter_risk_index` and `?litter_risk_index` for the full parameter list, model structure, and references.
 
 ## Reference
 
