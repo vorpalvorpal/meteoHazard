@@ -10,6 +10,7 @@ An R package that turns meteorological data into **management-relevant predictio
 | `generate_odour_risk_index()` | **Odour nuisance** — downwind odour dispersion | ✅ Implemented |
 | `generate_litter_risk_index()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
 | `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
+| `generate_dust_risk_index()` | **Dust hazard** — wind erosion of exposed surfaces | ✅ Implemented |
 
 ## Installation
 
@@ -175,6 +176,25 @@ exposure <- litter_exposure(hazard, met_data$wind_direction_10m, site)
 ```
 
 See `?litter_risk_index`, `?generate_litter_risk_index`, and `?litter_exposure` for the full parameter lists, model structure, and references.
+
+## Dust hazard
+
+`generate_dust_risk_index()` computes an hourly dust hazard (0–100) from wind erosion of an exposed, erodible surface. It uses a physical saltation-to-emission chain — a Shao & Lu (2000) threshold friction velocity, a Fécan et al. (1999) soil-moisture correction, an optional Marticorena & Bergametti (1995) drag partition, an Owen/White saltation flux, and the MB95 sandblasting efficiency — driven by the gust (fastest-mile proxy). The index is normalised against a reference gust on a dry surface, so it keeps resolution rather than saturating.
+
+Meteorological inputs are pre-fetched Open-Meteo columns; the surface is described by one-time site-survey parameters (Tyler sieve number for the modal aggregate size, clay %, roughness, bulk density).
+
+```r
+# met_data columns: wind_speed_10m, wind_gusts_10m, soil_moisture_0_to_1cm
+#                   (+ precipitation when crust = TRUE)
+
+dust <- generate_dust_risk_index(
+  met_data,
+  tyler_sieve_no = 20L,   # modal aggregate size of the erodible surface
+  clay_percent   = 10
+)
+```
+
+An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_emission_potential()` returns the underlying relative dust flux. See `?generate_dust_risk_index` and `?dust_emission_potential` for the full parameter list and references.
 
 ## Reference
 
