@@ -45,7 +45,23 @@ test_that("solve_twl_single never returns below the TWL floor", {
 
 # ── Bracket sign-check (Stage A, new diagnostic) ──────────────────────────
 test_that("solve_twl_single warns when the heat-balance root is not bracketed", {
-  skip(paste("pending: construct inputs whose heat balance has the same sign at",
-             "both ends of the t_skin bracket and pass a non-NULL index; assert",
-             "a warning that names the observation index"))
+  # Hot + very humid (DB=40, WB=36): the equilibrium skin temperature lies above
+  # the bracket's upper end (t_core - 0.5), so the heat balance has the same sign
+  # at both endpoints. The bracket is NON-degenerate (dew point ~34.8 < 37.7),
+  # so this is distinct from the degenerate-bracket guard, and the diagnostic is
+  # a cli message naming the observation index.
+  msgs <- capture_messages(
+    call_solver(temp = 40, wb = 36, mrt = 40, wind = 1, index = 1L)
+  )
+  joined <- paste(msgs, collapse = "\n")
+  expect_match(joined, "not bracketed")
+  expect_match(joined, "Observation 1")
+})
+
+test_that("solve_twl_single is silent about bracketing for a well-bracketed input", {
+  # A standard heat-stress case is properly bracketed -> no diagnostic.
+  msgs <- capture_messages(
+    call_solver(temp = 36, wb = 26, mrt = 38, wind = 0.5, index = 1L)
+  )
+  expect_false(any(grepl("not bracketed", msgs)))
 })
