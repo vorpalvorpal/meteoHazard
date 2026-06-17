@@ -56,7 +56,7 @@ solve_natural_wb_single <- function(temp, RH, pressure, wind_speed, globe_temp,
   }
 
   # Convective heat transfer coefficient for cylinder
-  Re <- wind_speed * BULB_DIA / 1.5e-5
+  Re <- wind_speed * BULB_DIA / TWL_CONSTANTS$AIR_KINEMATIC_VISCOSITY
   Nu <- 0.281 * Re^0.6
   hc <- Nu * AIR_THERMAL_CONDUCTIVITY / BULB_DIA
 

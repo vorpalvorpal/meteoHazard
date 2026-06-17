@@ -181,9 +181,11 @@ test_that("air kinematic viscosity is a shared constant (1.5e-5 m^2/s)", {
 })
 
 test_that("globe temperature at the reference condition matches the recorded value", {
-  # Characterisation guard pinning the post-change (0.028) globe output so it
-  # cannot drift silently. Reference condition has no published exact value.
-  skip(paste("pending: after the globe solver switches to conductivity 0.028,",
-             "record solve_globe_temp(35, 1.0, 900, 150, 15, 0.12) and assert",
-             "the result within +/-1.5 C of the recorded value"))
+  # Characterisation guard pinning the post-change (conductivity 0.028) globe
+  # output so it cannot drift silently. There is no published exact value; this
+  # records the implementation's own number. The tolerance (~0.05 C absolute) is
+  # tight enough to catch a conductivity-class change — the 0.026 -> 0.028 switch
+  # moved this value 0.74 C — while tolerating floating-point noise.
+  tg <- solve_globe_temp(35, 1.0, 900, 150, 15, 0.12)
+  expect_equal(tg, 52.132, tolerance = 1e-3)
 })

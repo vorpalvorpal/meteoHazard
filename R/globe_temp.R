@@ -28,10 +28,12 @@ solve_globe_temp <- function(temp, wind_speed, direct_solar, diffuse_solar,
 
   # Convective heat transfer coefficient for sphere (Kuehn & Goldstein)
   # Nu = 2 + 0.6 * Re^0.5 * Pr^0.33
-  Re <- wind_speed * GLOBE_DIAMETER / 1.5e-5
+  Re <- wind_speed * GLOBE_DIAMETER / TWL_CONSTANTS$AIR_KINEMATIC_VISCOSITY
   Pr <- 0.71
   Nu <- 2 + 0.6 * sqrt(Re) * Pr^0.33
-  hc_globe <- Nu * 0.026 / GLOBE_DIAMETER
+  # Air thermal conductivity 0.028 W/(m·K): Brake 2001, Whillier Table 1 / BB p.470
+  # Shared with the natural wet-bulb solver via TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY
+  hc_globe <- Nu * TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY / GLOBE_DIAMETER
 
   # Solar radiation absorbed by globe
   cos_zenith <- cos(zenith * pi / 180)
