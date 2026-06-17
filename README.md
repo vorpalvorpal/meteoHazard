@@ -7,8 +7,9 @@ An R package that turns meteorological data into **management-relevant predictio
 | Function | Hazard | Status |
 |---|---|---|
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
-| `predict_odour()` | **Odour nuisance** — downwind odour dispersion | 🚧 Planned (stub) |
-| `predict_litter()` | **Wind-blown litter** — material escaping the site boundary | 🚧 Planned (stub) |
+| `generate_odour_risk_index()` | **Odour nuisance** — downwind odour dispersion | ✅ Implemented |
+| `generate_litter_risk_index()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
+| `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
 
 ## Installation
 
@@ -35,9 +36,10 @@ install.packages(".", repos = NULL, type = "source")
 
 The package requires R (>= 4.1) and the following packages, which are installed automatically:
 
+- `checkmate`
+- `cli`
 - `dplyr`
 - `httr2`
-- `cli`
 - `purrr`
 
 ## Thermal Work Limit (TWL)
@@ -95,13 +97,84 @@ twl_colour(twl)
 | 115 – 140 | Buffer | Orange |
 | < 115 | Withdrawal | Red |
 
-## Odour prediction (planned)
+## Odour dispersal risk
 
-`predict_odour()` will estimate odour-nuisance potential at downwind receptors by coupling source emissions with atmospheric dispersion (wind speed/direction and atmospheric stability). It is currently a stub and not yet implemented.
+`generate_odour_risk_index()` computes an hourly odour risk score for a landfill, representing the worst-case impact at any of the specified downwind receptors. It couples emission generation with atmospheric dispersion through a physics-based Pasquill-Gifford Gaussian-plume factor (distance-, stability-, and boundary-layer-height-dependent), and optionally accounts for terrain-driven katabatic drainage flow and morning fumigation.
 
-## Wind-blown litter (planned)
+Unlike `generate_twl()`, this function does **not** call the weather API. The caller fetches the required hourly variables from the [Open-Meteo `/v1/forecast` endpoint](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
-`predict_litter()` will estimate the risk of lightweight material becoming airborne and escaping the site boundary, driven by wind speed and gusts. It is currently a stub and not yet implemented.
+```r
+library(meteoHazard)
+
+# met_data: one row per hour, with the 12 required Open-Meteo columns
+# (wind_direction_10m, wind_speed_10m, wind_speed_80m, boundary_layer_height,
+#  temperature_2m, pressure_msl, precipitation, relative_humidity_2m,
+#  cloud_cover, direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm)
+
+# receptors: bearing (° from site centroid) and distance (m) to each location
+receptors <- data.frame(
+  bearing  = c(90, 270),
+  distance = c(500, 800)
+)
+
+odour <- generate_odour_risk_index(met_data, receptors)
+```
+
+The raw score is **not** clamped (theoretical maximum ≈ 1.80). Suggested operational tiers (subject to calibration against complaint records):
+
+| Score | Tier | Response |
+|---|---|---|
+| < 0.15 | LOW | Normal operations |
+| 0.15 – 0.40 | MODERATE | Heightened awareness; check cover integrity |
+| 0.40 – 0.80 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
+| > 0.80 | VERY HIGH | Maximum response — consider ceasing tipping |
+
+Passing the optional `drainage_axes` argument enables terrain-aware drainage and fumigation handling — see `?generate_odour_risk_index` for the full model description and references.
+
+## Wind-blown litter
+
+Litter is split into two composable layers: a **hazard** index (the meteorology at the working face) and an **exposure** layer (where the litter goes, given wind direction and site geometry).
+
+### Hazard index
+
+`generate_litter_risk_index()` computes an hourly litter **hazard** in the range 0–100: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below.
+
+The caller supplies pre-fetched Open-Meteo data (one row per hour) with four columns:
+
+```r
+# met_data columns: wind_gusts_10m, wind_speed_10m, precipitation,
+#                   soil_moisture_0_to_1cm
+
+hazard <- generate_litter_risk_index(met_data)
+```
+
+The vector API `litter_risk_index()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Suggested tier mapping (high uncertainty — requires site calibration):
+
+| Hazard | Tier | Meaning |
+|---|---|---|
+| 0 – 19 | LOW | Entrainment-and-transport unlikely |
+| 20 – 44 | MODERATE | Enhanced controls warranted |
+| 45 – 69 | HIGH | Likely without intervention |
+| 70 – 100 | EXTREME | Maximum controls or cessation required |
+
+### Exposure layer
+
+`litter_exposure()` sits on top of the hazard index and answers the consequence question: given the hazard, the wind direction, and the site geometry, where does the litter end up? The site is described as boundary sectors, each with a `permeability` (1 = open, lower = better barrier) and a `sensitive` flag.
+
+```r
+site <- data.frame(
+  arc_start    = c("NE", "SW"),
+  arc_end      = c("SE", "NW"),
+  permeability = c(1.0, 0.3),    # open receptor to the E; tree belt to the W
+  sensitive    = c(TRUE, FALSE)
+)
+
+exposure <- litter_exposure(hazard, met_data$wind_direction_10m, site)
+# data frame: exposure (hazard attenuated by direction) and a severity zone
+#   within_face < on_site < off_site
+```
+
+See `?litter_risk_index`, `?generate_litter_risk_index`, and `?litter_exposure` for the full parameter lists, model structure, and references.
 
 ## Reference
 
