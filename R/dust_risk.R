@@ -168,7 +168,7 @@ generate_dust_risk_index <- function(
   if (length(missing_cols) > 0) {
     cli::cli_abort(c(
       "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-      "i" = "Required: wind_speed_10m (km/h), wind_gusts_10m (km/h), soil_moisture_0_to_1cm (m³/m³){if (crust) ', precipitation (mm)' else ''}."
+      "i" = "Required: wind_speed_10m (km/h), wind_gusts_10m (km/h), soil_moisture_0_to_1cm (m\u00b3/m\u00b3){if (crust) ', precipitation (mm)' else ''}."
     ))
   }
 
