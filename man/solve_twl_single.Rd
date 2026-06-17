@@ -82,5 +82,13 @@ The algorithm iterates on mean skin temperature (t_skin) to find the
 unique value at which heat flow from core to skin (H) equals heat
 loss from skin to environment (C + R + E).  At that steady-state,
 the metabolic rate M = H + B (respiratory losses) equals the TWL.
+
+\strong{Bracketing assumption}: the heat-balance function
+\code{balance(t_skin) = H - (CR + E)} is assumed to be monotone on the
+interval \verb{[temp_dewpoint + 1, t_core - 0.5]}, so that a unique root
+exists and bisection is valid.  When this assumption is violated (i.e.
+\code{balance} has the same sign at both endpoints), a warning is emitted
+naming the observation index and the solver falls back to the
+best-|balance| result from the bisection loop.
 }
 \keyword{internal}

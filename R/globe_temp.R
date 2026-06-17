@@ -16,11 +16,10 @@
 #' @keywords internal
 solve_globe_temp <- function(temp, wind_speed, direct_solar, diffuse_solar,
                              zenith, albedo = 0.12, index = NULL) {
-
   # Physical constants (shared via TWL_CONSTANTS)
   STEFAN_BOLTZMANN <- TWL_CONSTANTS$STEFAN_BOLTZMANN
-  ABS_ZERO         <- TWL_CONSTANTS$ABS_ZERO
-  GLOBE_DIAMETER   <- TWL_CONSTANTS$GLOBE_DIAMETER
+  ABS_ZERO <- TWL_CONSTANTS$ABS_ZERO
+  GLOBE_DIAMETER <- TWL_CONSTANTS$GLOBE_DIAMETER
   GLOBE_EMISSIVITY <- TWL_CONSTANTS$GLOBE_EMISSIVITY
 
   # Ensure minimum wind speed
@@ -28,10 +27,12 @@ solve_globe_temp <- function(temp, wind_speed, direct_solar, diffuse_solar,
 
   # Convective heat transfer coefficient for sphere (Kuehn & Goldstein)
   # Nu = 2 + 0.6 * Re^0.5 * Pr^0.33
-  Re <- wind_speed * GLOBE_DIAMETER / 1.5e-5
+  Re <- wind_speed * GLOBE_DIAMETER / TWL_CONSTANTS$AIR_KINEMATIC_VISCOSITY
   Pr <- 0.71
   Nu <- 2 + 0.6 * sqrt(Re) * Pr^0.33
-  hc_globe <- Nu * 0.026 / GLOBE_DIAMETER
+  # Air thermal conductivity 0.028 W/(m·K): Brake 2001, Whillier Table 1 / BB p.470
+  # Shared with the natural wet-bulb solver via TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY
+  hc_globe <- Nu * TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY / GLOBE_DIAMETER
 
   # Solar radiation absorbed by globe
   cos_zenith <- cos(zenith * pi / 180)
@@ -114,7 +115,6 @@ solve_globe_temp <- function(temp, wind_speed, direct_solar, diffuse_solar,
 #' @keywords internal
 calculate_globe_temp <- function(temp, wind_speed, direct_solar, diffuse_solar,
                                  zenith, albedo = 0.12, verbose = FALSE) {
-
   n_obs <- length(temp)
 
   pmap_dbl(

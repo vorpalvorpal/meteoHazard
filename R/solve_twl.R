@@ -17,7 +17,9 @@
 #' @return Actual evaporation rate E in W/m^2.
 #' @keywords internal
 three_zone_evaporation <- function(lambda_Sr, Emax) {
-  if (Emax <= 0) return(0)
+  if (Emax <= 0) {
+    return(0)
+  }
   x <- lambda_Sr / Emax
   E <- if (x < 0.46) {
     lambda_Sr
@@ -40,6 +42,14 @@ three_zone_evaporation <- function(lambda_Sr, Emax) {
 #' unique value at which heat flow from core to skin (H) equals heat
 #' loss from skin to environment (C + R + E).  At that steady-state,
 #' the metabolic rate M = H + B (respiratory losses) equals the TWL.
+#'
+#' **Bracketing assumption**: the heat-balance function
+#' `balance(t_skin) = H - (CR + E)` is assumed to be monotone on the
+#' interval `[temp_dewpoint + 1, t_core - 0.5]`, so that a unique root
+#' exists and bisection is valid.  When this assumption is violated (i.e.
+#' `balance` has the same sign at both endpoints), a warning is emitted
+#' naming the observation index and the solver falls back to the
+#' best-|balance| result from the bisection loop.
 #'
 #' @param temp Air temperature in degrees Celsius.
 #' @param wind_speed Wind speed in m/s.
@@ -75,24 +85,23 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
                              max_core_temp, max_sweat_rate,
                              Icl, icl, LR, lambda,
                              index = NULL) {
-
   # ------------------------------------------------------------------
   # Constants
   # ------------------------------------------------------------------
-  t_core <- max_core_temp          # limiting deep body core temperature (°C)
+  t_core <- max_core_temp # limiting deep body core temperature (°C)
 
   # ------------------------------------------------------------------
   # Clothing parameters  [ASHRAE Fundamentals Ch. 8]
   # ------------------------------------------------------------------
-  Rcl  <- 0.155 * Icl                       # thermal resistance, (m²K)/W  [ASHRAE Eq. 41]
-  fcl  <- 1.0 + 0.31 * Icl                  # clothing area factor          [ASHRAE Eq. 47]
-  Recl <- Rcl / (LR * icl)                  # evaporative resistance        [ASHRAE Table II]
+  Rcl <- 0.155 * Icl # thermal resistance, (m²K)/W  [ASHRAE Eq. 41]
+  fcl <- 1.0 + 0.31 * Icl # clothing area factor          [ASHRAE Eq. 47]
+  Recl <- Rcl / (LR * icl) # evaporative resistance        [ASHRAE Table II]
 
   # ------------------------------------------------------------------
   # Convective heat transfer coefficient  [EESAM Eq. 13]
   # hc = 0.608 * P^0.6 * V^0.6
   # ------------------------------------------------------------------
-  hc_paper <- 0.608 * pressure^0.6 * wind_speed^0.6  # W/(m²K)
+  hc_paper <- 0.608 * pressure^0.6 * wind_speed^0.6 # W/(m²K)
 
   # ------------------------------------------------------------------
   # Evaporative heat transfer coefficient  [EESAM Eq. 17]
@@ -100,7 +109,68 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
   # (the LR*hc approximation is only accurate when pa << P; the exact
   # form is needed for low-pressure or high-humidity conditions)
   # ------------------------------------------------------------------
-  he <- 1587 * hc_paper * pressure / (pressure - pa)^2  # W/(m²·kPa)
+  he <- 1587 * hc_paper * pressure / (pressure - pa)^2 # W/(m²·kPa)
+
+  # ------------------------------------------------------------------
+  # Per-t_skin heat-balance closure
+  #
+  # All loop-invariant quantities (hc_paper, he, fcl, Rcl, Recl,
+  # t_core, trad, temp, pa, lambda, max_sweat_rate) are captured from
+  # the enclosing scope.  Only the six quantities that change with
+  # t_skin are computed here.
+  # ------------------------------------------------------------------
+  compute_components <- function(t_skin) {
+    # Radiant heat transfer coefficient — depends on iterated t_skin
+    # hr = 4.61 * [1 + (trad + t_skin)/546]^3   [EESAM Eq. 9]
+    hr <- 4.61 * (1 + (trad + t_skin) / 546)^3 # W/(m²K)
+    h <- hr + hc_paper # [ASHRAE Eq. 9]
+
+    # Operative temperature  [ASHRAE Eq. 8]
+    toper <- (hr * trad + hc_paper * temp) / h
+
+    # Clothing correction factors
+    # Fcle: sensible heat  [ASHRAE Table II, Sensible Heat Flow, last eq.]
+    # Fpcl: evaporative   [ASHRAE Table II, Evaporative Heat Flow, last eq.]
+    Fcle <- fcl / (1 + fcl * h * Rcl)
+    Fpcl <- 1 / (1 + fcl * he * Recl)
+
+    # Sensible heat loss from skin: C + R  [ASHRAE Table III, 3rd eq.]
+    CR <- Fcle * h * (t_skin - toper)
+
+    # Maximum evaporative capacity from fully-wet skin (w = 1)
+    # ps = sat. vapour pressure at skin temperature
+    # Esk = w * Fpcl * fcl * he * (ps - pa)  [ASHRAE Table III Evap., 3rd]
+    ps <- calc_sat_vp(t_skin)
+    Emax <- max(0, Fpcl * fcl * he * (ps - pa))
+
+    # Thermoregulatory signal  [Cabanac]
+    # tz = 0.1 * t_skin + 0.9 * t_core
+    tz <- 0.1 * t_skin + 0.9 * t_core
+
+    # Physiological conductance from Wyndham's data  [Figure 1 fit]
+    # Kcs = 84 + 72 * tanh(1.3 * (tz - 37.9))   W/(m²K)
+    Kcs <- 84 + 72 * tanh(1.3 * (tz - 37.9))
+
+    # Heat flow from core to skin  [EESAM Eq. 23]
+    # H = Kcs * (t_core - t_skin)
+    H <- max(0, Kcs * (t_core - t_skin))
+
+    # Sweat rate from Wyndham's data  [Figure 2 fit]
+    # Sr = 0.42 + 0.44 * tanh(1.16 * (tz - 37.4))   kg/(m²hr)
+    Sr <- max(0, min(max_sweat_rate, 0.42 + 0.44 * tanh(1.16 * (tz - 37.4))))
+    lambda_Sr <- lambda * Sr / 3.6 # convert kJ/kg * kg/(m²hr) → W/m²
+
+    E <- three_zone_evaporation(lambda_Sr, Emax)
+
+    # Heat balance: H should equal C+R+E at steady state
+    # balance > 0 means core is supplying more heat than skin loses
+    #   → skin temperature should rise
+    # balance < 0 means skin losing more than core supplies
+    #   → skin temperature should fall
+    balance <- H - (CR + E)
+
+    list(balance = balance, H = H, CR = CR, E = E)
+  }
 
   # ------------------------------------------------------------------
   # Iterative solution: find t_skin where H = C + R + E
@@ -119,91 +189,45 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
         Returning minimum TWL."
       )
     }
-    return(max(60, 0))
+    return(TWL_CONSTANTS$TWL_FLOOR)
+  }
+
+  # ------------------------------------------------------------------
+  # Bracket sign-check (diagnostic only — does NOT alter numerics).
+  #
+  # Evaluate balance at both bracket endpoints to verify the root is
+  # bracketed.  These evaluations feed only the warning; they do NOT
+  # update best_balance / best_t_skin and the iteration path is
+  # unchanged so results remain bit-identical with the previous code.
+  # ------------------------------------------------------------------
+  if (!is.null(index)) {
+    bal_lo <- compute_components(t_skin_min)$balance
+    bal_hi <- compute_components(t_skin_max)$balance
+    if (sign(bal_lo) == sign(bal_hi)) {
+      cli_alert_warning(
+        "Observation {index}: heat-balance root not bracketed \\
+        (balance at t_skin_min = {round(bal_lo, 2)}, \\
+        balance at t_skin_max = {round(bal_hi, 2)} -- same sign). \\
+        Bisection may not converge; returning best-residual estimate."
+      )
+    }
   }
 
   t_skin <- 0.5 * (t_skin_min + t_skin_max)
 
-  best_t_skin  <- t_skin
+  best_t_skin <- t_skin
   best_balance <- Inf
 
-  MAX_ITER        <- 200
-  TOL_CONVERGENCE <- 0.01   # W/m²
+  MAX_ITER <- 200
+  TOL_CONVERGENCE <- 0.01 # W/m²
 
   for (iter in 1:MAX_ITER) {
-
-    # ----------------------------------------------------------------
-    # Radiant heat transfer coefficient — depends on iterated t_skin
-    # hr = 4.61 * [1 + (trad + t_skin)/546]^3   [EESAM Eq. 9]
-    # ----------------------------------------------------------------
-    hr <- 4.61 * (1 + (trad + t_skin) / 546)^3   # W/(m²K)
-    h  <- hr + hc_paper                            # [ASHRAE Eq. 9]
-
-    # ----------------------------------------------------------------
-    # Operative temperature  [ASHRAE Eq. 8]
-    # ----------------------------------------------------------------
-    toper <- (hr * trad + hc_paper * temp) / h
-
-    # ----------------------------------------------------------------
-    # Clothing correction factors
-    # Fcle: sensible heat  [ASHRAE Table II, Sensible Heat Flow, last eq.]
-    # Fpcl: evaporative   [ASHRAE Table II, Evaporative Heat Flow, last eq.]
-    # ----------------------------------------------------------------
-    Fcle <- fcl / (1 + fcl * h * Rcl)
-    Fpcl <- 1   / (1 + fcl * he * Recl)
-
-    # ----------------------------------------------------------------
-    # Sensible heat loss from skin: C + R  [ASHRAE Table III, 3rd eq.]
-    # ----------------------------------------------------------------
-    CR <- Fcle * h * (t_skin - toper)
-
-    # ----------------------------------------------------------------
-    # Maximum evaporative capacity from fully-wet skin (w = 1)
-    # ps = sat. vapour pressure at skin temperature
-    # Esk = w * Fpcl * fcl * he * (ps - pa)  [ASHRAE Table III Evap., 3rd]
-    # ----------------------------------------------------------------
-    ps   <- calc_sat_vp(t_skin)
-    Emax <- max(0, Fpcl * fcl * he * (ps - pa))
-
-    # ----------------------------------------------------------------
-    # Thermoregulatory signal  [Cabanac]
-    # tz = 0.1 * t_skin + 0.9 * t_core
-    # ----------------------------------------------------------------
-    tz <- 0.1 * t_skin + 0.9 * t_core
-
-    # ----------------------------------------------------------------
-    # Physiological conductance from Wyndham's data  [Figure 1 fit]
-    # Kcs = 84 + 72 * tanh(1.3 * (tz - 37.9))   W/(m²K)
-    # ----------------------------------------------------------------
-    Kcs <- 84 + 72 * tanh(1.3 * (tz - 37.9))
-
-    # ----------------------------------------------------------------
-    # Heat flow from core to skin  [EESAM Eq. 23]
-    # H = Kcs * (t_core - t_skin)
-    # ----------------------------------------------------------------
-    H <- max(0, Kcs * (t_core - t_skin))
-
-    # ----------------------------------------------------------------
-    # Sweat rate from Wyndham's data  [Figure 2 fit]
-    # Sr = 0.42 + 0.44 * tanh(1.16 * (tz - 37.4))   kg/(m²hr)
-    # ----------------------------------------------------------------
-    Sr        <- max(0, min(max_sweat_rate, 0.42 + 0.44 * tanh(1.16 * (tz - 37.4))))
-    lambda_Sr <- lambda * Sr / 3.6   # convert kJ/kg * kg/(m²hr) → W/m²
-
-    E <- three_zone_evaporation(lambda_Sr, Emax)
-
-    # ----------------------------------------------------------------
-    # Heat balance: H should equal C+R+E at steady state
-    # balance > 0 means core is supplying more heat than skin loses
-    #   → skin temperature should rise
-    # balance < 0 means skin losing more than core supplies
-    #   → skin temperature should fall
-    # ----------------------------------------------------------------
-    balance <- H - (CR + E)
+    comp <- compute_components(t_skin)
+    balance <- comp$balance
 
     if (abs(balance) < best_balance) {
       best_balance <- abs(balance)
-      best_t_skin  <- t_skin
+      best_t_skin <- t_skin
     }
 
     if (abs(balance) < TOL_CONVERGENCE) break
@@ -230,23 +254,12 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
   # Solving: M*(1 - resp_coeff) = H  →  M = H/(1-resp_coeff)
   # [ASHRAE Eq. 26]
   # ------------------------------------------------------------------
-  t_skin_final <- best_t_skin
-
-  # Recompute all quantities at final t_skin for the M calculation
-  hr_f    <- 4.61 * (1 + (trad + t_skin_final) / 546)^3
-  h_f     <- hr_f + hc_paper
-  toper_f <- (hr_f * trad + hc_paper * temp) / h_f
-  Fcle_f  <- fcl / (1 + fcl * h_f * Rcl)
-  Fpcl_f  <- 1   / (1 + fcl * he * Recl)
-  CR_f    <- Fcle_f * h_f * (t_skin_final - toper_f)
-  ps_f    <- calc_sat_vp(t_skin_final)
-  Emax_f  <- max(0, Fpcl_f * fcl * he * (ps_f - pa))
-  tz_f    <- 0.1 * t_skin_final + 0.9 * t_core
-  Kcs_f   <- 84 + 72 * tanh(1.3 * (tz_f - 37.9))
-  H_f     <- max(0, Kcs_f * (t_core - t_skin_final))
-  Sr_f    <- max(0, min(max_sweat_rate, 0.42 + 0.44 * tanh(1.16 * (tz_f - 37.4))))
-  lambda_Sr_f <- lambda * Sr_f / 3.6
-  E_f     <- three_zone_evaporation(lambda_Sr_f, Emax_f)
+  # Re-evaluate at best_t_skin using the same closure (eliminates the
+  # ~25-line duplicated recomputation block that was here previously).
+  comp_final <- compute_components(best_t_skin)
+  H_f <- comp_final$H
+  CR_f <- comp_final$CR
+  E_f <- comp_final$E
 
   # Use average of H and (CR+E) as our best estimate of heat throughput
   # to avoid systematic bias from imperfect convergence
@@ -254,9 +267,9 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
 
   # Respiratory coefficient
   resp_coeff <- 0.0014 * (34 - temp) + 0.0173 * (5.87 - pa)
-  resp_coeff <- max(0, min(0.5, resp_coeff))   # clamp to physically valid range
+  resp_coeff <- max(0, min(0.5, resp_coeff)) # clamp to physically valid range
 
   M <- H_use / (1 - resp_coeff)
 
-  return(max(60, M))
+  return(max(TWL_CONSTANTS$TWL_FLOOR, M))
 }

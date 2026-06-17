@@ -63,8 +63,9 @@ Default 38.2.}
 \item{max_sweat_rate}{Maximum acceptable sweat rate in kg/(m^2.hr).
 Default 0.67.}
 
-\item{convert_pressure}{If \code{TRUE} (the default), converts pressure from hPa
-to kPa.}
+\item{convert_pressure}{If \code{TRUE} (the default), converts \strong{user-supplied}
+pressure from hPa to kPa. API-fetched pressure (Open-Meteo
+\code{surface_pressure}) is always converted hPa→kPa regardless of this flag.}
 
 \item{verbose}{If \code{TRUE} (the default), show progress and diagnostic
 messages.}

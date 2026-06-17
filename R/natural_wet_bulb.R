@@ -14,25 +14,24 @@
 #' @keywords internal
 solve_natural_wb_single <- function(temp, RH, pressure, wind_speed, globe_temp,
                                     index = NULL) {
-
   # Physical constants (shared via TWL_CONSTANTS)
-  VIEW_EMISSIVITY_FACTOR   <- TWL_CONSTANTS$VIEW_EMISSIVITY_FACTOR
-  STEFAN_BOLTZMANN         <- TWL_CONSTANTS$STEFAN_BOLTZMANN
-  ABS_ZERO                 <- TWL_CONSTANTS$ABS_ZERO
-  BULB_DIA                 <- TWL_CONSTANTS$BULB_DIA
+  VIEW_EMISSIVITY_FACTOR <- TWL_CONSTANTS$VIEW_EMISSIVITY_FACTOR
+  STEFAN_BOLTZMANN <- TWL_CONSTANTS$STEFAN_BOLTZMANN
+  ABS_ZERO <- TWL_CONSTANTS$ABS_ZERO
+  BULB_DIA <- TWL_CONSTANTS$BULB_DIA
   AIR_THERMAL_CONDUCTIVITY <- TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY
 
   # Latent heat of evaporation in J/kg at ~20 °C (psychrometric wet bulb
   # context).  Intentionally different from TWL_CONSTANTS$LATENT_HEAT_TWL_KJ
   # (2430 kJ/kg at 30 °C skin temperature) — see ?TWL_CONSTANTS.
-  LATENT_HEAT_EVAP <- 2455000   # J/kg at ~20 °C
+  LATENT_HEAT_EVAP <- 2455000 # J/kg at ~20 °C
 
   ACCURACY_REQUIRED <- 0.02
-  MAX_ITERATIONS    <- 100
+  MAX_ITERATIONS <- 100
 
   # Handle NA inputs
   if (is.na(temp) || is.na(RH) || is.na(pressure) ||
-      is.na(wind_speed) || is.na(globe_temp)) {
+    is.na(wind_speed) || is.na(globe_temp)) {
     return(NA_real_)
   }
 
@@ -56,7 +55,7 @@ solve_natural_wb_single <- function(temp, RH, pressure, wind_speed, globe_temp,
   }
 
   # Convective heat transfer coefficient for cylinder
-  Re <- wind_speed * BULB_DIA / 1.5e-5
+  Re <- wind_speed * BULB_DIA / TWL_CONSTANTS$AIR_KINEMATIC_VISCOSITY
   Nu <- 0.281 * Re^0.6
   hc <- Nu * AIR_THERMAL_CONDUCTIVITY / BULB_DIA
 
@@ -164,7 +163,6 @@ solve_natural_wb_single <- function(temp, RH, pressure, wind_speed, globe_temp,
 #' @keywords internal
 calculate_natural_wet_bulb <- function(temp, RH, pressure, wind_speed, globe_temp,
                                        verbose = FALSE, show_progress = FALSE) {
-
   n_obs <- length(temp)
 
   pb_id <- NULL
@@ -180,7 +178,8 @@ calculate_natural_wet_bulb <- function(temp, RH, pressure, wind_speed, globe_tem
       }
 
       solve_natural_wb_single(t, rh, p, ws, gt,
-                              index = if (verbose) idx else NULL)
+        index = if (verbose) idx else NULL
+      )
     }
   )
 
