@@ -260,9 +260,31 @@ test_that("user pressure in kPa (convert_pressure=FALSE) matches hPa (convert_pr
 })
 
 test_that("API-fetched pressure is normalised hPa->kPa regardless of convert_pressure", {
-  skip(paste("pending: mock an Open-Meteo response with surface_pressure in hPa",
-             "and assert the API path divides it by 10 even when",
-             "convert_pressure = FALSE"))
+  # Mock the API to return surface_pressure in hPa; omit only pressure so just
+  # that field is fetched. With convert_pressure = FALSE the API value must
+  # still be divided by 10 (1013 hPa -> 101.3 kPa), matching a direct kPa supply.
+  local_mocked_bindings(
+    fetch_openmeteo = function(datetime, latitude, longitude, fields,
+                               verbose = FALSE) {
+      stopifnot(identical(fields, "surface_pressure"))
+      list(surface_pressure = rep(1013, length(datetime)))
+    }
+  )
+  twl_api <- generate_twl(
+    datetime = make_dt("2024-06-15 10:00:00"),
+    latitude = -31.95, longitude = 115.86,
+    temp = 38, wind_speed = 0.5, RH = 50,
+    direct_solar = 0, diffuse_solar = 0,
+    pressure = NULL, convert_pressure = FALSE, verbose = FALSE
+  )
+  twl_ref <- generate_twl(
+    datetime = make_dt("2024-06-15 10:00:00"),
+    latitude = -31.95, longitude = 115.86,
+    temp = 38, wind_speed = 0.5, RH = 50,
+    direct_solar = 0, diffuse_solar = 0,
+    pressure = 101.3, convert_pressure = FALSE, verbose = FALSE
+  )
+  expect_equal(twl_api, twl_ref, tolerance = 1e-6)
 })
 
 # ---------------------------------------------------------------------------

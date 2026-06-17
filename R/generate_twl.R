@@ -40,8 +40,9 @@
 #'   Default 38.2.
 #' @param max_sweat_rate Maximum acceptable sweat rate in kg/(m^2.hr).
 #'   Default 0.67.
-#' @param convert_pressure If `TRUE` (the default), converts pressure from hPa
-#'   to kPa.
+#' @param convert_pressure If `TRUE` (the default), converts **user-supplied**
+#'   pressure from hPa to kPa. API-fetched pressure (Open-Meteo
+#'   `surface_pressure`) is always converted hPa→kPa regardless of this flag.
 #' @param verbose If `TRUE` (the default), show progress and diagnostic
 #'   messages.
 #'
@@ -80,6 +81,88 @@ generate_twl <- function(datetime,
                          convert_pressure = TRUE,
                          verbose = TRUE) {
 
+  # --- Input validation (runs BEFORE any API call) ---
+  # All range checks use na.rm = TRUE so NA values propagate rather than error.
+  n <- length(datetime)
+
+  if (!inherits(datetime, "POSIXct") || n < 1L) {
+    cli::cli_abort(
+      "`datetime` must be a POSIXct vector with at least one element.",
+      class = "meteoHazard_input_error"
+    )
+  }
+
+  # latitude / longitude: numeric, length 1 or n, valid range
+  for (arg_name in c("latitude", "longitude")) {
+    val  <- get(arg_name)
+    vlen <- length(val)
+    if (!is.numeric(val) || !(vlen == 1L || vlen == n)) {
+      cli::cli_abort(
+        "`{arg_name}` must be numeric with length 1 or length(datetime) ({n}).",
+        class = "meteoHazard_input_error"
+      )
+    }
+  }
+  if (any(latitude  < -90  | latitude  > 90,  na.rm = TRUE)) {
+    cli::cli_abort(
+      "`latitude` values must be in [-90, 90].",
+      class = "meteoHazard_input_error"
+    )
+  }
+  if (any(longitude < -180 | longitude > 180, na.rm = TRUE)) {
+    cli::cli_abort(
+      "`longitude` values must be in [-180, 180].",
+      class = "meteoHazard_input_error"
+    )
+  }
+
+  # Per-observation weather args: numeric, length 1 or n, range constraints
+  weather_args <- list(
+    temp          = temp,
+    wind_speed    = wind_speed,
+    RH            = RH,
+    direct_solar  = direct_solar,
+    diffuse_solar = diffuse_solar,
+    pressure      = pressure,
+    wet_bulb      = wet_bulb
+  )
+  for (arg_name in names(weather_args)) {
+    val <- weather_args[[arg_name]]
+    if (is.null(val)) next  # NULL means fetch from API; validated later
+    vlen <- length(val)
+    if (!is.numeric(val) || !(vlen == 1L || vlen == n)) {
+      cli::cli_abort(
+        "`{arg_name}` must be numeric with length 1 or length(datetime) ({n}).",
+        class = "meteoHazard_input_error"
+      )
+    }
+  }
+  if (!is.null(RH)           && any(RH           < 0   | RH           > 100, na.rm = TRUE))
+    cli::cli_abort("`RH` values must be in [0, 100].",           class = "meteoHazard_input_error")
+  if (!is.null(wind_speed)   && any(wind_speed   < 0,                         na.rm = TRUE))
+    cli::cli_abort("`wind_speed` values must be >= 0.",           class = "meteoHazard_input_error")
+  if (!is.null(direct_solar) && any(direct_solar < 0,                         na.rm = TRUE))
+    cli::cli_abort("`direct_solar` values must be >= 0.",         class = "meteoHazard_input_error")
+  if (!is.null(diffuse_solar) && any(diffuse_solar < 0,                        na.rm = TRUE))
+    cli::cli_abort("`diffuse_solar` values must be >= 0.",        class = "meteoHazard_input_error")
+  if (!is.null(pressure)     && any(pressure     <= 0,                         na.rm = TRUE))
+    cli::cli_abort("`pressure` values must be > 0.",              class = "meteoHazard_input_error")
+
+  # Scalar parameters
+  if (!is.numeric(albedo) || length(albedo) != 1L || albedo < 0 || albedo > 1)
+    cli::cli_abort("`albedo` must be a single numeric value in [0, 1].",       class = "meteoHazard_input_error")
+  if (!is.numeric(icl)    || length(icl)    != 1L || icl    < 0 || icl    > 1)
+    cli::cli_abort("`icl` must be a single numeric value in [0, 1].",          class = "meteoHazard_input_error")
+  if (!is.numeric(Icl)    || length(Icl)    != 1L || Icl    < 0)
+    cli::cli_abort("`Icl` must be a single numeric value >= 0.",               class = "meteoHazard_input_error")
+  if (!is.numeric(max_sweat_rate) || length(max_sweat_rate) != 1L || max_sweat_rate <= 0)
+    cli::cli_abort("`max_sweat_rate` must be a single numeric value > 0.",     class = "meteoHazard_input_error")
+  if (!is.numeric(max_core_temp)  || length(max_core_temp)  != 1L || !is.finite(max_core_temp))
+    cli::cli_abort("`max_core_temp` must be a single finite numeric value.",   class = "meteoHazard_input_error")
+
+  # --- Record whether pressure will be API-fetched (affects unit conversion) ---
+  pressure_from_api <- is.null(pressure)
+
   # --- Determine which weather fields need fetching ---
   # Note: wind_speed_10m from Open-Meteo is at 10 m height; it is corrected
   # to body level (~1 m) below using a log-profile wind correction.
@@ -92,12 +175,12 @@ generate_twl <- function(datetime,
     pressure      = "surface_pressure"
   )
 
-  missing <- vapply(
+  needs_fetch <- vapply(
     list(temp, wind_speed, RH, direct_solar, diffuse_solar, pressure),
     is.null, logical(1)
   )
-  names(missing) <- names(field_map)
-  fields_needed <- field_map[missing]
+  names(needs_fetch) <- names(field_map)
+  fields_needed <- field_map[needs_fetch]
 
   # Track whether wind_speed came from the API (needs height correction)
   wind_from_api <- is.null(wind_speed)
@@ -119,7 +202,16 @@ generate_twl <- function(datetime,
     if (is.null(pressure))      pressure      <- api_data[["surface_pressure"]]
   }
 
-  n_obs <- length(temp)
+  # Recycle any length-1 user scalars to n_obs so all vectors are coherent.
+  # API-fetched vectors are already length n; rep_len() is a no-op for them.
+  n_obs <- length(datetime)
+  temp          <- rep_len(temp,          n_obs)
+  wind_speed    <- rep_len(wind_speed,    n_obs)
+  RH            <- rep_len(RH,            n_obs)
+  direct_solar  <- rep_len(direct_solar,  n_obs)
+  diffuse_solar <- rep_len(diffuse_solar, n_obs)
+  pressure      <- rep_len(pressure,      n_obs)
+  if (!is.null(wet_bulb)) wet_bulb <- rep_len(wet_bulb, n_obs)
 
   if (verbose) {
     cli_h1("TWL Calculation")
@@ -131,7 +223,12 @@ generate_twl <- function(datetime,
   lambda <- TWL_CONSTANTS$LATENT_HEAT_TWL_KJ   # 2430 kJ/kg at skin temp ~30 °C [ASHRAE Eq. 14]
 
   # Unit conversions
-  if (convert_pressure) {
+  # API-fetched pressure is always in hPa (Open-Meteo surface_pressure) and
+  # must be divided by 10 to get kPa.  User-supplied pressure is divided by 10
+  # only when convert_pressure = TRUE (i.e. the user passed hPa, not kPa).
+  if (pressure_from_api) {
+    pressure <- pressure / 10
+  } else if (convert_pressure) {
     pressure <- pressure / 10
   }
 
@@ -212,8 +309,8 @@ generate_twl <- function(datetime,
              pressure, pa, temp_dewpoint,
              wet_bulb, globe_temp, trad, idx) {
 
-      if (verbose && n_obs > 100 && idx %% 10 == 0) {
-        cli_progress_update(id = pb_id)
+      if (verbose && n_obs > 100) {
+        cli_progress_update(id = pb_id, set = idx)
       }
 
       # Return NA if inputs are NA
@@ -244,15 +341,14 @@ generate_twl <- function(datetime,
           result <- min(result, 115)
         }
 
-        # Constrain to valid range (60-380 W/m^2)
-        if (result < 60 || result > 380) {
-          if (verbose && (result < 50 || result > 400)) {
-            cli_alert_warning(
-              "Observation {idx}: TWL ({round(result, 1)} W/m\\u00b2) outside valid range, constrained to [60, 380]"
-            )
-          }
-          result <- max(60, min(380, result))
+        # Upper-bound clamp only: the solver guarantees result >= TWL_FLOOR
+        # (60 W/m^2), so the lower branch is unreachable and has been removed.
+        if (verbose && result > 400) {
+          cli_alert_warning(
+            "Observation {idx}: TWL ({round(result, 1)} W/m\u00b2) above 400, constrained to ceiling"
+          )
         }
+        result <- min(result, TWL_CONSTANTS$TWL_CEILING)
       }
 
       result
@@ -276,7 +372,7 @@ generate_twl <- function(datetime,
         "TWL calculation complete: {n_valid} valid result{?s}, {n_invalid} invalid"
       )
       cli_alert_info(
-        "TWL range: [{round(twl_range[1], 1)}, {round(twl_range[2], 1)}] W/m\\u00b2, mean: {round(twl_mean, 1)} W/m\\u00b2"
+        "TWL range: [{round(twl_range[1], 1)}, {round(twl_range[2], 1)}] W/m\u00b2, mean: {round(twl_mean, 1)} W/m\u00b2"
       )
 
       # Categorise results
@@ -287,10 +383,10 @@ generate_twl <- function(datetime,
 
       cli_h2("TWL Categories")
       cli_ul(c(
-        "Withdrawal (<115 W/m\\u00b2): {n_withdrawal} ({round(100*n_withdrawal/n_valid, 1)}%)",
-        "Buffer (115-140 W/m\\u00b2): {n_buffer} ({round(100*n_buffer/n_valid, 1)}%)",
-        "Acclimatisation (140-220 W/m\\u00b2): {n_acclimatisation} ({round(100*n_acclimatisation/n_valid, 1)}%)",
-        "Unrestricted (>=220 W/m\\u00b2): {n_unrestricted} ({round(100*n_unrestricted/n_valid, 1)}%)"
+        "Withdrawal (<115 W/m\u00b2): {n_withdrawal} ({round(100*n_withdrawal/n_valid, 1)}%)",
+        "Buffer (115-140 W/m\u00b2): {n_buffer} ({round(100*n_buffer/n_valid, 1)}%)",
+        "Acclimatisation (140-220 W/m\u00b2): {n_acclimatisation} ({round(100*n_acclimatisation/n_valid, 1)}%)",
+        "Unrestricted (>=220 W/m\u00b2): {n_unrestricted} ({round(100*n_unrestricted/n_valid, 1)}%)"
       ))
 
       if (n_withdrawal > 0) {
