@@ -80,7 +80,6 @@ generate_twl <- function(datetime,
                          max_sweat_rate = 0.67,
                          convert_pressure = TRUE,
                          verbose = TRUE) {
-
   # --- Input validation (runs BEFORE any API call) ---
   # All range checks use na.rm = TRUE so NA values propagate rather than error.
   n <- length(datetime)
@@ -94,7 +93,7 @@ generate_twl <- function(datetime,
 
   # latitude / longitude: numeric, length 1 or n, valid range
   for (arg_name in c("latitude", "longitude")) {
-    val  <- get(arg_name)
+    val <- get(arg_name)
     vlen <- length(val)
     if (!is.numeric(val) || !(vlen == 1L || vlen == n)) {
       cli::cli_abort(
@@ -103,7 +102,7 @@ generate_twl <- function(datetime,
       )
     }
   }
-  if (any(latitude  < -90  | latitude  > 90,  na.rm = TRUE)) {
+  if (any(latitude < -90 | latitude > 90, na.rm = TRUE)) {
     cli::cli_abort(
       "`latitude` values must be in [-90, 90].",
       class = "meteoHazard_input_error"
@@ -128,7 +127,7 @@ generate_twl <- function(datetime,
   )
   for (arg_name in names(weather_args)) {
     val <- weather_args[[arg_name]]
-    if (is.null(val)) next  # NULL means fetch from API; validated later
+    if (is.null(val)) next # NULL means fetch from API; validated later
     vlen <- length(val)
     if (!is.numeric(val) || !(vlen == 1L || vlen == n)) {
       cli::cli_abort(
@@ -137,28 +136,38 @@ generate_twl <- function(datetime,
       )
     }
   }
-  if (!is.null(RH)           && any(RH           < 0   | RH           > 100, na.rm = TRUE))
-    cli::cli_abort("`RH` values must be in [0, 100].",           class = "meteoHazard_input_error")
-  if (!is.null(wind_speed)   && any(wind_speed   < 0,                         na.rm = TRUE))
-    cli::cli_abort("`wind_speed` values must be >= 0.",           class = "meteoHazard_input_error")
-  if (!is.null(direct_solar) && any(direct_solar < 0,                         na.rm = TRUE))
-    cli::cli_abort("`direct_solar` values must be >= 0.",         class = "meteoHazard_input_error")
-  if (!is.null(diffuse_solar) && any(diffuse_solar < 0,                        na.rm = TRUE))
-    cli::cli_abort("`diffuse_solar` values must be >= 0.",        class = "meteoHazard_input_error")
-  if (!is.null(pressure)     && any(pressure     <= 0,                         na.rm = TRUE))
-    cli::cli_abort("`pressure` values must be > 0.",              class = "meteoHazard_input_error")
+  if (!is.null(RH) && any(RH < 0 | RH > 100, na.rm = TRUE)) {
+    cli::cli_abort("`RH` values must be in [0, 100].", class = "meteoHazard_input_error")
+  }
+  if (!is.null(wind_speed) && any(wind_speed < 0, na.rm = TRUE)) {
+    cli::cli_abort("`wind_speed` values must be >= 0.", class = "meteoHazard_input_error")
+  }
+  if (!is.null(direct_solar) && any(direct_solar < 0, na.rm = TRUE)) {
+    cli::cli_abort("`direct_solar` values must be >= 0.", class = "meteoHazard_input_error")
+  }
+  if (!is.null(diffuse_solar) && any(diffuse_solar < 0, na.rm = TRUE)) {
+    cli::cli_abort("`diffuse_solar` values must be >= 0.", class = "meteoHazard_input_error")
+  }
+  if (!is.null(pressure) && any(pressure <= 0, na.rm = TRUE)) {
+    cli::cli_abort("`pressure` values must be > 0.", class = "meteoHazard_input_error")
+  }
 
   # Scalar parameters
-  if (!is.numeric(albedo) || length(albedo) != 1L || albedo < 0 || albedo > 1)
-    cli::cli_abort("`albedo` must be a single numeric value in [0, 1].",       class = "meteoHazard_input_error")
-  if (!is.numeric(icl)    || length(icl)    != 1L || icl    < 0 || icl    > 1)
-    cli::cli_abort("`icl` must be a single numeric value in [0, 1].",          class = "meteoHazard_input_error")
-  if (!is.numeric(Icl)    || length(Icl)    != 1L || Icl    < 0)
-    cli::cli_abort("`Icl` must be a single numeric value >= 0.",               class = "meteoHazard_input_error")
-  if (!is.numeric(max_sweat_rate) || length(max_sweat_rate) != 1L || max_sweat_rate <= 0)
-    cli::cli_abort("`max_sweat_rate` must be a single numeric value > 0.",     class = "meteoHazard_input_error")
-  if (!is.numeric(max_core_temp)  || length(max_core_temp)  != 1L || !is.finite(max_core_temp))
-    cli::cli_abort("`max_core_temp` must be a single finite numeric value.",   class = "meteoHazard_input_error")
+  if (!is.numeric(albedo) || length(albedo) != 1L || albedo < 0 || albedo > 1) {
+    cli::cli_abort("`albedo` must be a single numeric value in [0, 1].", class = "meteoHazard_input_error")
+  }
+  if (!is.numeric(icl) || length(icl) != 1L || icl < 0 || icl > 1) {
+    cli::cli_abort("`icl` must be a single numeric value in [0, 1].", class = "meteoHazard_input_error")
+  }
+  if (!is.numeric(Icl) || length(Icl) != 1L || Icl < 0) {
+    cli::cli_abort("`Icl` must be a single numeric value >= 0.", class = "meteoHazard_input_error")
+  }
+  if (!is.numeric(max_sweat_rate) || length(max_sweat_rate) != 1L || max_sweat_rate <= 0) {
+    cli::cli_abort("`max_sweat_rate` must be a single numeric value > 0.", class = "meteoHazard_input_error")
+  }
+  if (!is.numeric(max_core_temp) || length(max_core_temp) != 1L || !is.finite(max_core_temp)) {
+    cli::cli_abort("`max_core_temp` must be a single finite numeric value.", class = "meteoHazard_input_error")
+  }
 
   # --- Record whether pressure will be API-fetched (affects unit conversion) ---
   pressure_from_api <- is.null(pressure)
@@ -192,25 +201,26 @@ generate_twl <- function(datetime,
       )
     }
     api_data <- fetch_openmeteo(
-      datetime, latitude, longitude, unname(fields_needed), verbose = verbose
+      datetime, latitude, longitude, unname(fields_needed),
+      verbose = verbose
     )
-    if (is.null(temp))          temp          <- api_data[["temperature_2m"]]
-    if (is.null(wind_speed))    wind_speed    <- api_data[["wind_speed_10m"]]
-    if (is.null(RH))            RH            <- api_data[["relative_humidity_2m"]]
-    if (is.null(direct_solar))  direct_solar  <- api_data[["direct_radiation"]]
+    if (is.null(temp)) temp <- api_data[["temperature_2m"]]
+    if (is.null(wind_speed)) wind_speed <- api_data[["wind_speed_10m"]]
+    if (is.null(RH)) RH <- api_data[["relative_humidity_2m"]]
+    if (is.null(direct_solar)) direct_solar <- api_data[["direct_radiation"]]
     if (is.null(diffuse_solar)) diffuse_solar <- api_data[["diffuse_radiation"]]
-    if (is.null(pressure))      pressure      <- api_data[["surface_pressure"]]
+    if (is.null(pressure)) pressure <- api_data[["surface_pressure"]]
   }
 
   # Recycle any length-1 user scalars to n_obs so all vectors are coherent.
   # API-fetched vectors are already length n; rep_len() is a no-op for them.
   n_obs <- length(datetime)
-  temp          <- rep_len(temp,          n_obs)
-  wind_speed    <- rep_len(wind_speed,    n_obs)
-  RH            <- rep_len(RH,            n_obs)
-  direct_solar  <- rep_len(direct_solar,  n_obs)
+  temp <- rep_len(temp, n_obs)
+  wind_speed <- rep_len(wind_speed, n_obs)
+  RH <- rep_len(RH, n_obs)
+  direct_solar <- rep_len(direct_solar, n_obs)
   diffuse_solar <- rep_len(diffuse_solar, n_obs)
-  pressure      <- rep_len(pressure,      n_obs)
+  pressure <- rep_len(pressure, n_obs)
   if (!is.null(wet_bulb)) wet_bulb <- rep_len(wet_bulb, n_obs)
 
   if (verbose) {
@@ -219,8 +229,8 @@ generate_twl <- function(datetime,
   }
 
   # Constants
-  LR     <- 16.5
-  lambda <- TWL_CONSTANTS$LATENT_HEAT_TWL_KJ   # 2430 kJ/kg at skin temp ~30 °C [ASHRAE Eq. 14]
+  LR <- 16.5
+  lambda <- TWL_CONSTANTS$LATENT_HEAT_TWL_KJ # 2430 kJ/kg at skin temp ~30 °C [ASHRAE Eq. 14]
 
   # Unit conversions
   # API-fetched pressure is always in hPa (Open-Meteo surface_pressure) and
@@ -237,7 +247,7 @@ generate_twl <- function(datetime,
   # body level (~1 m). Log-profile with roughness length z0 = 0.01 m gives:
   #   v_1m = v_10m * ln(1/z0) / ln(10/z0)  =  v_10m * 0.667
   if (wind_from_api) {
-    WIND_HEIGHT_FACTOR <- log(1 / 0.01) / log(10 / 0.01)  # ≈ 0.667
+    WIND_HEIGHT_FACTOR <- log(1 / 0.01) / log(10 / 0.01) # ≈ 0.667
     wind_speed <- wind_speed * WIND_HEIGHT_FACTOR
     if (verbose) {
       cli_alert_info(
@@ -264,7 +274,8 @@ generate_twl <- function(datetime,
   if (verbose) cli_alert("Calculating globe temperature...")
   globe_temp <- calculate_globe_temp(
     temp, wind_speed, direct_solar, diffuse_solar,
-    solar_pos$zenith, albedo, verbose = verbose
+    solar_pos$zenith, albedo,
+    verbose = verbose
   )
 
   # Mean radiant temperature from globe temperature — ISO 7726 formula.
@@ -308,14 +319,13 @@ generate_twl <- function(datetime,
     function(temp, wind_speed, RH, direct_solar, diffuse_solar,
              pressure, pa, temp_dewpoint,
              wet_bulb, globe_temp, trad, idx) {
-
       if (verbose && n_obs > 100) {
         cli_progress_update(id = pb_id, set = idx)
       }
 
       # Return NA if inputs are NA
       if (is.na(temp) || is.na(wind_speed) || is.na(RH) ||
-          is.na(direct_solar) || is.na(diffuse_solar) || is.na(pressure)) {
+        is.na(direct_solar) || is.na(diffuse_solar) || is.na(pressure)) {
         return(NA_real_)
       }
 

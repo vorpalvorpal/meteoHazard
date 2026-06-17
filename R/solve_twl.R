@@ -207,7 +207,7 @@ solve_twl_single <- function(temp, wind_speed, RH, direct_solar, diffuse_solar,
       cli_alert_warning(
         "Observation {index}: heat-balance root not bracketed \\
         (balance at t_skin_min = {round(bal_lo, 2)}, \\
-        balance at t_skin_max = {round(bal_hi, 2)} — same sign). \\
+        balance at t_skin_max = {round(bal_hi, 2)} -- same sign). \\
         Bisection may not converge; returning best-residual estimate."
       )
     }

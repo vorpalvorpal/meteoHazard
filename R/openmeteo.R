@@ -14,7 +14,7 @@ om_request <- function(url) {
       "meteoHazard R package (https://github.com/vorpalvorpal/meteoHazard)"
     ) |>
     httr2::req_timeout(30) |>
-    httr2::req_retry(max_tries = 3, backoff = ~ 2)
+    httr2::req_retry(max_tries = 3, backoff = ~2)
 }
 
 #' Perform an Open-Meteo httr2 request and return the parsed body
@@ -112,11 +112,11 @@ fetch_openmeteo <- function(
   #   (F=F, A=F) Cannot happen (non-empty date range); guard returns empty list
   # ---------------------------------------------------------------------------
 
-  need_archive  <- date_min <  B
+  need_archive <- date_min < B
   need_forecast <- date_max >= B
 
   arch <- NULL
-  fc   <- NULL
+  fc <- NULL
 
   if (need_archive) {
     # Archive sub-request.
@@ -152,24 +152,24 @@ fetch_openmeteo <- function(
     # overlapping boundary hour.
     api_times_raw <- c(fc$hourly$time, arch$hourly$time)
 
-    n_fc   <- length(fc$hourly$time)
+    n_fc <- length(fc$hourly$time)
     n_arch <- length(arch$hourly$time)
 
     hourly_data <- list(time = api_times_raw)
     for (f in fields) {
-      fc_vals   <- fc$hourly[[f]]
+      fc_vals <- fc$hourly[[f]]
       arch_vals <- arch$hourly[[f]]
       # Guard against a field missing from one response (e.g. a gap in archive).
-      if (is.null(fc_vals))   fc_vals   <- rep(NA_real_, n_fc)
+      if (is.null(fc_vals)) fc_vals <- rep(NA_real_, n_fc)
       if (is.null(arch_vals)) arch_vals <- rep(NA_real_, n_arch)
       hourly_data[[f]] <- c(fc_vals, arch_vals)
     }
   } else if (need_forecast) {
     api_times_raw <- fc$hourly$time
-    hourly_data   <- fc$hourly
+    hourly_data <- fc$hourly
   } else if (need_archive) {
     api_times_raw <- arch$hourly$time
-    hourly_data   <- arch$hourly
+    hourly_data <- arch$hourly
   } else {
     # Unreachable with a non-empty date range, but guard defensively.
     return(stats::setNames(
@@ -192,8 +192,8 @@ fetch_openmeteo <- function(
   )
   idx <- match(input_hours, api_times)
 
-  n_matched   <- sum(!is.na(idx))
-  n_total     <- length(datetime)
+  n_matched <- sum(!is.na(idx))
+  n_total <- length(datetime)
   n_unmatched <- sum(is.na(idx))
 
   if (verbose) {
