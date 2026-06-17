@@ -2,56 +2,57 @@
 % Please edit documentation in R/dust_risk.R
 \name{generate_dust_risk_index}
 \alias{generate_dust_risk_index}
-\title{Dust Risk Index for landfill operations}
+\title{Dust Hazard Index for landfill operations}
 \usage{
 generate_dust_risk_index(
   met_data,
   tyler_sieve_no = 20L,
   clay_percent = 10,
   z0 = 0.005,
+  roughness_z0 = NULL,
   bulk_density = 1.6,
-  k = 0.5,
-  scale_max = 2
+  gust_factor = 0.84,
+  crust = FALSE,
+  rain_crust_threshold = 2,
+  crust_factor_max = 3,
+  crust_decay_hours = 72,
+  scale_ref_gust = 65
 )
 }
 \arguments{
-\item{met_data}{A tibble (or data frame) with one row per hourly timestep,
-containing at minimum:
-\describe{
-\item{\code{wind_speed_10m}}{Mean wind speed at 10 m (km/h).}
-\item{\code{wind_gusts_10m}}{Peak gust at 10 m (km/h).}
-\item{\code{soil_moisture_0_to_1cm}}{Volumetric soil moisture (m³/m³).}
-}}
+\item{met_data}{A tibble (or data frame), one row per hourly timestep, with at
+least \code{wind_speed_10m} (km/h), \code{wind_gusts_10m} (km/h), and
+\code{soil_moisture_0_to_1cm} (m^3/m^3); plus \code{precipitation} (mm) when
+\code{crust = TRUE}.}
 
-\item{tyler_sieve_no}{Integer. Tyler sieve number for the modal aggregate
-size of the erodible surface. Default: \code{20L} (0.833 mm, coarse sand).}
+\item{tyler_sieve_no, clay_percent, z0, roughness_z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_emission_potential]{dust_emission_potential()}}.}
 
-\item{clay_percent}{Numeric. Clay fraction (\% by mass). Default: \code{10}.}
+\item{crust}{Logical. Enable the precipitation-driven crust-persistence gate.
+Default \code{FALSE}. When \code{TRUE}, \code{met_data$precipitation} is required.}
 
-\item{z0}{Numeric. Aerodynamic roughness length (m). Default: \code{0.005}.}
+\item{rain_crust_threshold}{Precipitation (mm) at or above which an hour is
+treated as a crust-forming rain event. Default 2.}
 
-\item{bulk_density}{Numeric. Dry bulk density (Mg/m³). Default: \code{1.6}.}
+\item{crust_factor_max}{Maximum threshold multiplier immediately after rain.
+Default 3.}
 
-\item{k}{Numeric. AP-42 particle-size multiplier. Default: \code{0.5} (PM₁₀).}
+\item{crust_decay_hours}{E-folding time (hours) over which the crust
+suppression decays. Default 72.}
 
-\item{scale_max}{Numeric. Emission potential (g/m²) mapped to index = 100.
-Default: \code{2.0} g/m². Values at or above this are capped at 100.
-Tier interpretation (default scale):
-\tabular{rll}{
-\strong{Index} \tab \strong{Tier} \tab \strong{E (g/m²)} \cr
-0–24   \tab LOW      \tab 0.0–0.5 \cr
-25–49  \tab MODERATE \tab 0.5–1.0 \cr
-50–74  \tab HIGH     \tab 1.0–1.5 \cr
-75–100 \tab EXTREME  \tab 1.5–2.0+
-}}
+\item{scale_ref_gust}{Gust speed (km/h) that, on a dry crust-free surface,
+maps to index 100. Default 65. Must exceed the entrainment threshold.}
 }
 \value{
-Numeric vector of length \code{nrow(met_data)} giving the Dust
-Risk Index in \eqn{[0, 100]} for each forecast hour.
+Numeric vector of length \code{nrow(met_data)}, the Dust Hazard Index in
+\verb{[0, 100]} for each forecast hour.
 }
 \description{
-Computes an hourly Dust Risk Index in the range [0, 100] for each timestep
-in a meteorological forecast tibble. Wraps \code{dust_emission_potential()}
-and normalises the raw emission potential (g/m²) to a bounded 0–100 index
-suitable for operational strip plots and trend dashboards.
+Computes an hourly Dust Hazard Index in the range \verb{[0, 100]} for each row of a
+meteorological forecast tibble. Wraps \code{\link[=dust_emission_potential]{dust_emission_potential()}} and
+normalises the relative dust flux against a reference condition (a strong gust
+on a dry surface), so the index keeps resolution across ordinary winds rather
+than saturating.
+}
+\seealso{
+\code{\link[=dust_emission_potential]{dust_emission_potential()}}.
 }

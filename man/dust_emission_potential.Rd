@@ -2,7 +2,7 @@
 % Please edit documentation in R/dust_risk.R
 \name{dust_emission_potential}
 \alias{dust_emission_potential}
-\title{Dust emission potential for exposed landfill surfaces}
+\title{Vertical dust flux for an exposed landfill surface}
 \usage{
 dust_emission_potential(
   tyler_sieve_no,
@@ -11,67 +11,69 @@ dust_emission_potential(
   wind_gusts_10m,
   soil_moisture,
   z0 = 0.005,
+  roughness_z0 = NULL,
   bulk_density = 1.6,
-  k = 0.5
+  gust_factor = 0.84,
+  threshold_multiplier = 1
 )
 }
 \arguments{
-\item{tyler_sieve_no}{Integer. Tyler Standard Sieve number representing the
-mode of the surface aggregate size distribution of the most erodible
-exposed surface. Collect a surface sample from the active cell or
-intermediate cover, dry-sieve using Tyler sieves, and use the sieve number
-corresponding to the modal size class. Valid values:
-3, 4, 5, 6, 8, 9, 10, 14, 20, 24, 28, 32, 35, 42, 48, 60, 65, 80, 100,
-115, 150, 170, 200, 250, 270, 325, 400.}
+\item{tyler_sieve_no}{Integer Tyler Standard Sieve number for the modal
+aggregate size of the erodible surface. Must be one of the tabulated values
+(see \code{TYLER_SIEVE_DIAMETERS_M}).}
 
-\item{clay_percent}{Numeric. Clay fraction of the surface material (< 2 µm
-particles), expressed as percent by mass (e.g., \code{15} for 15\% clay).}
+\item{clay_percent}{Clay fraction of the surface material (\% by mass), in
+\code{0}–\code{100}.}
 
-\item{wind_speed_10m}{Numeric. Hourly mean wind speed at 10 m (km/h).}
+\item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (km/h).}
 
-\item{wind_gusts_10m}{Numeric. Maximum 3-second gust in the preceding hour
-at 10 m height (km/h).}
+\item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (km/h).}
 
-\item{soil_moisture}{Numeric. Volumetric water content of the top 0–1 cm
-soil layer (m³/m³).}
+\item{soil_moisture}{Numeric vector. Volumetric water content of the top
+0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}
 
-\item{z0}{Numeric. Aerodynamic roughness length (m). Default: 0.005 m.}
+\item{z0}{Aerodynamic roughness length for the wind profile (m). Default
+0.005.}
 
-\item{bulk_density}{Numeric. Dry bulk density (Mg/m³). Default: 1.6 Mg/m³.}
+\item{roughness_z0}{Optional. Total aerodynamic roughness (m) of a surface
+that carries non-erodible protective elements (gravel, clods, sparse veg),
+enabling the MB95 drag partition. \code{NULL} (default) means no partition
+(\code{f_eff = 1}) — appropriate for a smooth, trafficked surface.}
 
-\item{k}{Numeric. AP-42 particle size multiplier. Default: 0.5 (PM₁₀).}
+\item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
+
+\item{gust_factor}{Gust-duration factor converting the 3-second gust to the
+fastest-mile driving wind. Default 0.84 (Durst).}
+
+\item{threshold_multiplier}{Multiplier on the threshold friction velocity,
+length 1 or matching the met vectors. Used by \code{\link[=generate_dust_risk_index]{generate_dust_risk_index()}}
+to inject the crust-persistence factor; defaults to 1 (no effect).}
 }
 \value{
-Numeric scalar. Estimated dust emission potential E (g/m²). Returns
-0 when conditions do not exceed the erosion threshold.
+Numeric vector of vertical dust flux (relative units), one per hour;
+\code{0} where the wind does not exceed the (possibly moisture/crust/roughness
+adjusted) threshold.
 }
 \description{
-Computes an hourly dust emission potential (g/m²) for an exposed landfill
-surface using the US EPA AP-42 Section 13.2.5 industrial wind erosion
-methodology, with a dynamic soil moisture correction replacing AP-42's
-static climatological moisture factor.
+Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
+surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
+threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
+an optional Marticorena & Bergametti (1995) drag partition for non-erodible
+roughness, an Owen/White saltation flux, and the MB95 sandblasting
+efficiency. The returned flux is in relative units; for an operational,
+bounded index use \code{\link[=generate_dust_risk_index]{generate_dust_risk_index()}}.
 }
 \details{
-The function is designed to operate on a single forecast hour, accepting
-the meteorological variables provided by the Open-Meteo forecast API.
-It is intended as the core engine of an operational dust warning system
-for landfill sites regulated under the NSW EPA framework.
+The function does not query any API. The caller supplies the per-hour
+meteorological vectors (from Open-Meteo) and one-time site-survey parameters.
 }
-\section{Calculation overview}{
-
-The computation proceeds in six steps:
-\enumerate{
-\item Convert Tyler Sieve number to aggregate diameter (m).
-\item Compute dry threshold friction velocity via Shao & Lu (2000).
-\item Adjust threshold for soil moisture via Fécan et al. (1999).
-\item Derive effective friction velocity from hourly wind data.
-\item Compute AP-42 erosion potential P (g/m²).
-\item Scale by particle-size multiplier k to give E (g/m²).
-}
-}
-
 \references{
-US EPA (2006) AP-42 Section 13.2.5: Industrial Wind Erosion.
-Shao, Y. and Lu, H. (2000). doi:10.1029/2000JD900304.
-Fécan, F. et al. (1999). doi:10.1007/s00585-999-0149-7.
+Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304}.
+Fecan, F., Marticorena, B. & Bergametti, G. (1999)
+\doi{10.1007/s00585-999-0149-7}.
+Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690}.
+Owen, P.R. (1964) saltation of uniform grains in air; White, B.R. (1979).
+}
+\seealso{
+\code{\link[=generate_dust_risk_index]{generate_dust_risk_index()}} for the bounded operational index.
 }
