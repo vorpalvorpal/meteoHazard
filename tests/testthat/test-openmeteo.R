@@ -11,19 +11,54 @@ test_that("fetch_openmeteo returns an empty list when no fields are requested", 
   )
 })
 
-test_that("fetch_openmeteo splits the request across forecast and archive for a spanning range", {
-  # A range straddling today-92 needs the archive endpoint for the old end and
-  # the forecast endpoint for the recent end; both must resolve to non-NA.
-  skip(paste("pending: mock two Open-Meteo responses (archive + forecast); for a",
-             "datetime vector spanning today-92, assert an archival hour and a",
-             "recent hour both return non-NA values aligned to their positions"))
+test_that("fetch_openmeteo identifies itself as the meteoHazard package", {
+  # om_request() builds the httr2 request without performing it; the user-agent
+  # is stored on the request and must name the package.
+  req <- om_request("https://api.open-meteo.com/v1/forecast?x=1")
+  expect_match(req$options$useragent, "meteoHazard")
 })
 
 test_that("fetch_openmeteo issues a single request for a range within one endpoint", {
-  skip(paste("pending: mock the HTTP layer and assert exactly one request is",
-             "performed for an all-historical (single-endpoint) range"))
+  # An all-historical range (well before today-92) is served by the archive
+  # endpoint alone -> exactly one perform call.
+  calls <- 0L
+  local_mocked_bindings(
+    om_perform = function(req) {
+      calls <<- calls + 1L
+      list(hourly = list(time = "2020-06-15T10:00", temperature_2m = 21.5))
+    }
+  )
+  res <- fetch_openmeteo(make_dt("2020-06-15 10:00:00"), -31.95, 115.86,
+                         "temperature_2m")
+  expect_equal(calls, 1L)
+  expect_equal(res$temperature_2m, 21.5)
 })
 
-test_that("fetch_openmeteo identifies itself as the meteoHazard package", {
-  skip("pending: assert the outgoing request User-Agent string contains 'meteoHazard'")
+test_that("fetch_openmeteo splits the request across forecast and archive for a spanning range", {
+  # A range straddling today-92 needs the archive endpoint for the old hour and
+  # the forecast endpoint for the recent hour; both must resolve to non-NA at
+  # their input positions.
+  calls <- 0L
+  old_hour    <- make_dt("2020-06-15 10:00:00")  # archive side
+  recent_hour <- as.POSIXct(
+    format(Sys.time() - 86400, "%Y-%m-%d 10:00:00", tz = "UTC"), tz = "UTC"
+  )                                              # yesterday -> forecast side
+  local_mocked_bindings(
+    om_perform = function(req) {
+      calls <<- calls + 1L
+      if (grepl("archive", req$url)) {
+        list(hourly = list(time = "2020-06-15T10:00", temperature_2m = 21.5))
+      } else {
+        list(hourly = list(
+          time = format(recent_hour, "%Y-%m-%dT%H:%M", tz = "UTC"),
+          temperature_2m = 14.0
+        ))
+      }
+    }
+  )
+  res <- fetch_openmeteo(c(old_hour, recent_hour), -31.95, 115.86,
+                         "temperature_2m")
+  expect_equal(calls, 2L)
+  expect_false(any(is.na(res$temperature_2m)))
+  expect_equal(res$temperature_2m, c(21.5, 14.0))
 })
