@@ -226,7 +226,7 @@ generate_litter_risk_index <- function(met_data, ...) {
       "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
       "i" = paste0(
         "Required: wind_gusts_10m (km/h), wind_speed_10m (km/h), ",
-        "precipitation (mm), soil_moisture_0_to_1cm (m³/m³)."
+        "precipitation (mm), soil_moisture_0_to_1cm (m\u00b3/m\u00b3)."
       )
     ))
   }
