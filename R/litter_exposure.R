@@ -119,25 +119,20 @@ litter_exposure <- function(
   alpha <- unname(LITTER_COMPASS_DEGREES[site$arc_start])
   beta  <- unname(LITTER_COMPASS_DEGREES[site$arc_end])
 
-  # ---- Per-hour directional factor and sensitive-hit flag ------------------ #
-  directional_factor <- numeric(n)
-  sensitive_hit      <- logical(n)
-  for (i in seq_len(n)) {
-    hits <- vapply(
-      seq_len(nrow(site)),
-      function(k) .litter_arc_contains(theta_down[i], alpha[k], beta[k], direction_tol),
-      logical(1)
-    )
-    if (any(hits)) {
-      # Worst case across overlapping sectors: the most permeable wins.
-      directional_factor[i] <- max(site$permeability[hits])
-      sensitive_hit[i] <- any(site$sensitive[hits] &
-                                site$permeability[hits] >= p_open_min)
-    } else {
-      directional_factor[i] <- default_permeability
-      sensitive_hit[i] <- FALSE
-    }
+  # ---- Directional factor and sensitive-hit flag --------------------------- #
+  # Loop over the (few) sectors, vectorising each arc test across all hours.
+  # best_perm holds the most permeable hit sector per hour (worst case across
+  # overlaps); -Inf marks an hour no sector covers, which falls back to the
+  # default permeability.
+  best_perm     <- rep(-Inf, n)
+  sensitive_hit <- logical(n)
+  for (k in seq_len(nrow(site))) {
+    hit_k <- .litter_arc_contains(theta_down, alpha[k], beta[k], direction_tol)
+    best_perm <- pmax(best_perm, ifelse(hit_k, site$permeability[k], -Inf))
+    sensitive_hit <- sensitive_hit |
+      (hit_k & site$sensitive[k] & site$permeability[k] >= p_open_min)
   }
+  directional_factor <- ifelse(is.finite(best_perm), best_perm, default_permeability)
 
   # ---- Exposure-adjusted hazard and severity zone -------------------------- #
   exposure <- hazard * directional_factor
