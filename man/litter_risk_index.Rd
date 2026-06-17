@@ -2,397 +2,143 @@
 % Please edit documentation in R/litter_risk.R
 \name{litter_risk_index}
 \alias{litter_risk_index}
-\title{Litter Risk Index (LRI) for windblown litter dispersal at landfill sites}
+\title{Litter Hazard Index for windblown litter at landfill sites}
 \usage{
 litter_risk_index(
   wind_gusts_10m,
   wind_speed_10m,
-  wind_direction_10m,
   precipitation,
   soil_moisture_0_to_1cm,
-  cape,
-  is_day,
-  receptor_arcs,
-  gust_threshold = 15,
-  gust_ref = 50,
-  gust_max_score = 50,
-  gust_exponent = 2,
-  wind_threshold = 20,
-  wind_ref = 55,
-  wind_mult_max = 2,
-  rain_threshold = 0.5,
-  soil_wet = 0.2,
+  kappa = 0.4,
+  z0 = 0.05,
+  ustar_t0 = 0.3,
+  ustar_ref = 1.05,
+  entrainment_max = 50,
+  excess_exponent = 2,
+  moisture_gain = 2,
+  moisture_curve = 0.5,
   soil_dry = 0.05,
-  cape_ref = 1000,
-  instability_max = 0.2,
-  offwind_factor = 0.5,
-  direction_tol = 15
+  soil_wet = 0.2,
+  wind_transport_onset = 20,
+  wind_transport_ref = 55,
+  transport_max = 2,
+  rain_threshold = 0.5
 )
 }
 \arguments{
-\item{wind_gusts_10m}{Numeric vector. Peak wind gust at 10 m above ground
-level (km/h), Open-Meteo variable \code{wind_gusts_10m}. The primary
-mobilisation driver: gust energy (not sustained wind) determines whether
-discrete waste items are dislodged, consistent with the aerodynamic drag
-equation. Mellink et al. (2024) found that 70\% of macroplastic item types
-mobilised from compacted surfaces below 31.7 km/h.}
+\item{wind_gusts_10m}{Numeric vector. Peak wind gust at 10 m (km/h),
+Open-Meteo \code{wind_gusts_10m}. Drives entrainment.}
 
-\item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (km/h),
-Open-Meteo variable \code{wind_speed_10m}. Used as the transport distance
-modifier: once items are dislodged by gusts, sustained wind governs how
-far they travel and whether partially dislodged items continue to move.}
+\item{wind_speed_10m}{Numeric vector. Mean wind speed at 10 m (km/h),
+Open-Meteo \code{wind_speed_10m}. Drives transport potential.}
 
-\item{wind_direction_10m}{Numeric vector. Wind direction at 10 m (degrees
-[0, 360], meteorological convention: the direction wind blows \emph{from}),
-Open-Meteo variable \code{wind_direction_10m}. Used to determine whether
-wind is blowing toward a sensitive receptor, modulating the directional
-attenuation factor \eqn{M}.}
+\item{precipitation}{Numeric vector. Hourly precipitation (mm), Open-Meteo
+\code{precipitation}. Feeds the rainfall hard gate.}
 
-\item{precipitation}{Numeric vector. Hourly precipitation sum (mm), Open-Meteo
-variable \code{precipitation}. The rainfall hard gate \eqn{R} suppresses
-all litter risk instantly when this exceeds \code{rain_threshold}. Even
-light rain (0.5 mm/h) wets exposed waste surfaces and increases item mass
-through water absorption; Mellink et al. (2024) found rain significantly
-reduced macroplastic mobilisation.}
+\item{soil_moisture_0_to_1cm}{Numeric vector. Volumetric water content of the
+0--1 cm layer (m^3/m^3), Open-Meteo \code{soil_moisture_0_to_1cm}. Used as a
+relative surface-wetness surrogate that raises the entrainment threshold and
+supplies the saturation veto.}
 
-\item{soil_moisture_0_to_1cm}{Numeric vector. Volumetric water content of
-the top 0--1 cm soil layer (m\eqn{^3}/m\eqn{^3}), Open-Meteo variable
-\code{soil_moisture_0_to_1cm}. This is computed by Open-Meteo's ERA5-based
-land-surface model and already integrates antecedent rainfall,
-evapotranspiration, temperature, wind speed, solar radiation, and drainage.
-Using it directly offloads the drying-rate calculation to the NWP model,
-eliminating the need for client-side antecedent dry period tracking.
-\strong{Important:} absolute values represent natural soil at the grid-cell
-location, not a landfill surface. The relative wetting/drying signal (rising
-after rain, falling during dry periods) should track correctly, but absolute
-thresholds (\code{soil_wet} and \code{soil_dry}) must be calibrated against
-observed site conditions.}
+\item{kappa}{von Karman constant for the log wind profile. Default 0.40.}
 
-\item{cape}{Numeric vector. Convective Available Potential Energy (J/kg),
-Open-Meteo variable \code{cape}. On hot days, convective thermals produce
-vertical velocities of 1--5 m/s, easily exceeding the terminal velocity of
-plastic bags (~1--2 m/s), lofting them to heights that can clear perimeter
-fencing. This is modelled as a secondary bonus — it worsens risk but cannot
-create it independently. There is no published quantitative model linking
-CAPE to litter lofting probability at landfills.}
+\item{z0}{Aerodynamic roughness length of the working face (m). Default 0.05.
+Must be less than the 10 m reference height. High calibration uncertainty.}
 
-\item{is_day}{Integer or numeric vector (0 or 1). Daytime flag; 1 during
-daylight hours, 0 at night. Open-Meteo variable \code{is_day}. At night
-the atmospheric instability bonus is set to zero because surface-driven
-convection ceases; CAPE-driven lofting is a daytime phenomenon.}
+\item{ustar_t0}{Dry threshold friction velocity (m/s). Default 0.30.}
 
-\item{receptor_arcs}{A list of \code{character(2)} vectors specifying the
-compass arcs toward sensitive receptors, in clockwise order. Each element
-gives the \emph{start} and \emph{end} compass label of the arc; wind
-blowing \emph{from} directions within the arc is considered to be blowing
-\emph{toward} that receptor.
+\item{ustar_ref}{Friction velocity at which entrainment saturates (m/s).
+Default 1.05. Must exceed \code{ustar_t0}.}
 
-Valid compass labels and their degree equivalents:
-\tabular{ll}{
-\code{"N"}  \tab 0°  \cr
-\code{"NE"} \tab 45° \cr
-\code{"E"}  \tab 90° \cr
-\code{"SE"} \tab 135° \cr
-\code{"S"}  \tab 180° \cr
-\code{"SW"} \tab 225° \cr
-\code{"W"}  \tab 270° \cr
-\code{"NW"} \tab 315°
-}
+\item{entrainment_max}{Maximum entrainment score. Default 50.}
 
-Example: \code{list(c("W", "N"), c("SE", "S"))} specifies two receptors.
-Receptor 1: wind from 270° clockwise to 0° (i.e. westerly through
-northerly). Receptor 2: wind from 135° to 180° (southeasterly to southerly).
-An arc that crosses north (e.g. \code{c("W", "N")}: start 270° > end 0°)
-is handled correctly via modular arithmetic.}
+\item{excess_exponent}{Power-law exponent on the friction-velocity excess.
+Default 2 (AP-42); calibratable in \verb{[2, 3]}.}
 
-\item{gust_threshold}{Numeric scalar. Minimum gust speed for litter
-mobilisation, \eqn{G_0} (km/h). Default: 15. Below this gust speed the
-LRI is zero regardless of all other conditions. The threshold of 15 km/h
-(4.2 m/s) is slightly above the lightest-item critical mobilisation
-velocity measured by Mellink et al. (2024) for plastic bags on compacted
-surfaces (~8.3 km/h), elevated to account for the partial anchoring effect
-of overlying waste and compaction on a landfill working face. Moderate
-calibration uncertainty; can be refined by logging gust speed at first
-observed litter movement.}
+\item{moisture_gain}{Maximum fractional increase of the threshold as the
+surface approaches wet. Default 2.0. High calibration uncertainty.}
 
-\item{gust_ref}{Numeric scalar. Gust speed at which the gust score reaches
-its maximum and is capped, \eqn{G_{ref}} (km/h). Default: 50. Above this
-speed, nearly all loose waste is already mobilised and additional gust
-energy does not increase the mobilised fraction. Must be strictly greater
-than \code{gust_threshold}. Moderate calibration uncertainty; can be
-refined by observing whether mobilisation plateaus above ~50 km/h gusts.}
+\item{moisture_curve}{Curvature of the moisture-threshold rise. Default 0.5
+(concave, Fécan-type). High calibration uncertainty.}
 
-\item{gust_max_score}{Numeric scalar. Maximum score contribution from the
-gust component, \eqn{a}. Default: 50. This occupies the lower half of the
-[0, 100] range; reaching the upper half additionally requires elevated
-sustained wind, dryness, instability, and directional alignment.}
+\item{soil_dry}{Soil moisture at or below which the surface is fully dry
+(m^3/m^3). Default 0.05.}
 
-\item{gust_exponent}{Numeric scalar. Power-law exponent for the gust
-mobilisation function, \eqn{n}. Default: 2. This value is a theoretical
-prior from the drag equation (\eqn{F_D \propto v^2}) rather than an
-empirically fitted value. It is a strong candidate for calibration via
-regression of observed litter frequency against gust speed.}
+\item{soil_wet}{Soil moisture at or above which the surface is saturated and
+entrainment is vetoed (m^3/m^3). Default 0.20. Must exceed \code{soil_dry}.}
 
-\item{wind_threshold}{Numeric scalar. Sustained wind speed below which the
-transport modifier is 1.0 (no enhancement), \eqn{W_0} (km/h). Default: 20.
-Approximately Beaufort Force 4 ("moderate breeze"), above which lightweight
-items already in motion begin to travel significant distances.}
+\item{wind_transport_onset}{Mean wind below which transport adds nothing
+(km/h). Default 20.}
 
-\item{wind_ref}{Numeric scalar. Sustained wind speed at which the transport
-modifier reaches \code{wind_mult_max}, \eqn{W_{ref}} (km/h). Default: 55.
-Corresponds to near-gale conditions where all mobilised items will travel
-beyond the site boundary regardless of transport distance. Must be strictly
-greater than \code{wind_threshold}.}
+\item{wind_transport_ref}{Mean wind at which transport saturates (km/h).
+Default 55. Must exceed \code{wind_transport_onset}.}
 
-\item{wind_mult_max}{Numeric scalar. Maximum sustained wind multiplier,
-\eqn{S_{max}}. Default: 2.0. At the maximum, sustained high wind can at
-most double the gust-driven score. The upper bound of 2.0 is conservative
-by design: sustained wind cannot mobilise items without sufficient gust
-energy first, so its influence is bounded as a multiplier. There is no
-published quantitative relationship between sustained wind speed and litter
-transport distance at landfills; the range [1.0, 2.0] reflects engineering
-judgement.}
+\item{transport_max}{Maximum transport multiplier. Default 2.0.}
 
-\item{rain_threshold}{Numeric scalar. Hourly precipitation at or above which
-the rainfall hard gate fully suppresses litter risk, \eqn{P_{rain}} (mm).
-Default: 0.5. This corresponds to light but measurable rain, sufficient to
-wet surfaces within minutes. Drizzle below 0.5 mm/h may not reliably
-suppress mobilisation of waterproof plastic film. The rainfall gate
-provides immediate suppression at rain onset, compensating for the lag that
-may occur in the soil moisture model.}
-
-\item{soil_wet}{Numeric scalar. Soil moisture at or above which the surface
-is considered too wet for litter mobilisation, \eqn{SM_{wet}}
-(m\eqn{^3}/m\eqn{^3}). Default: 0.20. \strong{High calibration
-uncertainty:} this threshold is an initial estimate. To calibrate, record
-Open-Meteo \code{soil_moisture_0_to_1cm} values at times when waste
-surfaces are visibly wet after rain. The broad default is deliberately set
-to avoid premature false negatives during the calibration period.}
-
-\item{soil_dry}{Numeric scalar. Soil moisture at or below which the surface
-is considered fully dry (gate = 1.0), \eqn{SM_{dry}}
-(m\eqn{^3}/m\eqn{^3}). Default: 0.05. Must be strictly less than
-\code{soil_wet}. \strong{High calibration uncertainty:} record values when
-waste is fully dry and litter is observed to mobilise.}
-
-\item{cape_ref}{Numeric scalar. CAPE value at which the instability bonus
-reaches its maximum, \eqn{C_{ref}} (J/kg). Default: 1000. Represents
-moderate convective instability in the Australian context. Bureau of
-Meteorology severe thunderstorm warnings typically begin at approximately
-1500--2000 J/kg.}
-
-\item{instability_max}{Numeric scalar. Maximum instability bonus,
-\eqn{B_{max}}. Default: 0.2 (20\% increase). Reflects the judgement that
-convective thermals are a secondary risk factor: they worsen an already-bad
-situation but cannot generate risk independently. The bonus is bounded at
-20\% to maintain the gust mobilisation function as the primary driver.}
-
-\item{offwind_factor}{Numeric scalar. Attenuation factor applied when wind
-does not blow toward any sensitive receptor, \eqn{M_{offwind}}. Default:
-0.5. Even when wind blows toward barriers or closed aspects, some litter
-can recirculate via turbulent eddies, be lofted over obstacles by thermals,
-or escape via vehicle movements — so the factor is not zero. Calibration
-guidance (NSW EPA, 2016): use 0.3 for solid engineered walls or dense
-tree belts; use 0.7 for sparse vegetation or low earth bunds. High
-calibration uncertainty.}
-
-\item{direction_tol}{Numeric scalar. Wind direction tolerance added to each
-edge of a receptor arc, \eqn{\Delta\theta} (degrees). Default: 15.
-Accounts for forecast wind direction error (typically ±10--20° for NWP
-models) and for the lateral spread of litter dispersal plumes. The arc
-containment test handles the 360°/0° wraparound correctly after expansion.}
+\item{rain_threshold}{Hourly precipitation at or above which all litter
+hazard is suppressed (mm). Default 0.5.}
 }
 \value{
-Numeric vector of length equal to the input vectors, giving the
-Litter Risk Index in the range [0, 100] for each forecast hour. Returns
-exactly 0 when gusts are sub-threshold, rainfall is active, or the surface
-is saturated.
+Numeric vector of length equal to the inputs, the litter hazard index
+in \verb{[0, 100]} for each forecast hour.
 }
 \description{
-Computes an hourly Litter Risk Index (LRI) in the range [0, 100] for
-forecasting windblown litter dispersal conditions at a landfill site. The
-LRI is computed from pre-fetched Open-Meteo forecast data and a set of
-site-specific configuration parameters.
+Computes an hourly \strong{meteorological litter hazard} in the range \verb{[0, 100]}:
+given the weather in a forecast hour, how strong is the propensity for loose
+litter to be entrained from the working face and moved. This is a
+point-source hazard index, \strong{not} a dispersion model, and it is
+direction-agnostic — wind \emph{direction}, site geometry, and barriers are
+handled separately by \code{\link[=litter_exposure]{litter_exposure()}}.
 }
 \details{
-The function does not make API calls. The calling code is responsible for
-fetching the required hourly variables from the Open-Meteo \code{/v1/forecast}
-endpoint (with \code{forecast_days = 7} and \code{timezone = "Australia/Sydney"})
-and passing them as arguments. All meteorological inputs accept either a
-scalar (single forecast hour) or a numeric vector (multiple hours), enabling
-direct use inside \code{\link[dplyr]{mutate}}.
+The function does not query any API. The caller fetches the four required
+hourly variables from the Open-Meteo \verb{/v1/forecast} endpoint (default metric
+units) and passes them as numeric vectors, one element per forecast hour.
 }
-\section{Model structure}{
+\section{Model}{
 
+The index is a bounded, multiplicative combination of entrainment, transport
+potential, and a rainfall gate:
+\deqn{LRI = \min(E \cdot T \cdot R,\; 100)}
 
-The LRI uses a \strong{multiplicative model with two wetness gates} — one
-binary (active rainfall) and one continuous (soil moisture):
-
-\deqn{LRI_{raw} = f_G(G) \times S_W(W) \times R(P_0) \times V(SM) \times
-  (1 + B(C,\,d)) \times M(D)}
-\deqn{LRI = \min(LRI_{raw},\; 100)}
-
-Components:
 \describe{
-\item{\eqn{f_G(G)}}{Gust mobilisation function (primary driver). Power-law
-ramp above a minimum threshold that saturates at a reference gust speed.
-Exponent \eqn{n = 2} follows from the aerodynamic drag equation
-\eqn{F_D = \frac{1}{2}\rho C_D A v^2}; the fraction of waste items
-mobilised scales with the excess kinetic energy above the detachment
-threshold. Range: [0, \code{gust_max_score}].}
-\item{\eqn{S_W(W)}}{Sustained wind transport modifier. Multiplier on the
-gust score reflecting how far mobilised items travel. Structured as a
-multiplier (not an additive term) because sustained wind without
-sufficient gust energy cannot mobilise items in the first place. Range:
-[1.0, \code{wind_mult_max}].}
-\item{\eqn{R(P_0)}}{Rainfall hard gate. Binary suppressor: when measurable
-rain is falling, all litter risk is instantly set to zero. This provides
-immediate response that the soil moisture model (which may lag by one or
-more time steps) cannot. Range: \{0, 1\}.}
-\item{\eqn{V(SM)}}{Soil moisture wetness gate. Linear ramp between fully
-dry and fully wet thresholds, using Open-Meteo's land-surface model
-output which already integrates antecedent rainfall, evapotranspiration,
-temperature, and drainage history. This offloads drying-rate calculation
-to the NWP model. Range: [0.0, 1.0].}
-\item{\eqn{B(C,\,d)}}{Atmospheric instability bonus. On hot days with high
-CAPE, thermal updrafts can loft lightweight items (plastic bags, film) to
-heights sufficient to clear perimeter fencing. Zero at night because
-surface-driven convection ceases. Range: [0.0, \code{instability_max}].}
-\item{\eqn{M(D)}}{Directional attenuation factor. Reflects the site
-geometry constraint that litter can only escape off-site in specific wind
-directions. When wind blows toward a sensitive receptor the factor is 1.0;
-when blowing toward barriers or closed aspects it is reduced to
-\code{offwind_factor}. Range: [\code{offwind_factor}, 1.0].}
+\item{Entrainment \code{E}}{Driven by the \strong{gust} through friction velocity
+\verb{u*} (the surface-shear-stress scale). Using the neutral logarithmic wind
+profile, \eqn{u_{*g} = \kappa G / \ln(z/z_0)} with the gust \code{G} in m/s.
+Entrainment follows the EPA AP-42 wind-erosion shape
+\eqn{E = a\,\min(1, ((u_{*g}-u_{*t})/\Delta u_*)^n)} with
+\eqn{\Delta u_* = u_{*ref} - u_{*t0}}, bounded above by \code{entrainment_max}.}
+\item{Moisture-raised threshold \code{u*t}}{A damp surface needs a stronger gust
+to release litter (Fécan et al. 1999): the threshold rises with surface
+moisture, \eqn{u_{*t} = u_{*t0}(1 + \gamma s^{\beta})} where
+\eqn{s = \mathrm{clamp}((SM-SM_{dry})/(SM_{wet}-SM_{dry}), 0, 1)}. At or
+above \code{soil_wet} the surface is treated as saturated and entrainment is
+vetoed (\code{E = 0}).}
+\item{Transport potential \code{T}}{Driven by the \strong{mean wind} directly (not
+\verb{u*}; transport is flight-height advection). A linear ramp from 1 to
+\code{transport_max} between \code{wind_transport_onset} and \code{wind_transport_ref}
+km/h — the "how far is it moved" penalty.}
+\item{Rainfall gate \code{R}}{Binary: \code{R = 0} when \code{precipitation >= rain_threshold}, else 1.}
 }
-
-The multiplicative structure guarantees that any single suppressing condition
-drives the entire score to zero — a property that additive models cannot
-achieve.
-}
-
-\section{Theoretical range analysis}{
-
-
-Maximum possible \eqn{LRI_{raw}} (all components at maxima, wind toward receptor):
-\deqn{50 \times 2.0 \times 1.0 \times 1.0 \times 1.2 \times 1.0 = 120}
-The \eqn{\min(\cdot, 100)} cap therefore activates under simultaneous extreme
-gusts, high sustained wind, full dryness, no rain, high instability, and wind
-toward a receptor.
-
-Maximum \eqn{LRI_{raw}} when wind is NOT toward a receptor (using defaults):
-\deqn{50 \times 2.0 \times 1.0 \times 1.0 \times 1.2 \times 0.5 = 60}
-This means EXTREME tier (> 70) is only reachable when wind blows toward a
-sensitive receptor — a deliberate design feature that concentrates the
-highest-severity warnings on the directions where off-site escape is
-physically possible.
-}
-
-\section{Important caveat}{
-
-
-No published composite litter risk index exists in the academic or regulatory
-literature. This formulation is a novel construction synthesised from the best
-available empirical data on macroplastic mobilisation thresholds (Mellink
-et al. 2024), general aerodynamic principles, and standard landfill
-operational guidance. It should be treated as a first-approximation model
-requiring empirical calibration against on-site litter escape observations
-over at least 12 months before tier boundaries are considered reliable.
-The calling code is responsible for mapping the returned numeric value to
-operational tiers (see the Tier mapping section below for suggested
-boundaries).
-}
-
-\section{Tier mapping (suggested, requires calibration)}{
-
-The raw numeric LRI can be mapped to four operational tiers by the calling
-code. Suggested boundaries (high uncertainty — see Calibration priorities):
-\tabular{rllll}{
-\strong{LRI} \tab \strong{Tier} \tab \strong{Label} \tab \strong{Colour}
-\tab \strong{Meaning} \cr
-0--19  \tab 1 \tab LOW      \tab green  \tab Dispersal unlikely \cr
-20--44 \tab 2 \tab MODERATE \tab yellow \tab Enhanced controls warranted \cr
-45--69 \tab 3 \tab HIGH     \tab orange \tab Dispersal likely without intervention \cr
-70--100 \tab 4 \tab EXTREME \tab red    \tab Maximum controls or cessation required
-}
-Example tier assignment: \code{cut(lri, breaks = c(-Inf, 20, 45, 70, Inf),}
-\code{labels = c("LOW", "MODERATE", "HIGH", "EXTREME"), right = FALSE)}.
-The recommended calibration approach is ROC (receiver operating
-characteristic) analysis against a 12-month log of observed litter escape
-events.
-}
-
-\section{Calibration priorities}{
-
-Parameters most in need of site-specific calibration, in approximate priority
-order:
-\enumerate{
-\item \code{soil_wet} / \code{soil_dry} — the NWP soil moisture is fitted
-to natural soil, not a landfill surface.
-\item Tier boundaries — initial estimates only; ROC analysis required
-after 12 months of litter escape event logging (see Tier mapping section).
-\item \code{offwind_factor} — depends strongly on actual barrier quality
-and maintenance.
-\item \code{gust_threshold} / \code{gust_ref} — can be refined by
-logging gust speed at times of observed litter movement.
-\item \code{gust_exponent} — regression of observed litter frequency
-against gust speed once sufficient event data are available.
-}
-}
-
-\section{Known limitations}{
-
-\enumerate{
-\item \strong{Soil moisture model mismatch.} The \code{soil_moisture_0_to_1cm}
-field is modelled for natural soil at the NWP grid-cell location. A
-landfill surface has different infiltration, retention, and evaporation
-characteristics. The relative signal (wetting and drying trends) should
-track correctly, but absolute thresholds require calibration.
-\item \strong{Topographic wind effects.} Open-Meteo's forecast models use
-approximately 9--15 km grid resolution. In topographically complex terrain
-(such as the Blue Mountains, NSW), local wind acceleration over ridges,
-valley channelling, and lee-side turbulence may cause actual gust speeds
-to differ from forecast values by 20--50\%.
-\item \strong{Waste composition variability.} The model treats litter as a
-homogeneous category. A working face receiving heavy construction and
-demolition waste has far lower litter risk than one receiving municipal
-kerbside waste. A waste-type modifier based on scheduled tipping
-operations is a candidate for future refinement.
-\item \strong{Litter fence state.} The LRI represents the meteorological
-hazard, not residual risk after physical controls. Degraded or poorly
-positioned fencing will allow litter escape at lower LRI values than the
-tier boundaries suggest.
-\item \strong{Soil moisture response lag.} At the very onset of light rain,
-the soil moisture field may not yet have risen to \code{soil_wet}. The
-separate rainfall gate compensates by providing immediate suppression
-when measurable precipitation is detected. In practice, the lag is
-sub-hourly and rain onset itself physically suppresses mobilisation before
-the surface is fully wetted.
-\item \strong{Novel composite index.} No peer-reviewed formulation of this
-specific index exists. All inter-component weights and tier boundaries
-are based on engineering judgement and must be empirically validated.
-}
+Any single suppressor (rain, saturated surface, sub-threshold gust) drives
+the index to zero. The maximum attainable value is exactly 100
+(\code{entrainment_max * transport_max = 50 * 2}).
 }
 
 \references{
-Mellink, Y., Roebroek, C.T.J., van Emmerik, T.H.M. et al. (2024).
-Wind- and rain-driven macroplastic mobilization and transport on land.
-\emph{Scientific Reports} 14, 5006. \doi{10.1038/s41598-024-53971-8}.
-Empirical basis for \eqn{G_0}: on compacted surfaces, 70\% of macroplastic
-item types mobilised below 31.7 km/h; plastic bags mobilised at ~8.3 km/h.
-Also the basis for the rainfall suppression gate.
+EPA (2006). AP-42, Section 13.2.5: Industrial Wind Erosion. Basis for the
+friction-velocity excess entrainment form.
 
-NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
-(2nd Edition).
-\url{https://www.epa.nsw.gov.au/sites/default/files/solid-waste-landfill-guidelines-160259.pdf}
-Regulatory framework requiring operators to prevent off-site amenity impacts;
-litter is a specifically identified regulated nuisance. Source of the
-site-geometry rationale for the directional attenuation factor \eqn{M}.
+Fecan, F., Marticorena, B. and Bergametti, G. (1999). Parametrization of the
+increase of the aeolian erosion threshold wind friction velocity due to soil
+moisture for arid and semi-arid areas. \emph{Annales Geophysicae}, 17,
+149--157. Basis for the moisture-raised threshold.
 
-Open-Meteo. Weather Forecast API documentation.
-\url{https://open-meteo.com/en/docs}
-Source of all meteorological input variables.
-
-The \eqn{v^2} dependence in \eqn{f_G} follows from the standard
-aerodynamic drag equation \eqn{F_D = \frac{1}{2}\rho C_D A v^2}; see any
-introductory aerodynamics or boundary-layer meteorology text.
+Mellink, Y. et al. (2024). Wind- and rain-driven macroplastic mobilization
+and transport on land. \emph{Scientific Reports} 14, 5006.
+\doi{10.1038/s41598-024-53971-8}.
+}
+\seealso{
+\code{\link[=litter_exposure]{litter_exposure()}} for the direction- and geometry-aware exposure
+layer that sits on top of this hazard index.
 }

@@ -2,36 +2,27 @@
 % Please edit documentation in R/litter_risk.R
 \name{generate_litter_risk_index}
 \alias{generate_litter_risk_index}
-\title{Litter Risk Index for landfill operations (tibble API)}
+\title{Litter hazard index for a forecast tibble}
 \usage{
-generate_litter_risk_index(met_data, receptor_arcs, ...)
+generate_litter_risk_index(met_data, ...)
 }
 \arguments{
-\item{met_data}{A tibble (or data frame) with one row per hourly timestep,
-containing at minimum:
-\describe{
-\item{\code{wind_gusts_10m}}{Peak gust at 10 m (km/h).}
-\item{\code{wind_speed_10m}}{Mean wind speed at 10 m (km/h).}
-\item{\code{wind_direction_10m}}{Wind direction at 10 m (degrees, FROM).}
-\item{\code{precipitation}}{Hourly precipitation (mm).}
-\item{\code{soil_moisture_0_to_1cm}}{Volumetric soil moisture (m³/m³).}
-\item{\code{cape}}{Convective Available Potential Energy (J/kg).}
-\item{\code{is_day}}{Daytime flag (0 or 1).}
-}}
+\item{met_data}{A tibble (or data frame) with one row per hourly timestep
+containing at least the columns \code{wind_gusts_10m} (km/h), \code{wind_speed_10m}
+(km/h), \code{precipitation} (mm), and \code{soil_moisture_0_to_1cm} (m^3/m^3).}
 
-\item{receptor_arcs}{A list of \code{character(2)} vectors specifying the
-compass arcs toward sensitive receptors. See \code{\link{litter_risk_index}}
-for full details.}
-
-\item{...}{Additional arguments passed to \code{\link{litter_risk_index}}
-(e.g. \code{gust_threshold}, \code{soil_wet}, \code{offwind_factor}).}
+\item{...}{Additional calibration parameters forwarded to
+\code{\link[=litter_risk_index]{litter_risk_index()}} (e.g. \code{rain_threshold}, \code{soil_wet}, \code{z0}).}
 }
 \value{
-Numeric vector of length \code{nrow(met_data)} giving the Litter
-Risk Index in \eqn{[0, 100]} for each forecast hour.
+Numeric vector of length \code{nrow(met_data)}, the litter hazard index in
+\verb{[0, 100]} for each forecast hour.
 }
 \description{
-Computes an hourly Litter Risk Index in the range [0, 100] for each timestep
-in a meteorological forecast tibble. Wraps \code{litter_risk_index()} and
-accepts a tibble with named columns rather than individual vectors.
+Computes the hourly litter hazard index (\code{\link[=litter_risk_index]{litter_risk_index()}}) for each row
+of a meteorological forecast tibble. Wraps the vector API, accepting a tibble
+with named columns rather than individual vectors.
+}
+\seealso{
+\code{\link[=litter_risk_index]{litter_risk_index()}}, \code{\link[=litter_exposure]{litter_exposure()}}.
 }
