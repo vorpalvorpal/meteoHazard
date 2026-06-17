@@ -8,7 +8,8 @@ An R package that turns meteorological data into **management-relevant predictio
 |---|---|---|
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
 | `generate_odour_risk_index()` | **Odour nuisance** — downwind odour dispersion | ✅ Implemented |
-| `generate_litter_risk_index()` | **Wind-blown litter** — material escaping the site boundary | ✅ Implemented |
+| `generate_litter_risk_index()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
+| `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
 
 ## Installation
 
@@ -130,32 +131,50 @@ The raw score is **not** clamped (theoretical maximum ≈ 1.80). Suggested opera
 
 Passing the optional `drainage_axes` argument enables terrain-aware drainage and fumigation handling — see `?generate_odour_risk_index` for the full model description and references.
 
-## Wind-blown litter risk
+## Wind-blown litter
 
-`generate_litter_risk_index()` computes an hourly **Litter Risk Index (LRI)** in the range 0–100 for windblown litter dispersal at a landfill. It uses a multiplicative model with two wetness gates (active rainfall and soil moisture), driven primarily by gust energy and modulated by sustained wind, atmospheric instability, and wind direction relative to sensitive receptors.
+Litter is split into two composable layers: a **hazard** index (the meteorology at the working face) and an **exposure** layer (where the litter goes, given wind direction and site geometry).
 
-As with odour, the caller supplies pre-fetched Open-Meteo data (one row per hour). Receptor directions are given as compass arcs — wind blowing *from* a direction inside an arc is treated as blowing *toward* that receptor.
+### Hazard index
+
+`generate_litter_risk_index()` computes an hourly litter **hazard** in the range 0–100: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below.
+
+The caller supplies pre-fetched Open-Meteo data (one row per hour) with four columns:
 
 ```r
-# met_data columns: wind_gusts_10m, wind_speed_10m, wind_direction_10m,
-#   precipitation, soil_moisture_0_to_1cm, cape, is_day
+# met_data columns: wind_gusts_10m, wind_speed_10m, precipitation,
+#                   soil_moisture_0_to_1cm
 
-litter <- generate_litter_risk_index(
-  met_data,
-  receptor_arcs = list(c("W", "N"))   # one receptor: wind from W clockwise to N
-)
+hazard <- generate_litter_risk_index(met_data)
 ```
 
-The vector API `litter_risk_index()` takes the individual columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (gust thresholds, soil-moisture gates, off-wind attenuation, etc.). Suggested tier mapping (high uncertainty — requires site calibration):
+The vector API `litter_risk_index()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Suggested tier mapping (high uncertainty — requires site calibration):
 
-| LRI | Tier | Meaning |
+| Hazard | Tier | Meaning |
 |---|---|---|
-| 0 – 19 | LOW | Dispersal unlikely |
+| 0 – 19 | LOW | Entrainment-and-transport unlikely |
 | 20 – 44 | MODERATE | Enhanced controls warranted |
-| 45 – 69 | HIGH | Dispersal likely without intervention |
+| 45 – 69 | HIGH | Likely without intervention |
 | 70 – 100 | EXTREME | Maximum controls or cessation required |
 
-See `?generate_litter_risk_index` and `?litter_risk_index` for the full parameter list, model structure, and references.
+### Exposure layer
+
+`litter_exposure()` sits on top of the hazard index and answers the consequence question: given the hazard, the wind direction, and the site geometry, where does the litter end up? The site is described as boundary sectors, each with a `permeability` (1 = open, lower = better barrier) and a `sensitive` flag.
+
+```r
+site <- data.frame(
+  arc_start    = c("NE", "SW"),
+  arc_end      = c("SE", "NW"),
+  permeability = c(1.0, 0.3),    # open receptor to the E; tree belt to the W
+  sensitive    = c(TRUE, FALSE)
+)
+
+exposure <- litter_exposure(hazard, met_data$wind_direction_10m, site)
+# data frame: exposure (hazard attenuated by direction) and a severity zone
+#   within_face < on_site < off_site
+```
+
+See `?litter_risk_index`, `?generate_litter_risk_index`, and `?litter_exposure` for the full parameter lists, model structure, and references.
 
 ## Reference
 
