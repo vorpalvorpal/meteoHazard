@@ -75,14 +75,15 @@ test_that("under calm winds exposure is the same for any bearing at one distance
 # ── Drainage refinement ─────────────────────────────────────────────────────
 test_that("katabatic drainage confines emissions away from an aligned receptor", {
   # Calm, dark, clear hour -> drainage. Aligned receptor (bearing 0, drainage
-  # axis from 0). With drainage the directional factor collapses to ~0.05
-  # versus the generic calm 0.5.
+  # axis from 0). The directional factor collapses to 0.3 * ~0.05 = ~0.015
+  # (the 0.3 carries the monolith's W_spd confinement) versus the generic calm
+  # 0.5 -- a >10x suppression, not just "lower".
   d   <- me(wind_speed_10m = 0.2, direct_radiation = 0, cloud_cover = 10)
   rec <- rcp(0, 300)
   ax  <- data.frame(bearing_from = 0, weight = 1)
   with_drn <- odour_exposure(0.3, d, rec, drainage_axes = ax)
   without  <- odour_exposure(0.3, d, rec, drainage_axes = NULL)
-  expect_lt(with_drn, without)
+  expect_lt(with_drn, 0.1 * without)
 })
 
 test_that("morning fumigation lofts the overnight pool toward aligned receptors", {

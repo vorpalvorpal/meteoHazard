@@ -118,7 +118,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   }
 
   wind_dir   <- met_data$wind_direction_10m
-  theta_down <- (ifelse(is.na(wind_dir), NA_real_, wind_dir) + 180) %% 360
+  theta_down <- .downwind_bearing(wind_dir)
   sigma_fc   <- ODOUR_CONSTANTS$SIGMA_FC_DEG * pi / 180
   c_y        <- ODOUR_CONSTANTS$SIGMA_Y_COEF
 
@@ -126,7 +126,13 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   s_high <- pmin(s_low + 1, 5)
   frac   <- state$s - s_low
 
-  CALM_CROSSWIND <- 0.5 # omnidirectional meander factor under calm/NA direction
+  CALM_CROSSWIND   <- 0.5 # omnidirectional meander factor under calm/NA direction
+  DRAINAGE_CONFINE <- 0.3 # relocated W_spd confinement factor (monolith drainage)
+
+  # Drainage / fumigation are time-only (not receptor-dependent), so hoist the
+  # any() reductions out of the per-receptor loop below.
+  has_drainage   <- any(drn$is_drainage)
+  has_fumigation <- any(drn$is_fumigation)
 
   # ---- Per-receptor relative concentration -> 0-100 ------------------------ #
   risk_matrix <- matrix(0.0, nrow = n_t, ncol = n_r)
@@ -159,8 +165,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
     # Crosswind / direction factor: stability- and distance-aware Gaussian on
     # the crosswind offset y = x * sin(dTheta).
     theta_j     <- receptors$bearing[j]
-    diff_raw    <- abs(theta_down - theta_j)
-    delta_theta <- pmin(diff_raw, 360 - diff_raw)
+    delta_theta <- .angular_diff(theta_down, theta_j)
     y_cross     <- x_j * sin(delta_theta * pi / 180)
     cw <- exp(-0.5 * (y_cross / sigma_y_eff)^2)
     # Upwind hemisphere (delta_theta > 90): the receptor is behind the source,
@@ -171,13 +176,16 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
     cw[state$is_calm | is.na(wind_dir)] <- CALM_CROSSWIND
 
     # Drainage override: katabatic flow confines emissions in the hollow,
-    # directing them away from upslope receptors (0.05 on-axis to 0.10 off).
-    if (any(drn$is_drainage)) {
-      cw[drn$is_drainage] <- 0.05 + 0.05 * (1 - drn$max_alignment[j])
+    # directing them away from upslope receptors. The directional factor
+    # (0.05 on-axis to 0.10 off) carries the monolith's separate W_spd = 0.3
+    # transport confinement folded in, since v2 has no standalone W_spd term.
+    if (has_drainage) {
+      cw[drn$is_drainage] <- DRAINAGE_CONFINE *
+        (0.05 + 0.05 * (1 - drn$max_alignment[j]))
     }
     # Fumigation floor: anabatic flow lofts the overnight pool toward aligned
     # receptors (ceiling 0.6, weaker than synoptic transport).
-    if (any(drn$is_fumigation)) {
+    if (has_fumigation) {
       floor_fum <- 0.6 * drn$effective_severity * drn$max_alignment[j]
       cw[drn$is_fumigation] <- pmax(cw[drn$is_fumigation], floor_fum[drn$is_fumigation])
     }
@@ -186,7 +194,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
 
     # Fumigation source-entrainment boost (was a G multiplier in the monolith;
     # applied here because G now lives in the receptor-independent hazard).
-    if (any(drn$is_fumigation)) {
+    if (has_fumigation) {
       c_rel[drn$is_fumigation] <- c_rel[drn$is_fumigation] *
         (1 + 0.5 * drn$effective_severity[drn$is_fumigation])
     }
@@ -226,8 +234,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   # Per-receptor drainage-axis alignment (time-invariant).
   for (j in seq_len(n_r)) {
     alignments <- vapply(seq_len(nrow(drainage_axes)), function(k) {
-      delta_k <- abs(receptors$bearing[j] - drainage_axes$bearing_from[k])
-      delta_k <- min(delta_k, 360 - delta_k)
+      delta_k <- .angular_diff(receptors$bearing[j], drainage_axes$bearing_from[k])
       if (delta_k <= 30) {
         cos(pi * delta_k / 60)^2 * drainage_axes$weight[k]
       } else {
