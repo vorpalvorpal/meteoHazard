@@ -167,3 +167,23 @@ test_that("calculate_globe_temp matches scalar solve_globe_temp", {
   tg_scl <- solve_globe_temp(30, 1.0, 600, 100, 30, albedo = 0.12)
   expect_equal(tg_vec, tg_scl, tolerance = 1e-9)
 })
+
+# ---------------------------------------------------------------------------
+# 4. Shared physical constants (Stage 0 / Stage B, new behaviour)
+# ---------------------------------------------------------------------------
+test_that("air thermal conductivity is the sourced 0.028 W/(m.K)", {
+  # Brake (2001), Whillier Table 1 / BB p.470 — now shared by globe and wick.
+  expect_equal(TWL_CONSTANTS$AIR_THERMAL_CONDUCTIVITY, 0.028)
+})
+
+test_that("air kinematic viscosity is a shared constant (1.5e-5 m^2/s)", {
+  expect_equal(TWL_CONSTANTS$AIR_KINEMATIC_VISCOSITY, 1.5e-5)
+})
+
+test_that("globe temperature at the reference condition matches the recorded value", {
+  # Characterisation guard pinning the post-change (0.028) globe output so it
+  # cannot drift silently. Reference condition has no published exact value.
+  skip(paste("pending: after the globe solver switches to conductivity 0.028,",
+             "record solve_globe_temp(35, 1.0, 900, 150, 15, 0.12) and assert",
+             "the result within +/-1.5 C of the recorded value"))
+})

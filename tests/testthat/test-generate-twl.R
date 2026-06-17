@@ -164,6 +164,108 @@ test_that("trad is close to air temp when solar = 0", {
 })
 
 # ---------------------------------------------------------------------------
+# 8b. Input validation (Stage C, new behaviour) — classed meteoHazard_input_error
+# ---------------------------------------------------------------------------
+test_that("generate_twl errors when a weather input length is neither 1 nor length(datetime)", {
+  expect_error(
+    generate_twl(
+      datetime      = make_dt(c("2024-06-15 10:00:00", "2024-06-15 11:00:00",
+                                 "2024-06-15 12:00:00")),
+      latitude      = -31.95, longitude = 115.86,
+      temp          = c(30, 32),        # length 2 against datetime length 3
+      wind_speed    = 0.5, RH = 50,
+      direct_solar  = 0, diffuse_solar = 0, pressure = 1013,
+      verbose       = FALSE
+    ),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects latitude outside [-90, 90]", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = 95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects longitude outside [-180, 180]", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 999,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects relative humidity outside [0, 100]", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 150,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl validates input before contacting the Open-Meteo API", {
+  # Invalid input with weather omitted would normally trigger a fetch; the
+  # classed validation error must be raised first, so the API is never called.
+  local_mocked_bindings(
+    fetch_openmeteo = function(...) stop("API should not be contacted")
+  )
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 999, verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+# ---------------------------------------------------------------------------
+# 8c. Result-length invariant (characterises EXISTING behaviour; the plan's
+#     n_obs <- length(datetime) fix makes it explicit rather than incidental)
+# ---------------------------------------------------------------------------
+test_that("generate_twl returns one value per datetime when weather inputs are scalar", {
+  result <- generate_twl(
+    datetime      = make_dt(c("2024-06-15 08:00:00", "2024-06-15 09:00:00",
+                               "2024-06-15 10:00:00")),
+    latitude      = -31.95, longitude = 115.86,
+    temp = 35, wind_speed = 0.5, RH = 50,
+    direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+    verbose = FALSE
+  )
+  expect_length(result, 3L)
+})
+
+# ---------------------------------------------------------------------------
+# 8d. convert_pressure semantics (Stage C)
+# ---------------------------------------------------------------------------
+test_that("user pressure in kPa (convert_pressure=FALSE) matches hPa (convert_pressure=TRUE)", {
+  # Both routes reduce to the same internal kPa pressure, so TWL must be equal.
+  twl_hpa <- twl_supplied(38, 0.5, 50, pressure_hpa = 1013)   # default convert=TRUE
+  twl_kpa <- generate_twl(
+    datetime = make_dt("2024-06-15 10:00:00"),
+    latitude = -31.95, longitude = 115.86,
+    temp = 38, wind_speed = 0.5, RH = 50,
+    direct_solar = 0, diffuse_solar = 0,
+    pressure = 101.3, convert_pressure = FALSE, verbose = FALSE
+  )
+  expect_equal(twl_kpa, twl_hpa, tolerance = 1e-6)
+})
+
+test_that("API-fetched pressure is normalised hPa->kPa regardless of convert_pressure", {
+  skip(paste("pending: mock an Open-Meteo response with surface_pressure in hPa",
+             "and assert the API path divides it by 10 even when",
+             "convert_pressure = FALSE"))
+})
+
+# ---------------------------------------------------------------------------
 # 9. fetch_openmeteo: offline / unit tests
 # ---------------------------------------------------------------------------
 test_that("fetch_openmeteo returns empty list for zero fields", {
