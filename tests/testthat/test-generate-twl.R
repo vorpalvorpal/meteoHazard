@@ -214,6 +214,62 @@ test_that("generate_twl rejects relative humidity outside [0, 100]", {
   )
 })
 
+test_that("generate_twl rejects negative wind speed", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = -1, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects non-positive pressure", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 0,
+                 verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects an out-of-range scalar parameter", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 albedo = 1.5, verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects an NA scalar parameter with the classed error", {
+  # Guards against R's unclassed "missing value where TRUE/FALSE needed".
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 Icl = NA_real_, verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("generate_twl rejects a non-scalar clothing parameter", {
+  expect_error(
+    generate_twl(datetime = make_dt("2024-06-15 10:00:00"),
+                 latitude = -31.95, longitude = 115.86,
+                 temp = 30, wind_speed = 0.5, RH = 50,
+                 direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+                 Icl = c(0.6, 0.7), verbose = FALSE),
+    class = "meteoHazard_input_error"
+  )
+})
+
 test_that("generate_twl validates input before contacting the Open-Meteo API", {
   # Invalid input with weather omitted would normally trigger a fetch; the
   # classed validation error must be raised first, so the API is never called.

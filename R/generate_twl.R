@@ -152,17 +152,21 @@ generate_twl <- function(datetime,
     cli::cli_abort("`pressure` values must be > 0.", class = "meteoHazard_input_error")
   }
 
-  # Scalar parameters
-  if (!is.numeric(albedo) || length(albedo) != 1L || albedo < 0 || albedo > 1) {
+  # Scalar parameters. The is.na() guard comes before the range comparison so a
+  # missing value yields the classed error rather than R's "missing value where
+  # TRUE/FALSE needed".
+  if (!is.numeric(albedo) || length(albedo) != 1L || is.na(albedo) ||
+    albedo < 0 || albedo > 1) {
     cli::cli_abort("`albedo` must be a single numeric value in [0, 1].", class = "meteoHazard_input_error")
   }
-  if (!is.numeric(icl) || length(icl) != 1L || icl < 0 || icl > 1) {
+  if (!is.numeric(icl) || length(icl) != 1L || is.na(icl) || icl < 0 || icl > 1) {
     cli::cli_abort("`icl` must be a single numeric value in [0, 1].", class = "meteoHazard_input_error")
   }
-  if (!is.numeric(Icl) || length(Icl) != 1L || Icl < 0) {
+  if (!is.numeric(Icl) || length(Icl) != 1L || is.na(Icl) || Icl < 0) {
     cli::cli_abort("`Icl` must be a single numeric value >= 0.", class = "meteoHazard_input_error")
   }
-  if (!is.numeric(max_sweat_rate) || length(max_sweat_rate) != 1L || max_sweat_rate <= 0) {
+  if (!is.numeric(max_sweat_rate) || length(max_sweat_rate) != 1L ||
+    is.na(max_sweat_rate) || max_sweat_rate <= 0) {
     cli::cli_abort("`max_sweat_rate` must be a single numeric value > 0.", class = "meteoHazard_input_error")
   }
   if (!is.numeric(max_core_temp) || length(max_core_temp) != 1L || !is.finite(max_core_temp)) {
