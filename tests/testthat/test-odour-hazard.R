@@ -100,6 +100,12 @@ test_that("an all-NA row yields a finite, conservative hazard (no NA out)", {
   expect_gt(h, 0)
 })
 
+test_that("a zero boundary-layer height yields a finite hazard, not Inf", {
+  h <- odour_hazard(mh(boundary_layer_height = 0))
+  expect_true(is.finite(h))
+  expect_gt(h, 0)
+})
+
 test_that("output length equals the number of rows", {
   expect_length(odour_hazard(mh(n = 24)), 24)
 })

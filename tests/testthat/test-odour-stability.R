@@ -76,6 +76,13 @@ test_that("NA boundary layer falls back by stability: 200 stable/calm, 600 other
   expect_equal(.odour_dispersion_state(md(1.0, 800, 0))$h_mix, 600) # unstable day (s = 0)
 })
 
+test_that("non-positive boundary layer is floored to the fallback (no zero h_mix)", {
+  # A boundary_layer_height of 0 (or negative bad data) must not pass through,
+  # or the hazard's 1/(u_eff*h_mix) divides by zero.
+  expect_equal(.odour_dispersion_state(md(1.5, 0, 10, boundary_layer_height = 0))$h_mix, 200)
+  expect_equal(.odour_dispersion_state(md(1.0, 800, 0, boundary_layer_height = -50))$h_mix, 600)
+})
+
 # ── Shear override ──────────────────────────────────────────────────────────
 test_that("shear override yields a stable class for strong shear", {
   st <- .odour_dispersion_state(md(1.0, 0, 50, wind_speed_80m = 4.0),

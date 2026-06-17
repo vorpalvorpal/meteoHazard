@@ -224,8 +224,11 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
 
   u_eff <- pmax(u10_safe, ODOUR_CONSTANTS$U_CALM_FLOOR)
 
+  # A missing OR non-positive boundary-layer height falls back to a plausible
+  # depth; h_mix must stay strictly positive (it is a divisor in the hazard's
+  # ventilation term and the exposure geometry).
   h_mix <- ifelse(
-    is.na(bl),
+    is.na(bl) | bl <= 0,
     ifelse(is_calm | s >= 4, ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE,
            ODOUR_CONSTANTS$H_MIX_FALLBACK_UNSTABLE),
     bl
