@@ -1,6 +1,14 @@
-# TWL
+# meteoHazard
 
-An R package for calculating the **Thermal Work Limit (TWL)** — the maximum sustainable metabolic rate (W/m²) for workers in thermally stressful environments. Implements the Brake & Bates (2002) methodology.
+An R package that turns meteorological data into **management-relevant predictions and warnings** for waste-management operations. It is part of the [`tidyWaste`](https://github.com/vorpalvorpal) family of packages.
+
+## Functions
+
+| Function | Hazard | Status |
+|---|---|---|
+| `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
+| `predict_odour()` | **Odour nuisance** — downwind odour dispersion | 🚧 Planned (stub) |
+| `predict_litter()` | **Wind-blown litter** — material escaping the site boundary | 🚧 Planned (stub) |
 
 ## Installation
 
@@ -9,11 +17,11 @@ Install from GitHub using the `remotes` or `pak` package:
 ```r
 # Using remotes
 install.packages("remotes")
-remotes::install_github("vorpalvorpal/TWL")
+remotes::install_github("vorpalvorpal/meteoHazard")
 
 # Using pak
 install.packages("pak")
-pak::pkg_install("vorpalvorpal/TWL")
+pak::pkg_install("vorpalvorpal/meteoHazard")
 ```
 
 Or install from a local clone:
@@ -32,12 +40,14 @@ The package requires R (>= 4.1) and the following packages, which are installed 
 - `cli`
 - `purrr`
 
-## Usage
+## Thermal Work Limit (TWL)
+
+The **Thermal Work Limit (TWL)** is the maximum sustainable metabolic rate (W/m²) that well-hydrated, acclimatised workers can maintain in a thermally stressful environment. It implements the Brake & Bates (2002) methodology.
 
 ### Basic calculation (all parameters supplied)
 
 ```r
-library(TWL)
+library(meteoHazard)
 
 twl <- generate_twl(
   datetime     = as.POSIXct("2024-01-15 10:00:00", tz = "UTC"),
@@ -76,7 +86,7 @@ twl_colour(twl)
 # Hex colour codes for visualisation
 ```
 
-## TWL Categories
+### TWL Categories
 
 | TWL (W/m²) | Category | Colour |
 |---|---|---|
@@ -84,6 +94,14 @@ twl_colour(twl)
 | 140 – 220 | Acclimatisation | Amber |
 | 115 – 140 | Buffer | Orange |
 | < 115 | Withdrawal | Red |
+
+## Odour prediction (planned)
+
+`predict_odour()` will estimate odour-nuisance potential at downwind receptors by coupling source emissions with atmospheric dispersion (wind speed/direction and atmospheric stability). It is currently a stub and not yet implemented.
+
+## Wind-blown litter (planned)
+
+`predict_litter()` will estimate the risk of lightweight material becoming airborne and escaping the site boundary, driven by wind speed and gusts. It is currently a stub and not yet implemented.
 
 ## Reference
 

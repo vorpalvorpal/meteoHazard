@@ -1,14 +1,17 @@
-Package: TWL
-Title: Thermal Work Limit Calculation
+Package: meteoHazard
+Title: Meteorological Hazard Predictions for Waste Management
 Version: 0.1.0
 Authors@R:
     person("R. Shannon", role = c("aut", "cre"),
            email = "burrows_51mustard@icloud.com")
-Description: Calculates the Thermal Work Limit (TWL), the maximum sustainable
-    metabolic rate (W/m²) for workers in thermally stressful environments.
-    Based on the methodology of Brake & Bates (2002) <doi:10.1080/104732202317070947>.
-URL: https://github.com/vorpalvorpal/TWL
-BugReports: https://github.com/vorpalvorpal/TWL/issues
+Description: Turns meteorological data into management-relevant predictions and
+    warnings for waste-management operations. Provides the Thermal Work Limit
+    (TWL), the maximum sustainable metabolic rate (W/m²) for workers in
+    thermally stressful environments, based on the methodology of Brake & Bates
+    (2002) <doi:10.1080/104732202317070947>, alongside (planned) odour-dispersion
+    and wind-blown-litter predictors. Part of the 'tidyWaste' family of packages.
+URL: https://github.com/vorpalvorpal/meteoHazard
+BugReports: https://github.com/vorpalvorpal/meteoHazard/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)

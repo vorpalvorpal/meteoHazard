@@ -1,4 +1,4 @@
 library(testthat)
-library(TWL)
+library(meteoHazard)
 
-test_check("TWL")
+test_check("meteoHazard")
