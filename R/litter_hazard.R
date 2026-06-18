@@ -12,6 +12,14 @@
 #' `&wind_speed_unit=ms`) and passes them as numeric vectors, one element per
 #' forecast hour.
 #'
+#' @section Units:
+#' The dimensional inputs (`wind_gusts_10m`, `wind_speed_10m`, `precipitation`)
+#' may be supplied either as bare numerics in the documented unit or as
+#' \pkg{units} objects, which are converted automatically (a dimensionally
+#' incompatible unit is an error). `soil_moisture_0_to_1cm` is a dimensionless
+#' ratio and is taken as-is. The returned index is dimensionless (0--100) and is
+#' a plain numeric.
+#'
 #' @section Model:
 #' The index is a bounded, multiplicative combination of entrainment, transport
 #' potential, and a rainfall gate:
@@ -116,6 +124,15 @@ litter_hazard_vec <- function(
   transport_max        = 2.0,
   rain_threshold       = 0.5
 ) {
+
+  # ---- Normalise dimensional inputs (bare = documented unit; units = converted) #
+  # A units-tagged input is converted to the canonical unit (erroring on a
+  # dimensional mismatch); a bare numeric is assumed already in that unit. The
+  # gate/excess arithmetic below then runs on plain canonical-unit doubles.
+  # soil_moisture_0_to_1cm is a dimensionless ratio (m^3/m^3) and stays plain.
+  wind_gusts_10m <- .drop_to(wind_gusts_10m, "m/s", arg = "wind_gusts_10m")
+  wind_speed_10m <- .drop_to(wind_speed_10m, "m/s", arg = "wind_speed_10m")
+  precipitation  <- .drop_to(precipitation,  "mm",  arg = "precipitation")
 
   # ---- Validate meteorological inputs (complete, non-negative, aligned) ---- #
   n <- length(wind_gusts_10m)

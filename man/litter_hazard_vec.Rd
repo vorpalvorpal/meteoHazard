@@ -97,6 +97,16 @@ hourly variables from the Open-Meteo \verb{/v1/forecast} endpoint (winds in m/s,
 \verb{&wind_speed_unit=ms}) and passes them as numeric vectors, one element per
 forecast hour.
 }
+\section{Units}{
+
+The dimensional inputs (\code{wind_gusts_10m}, \code{wind_speed_10m}, \code{precipitation})
+may be supplied either as bare numerics in the documented unit or as
+\pkg{units} objects, which are converted automatically (a dimensionally
+incompatible unit is an error). \code{soil_moisture_0_to_1cm} is a dimensionless
+ratio and is taken as-is. The returned index is dimensionless (0--100) and is
+a plain numeric.
+}
+
 \section{Model}{
 
 The index is a bounded, multiplicative combination of entrainment, transport

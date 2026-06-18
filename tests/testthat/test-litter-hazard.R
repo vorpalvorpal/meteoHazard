@@ -400,3 +400,48 @@ describe("litter_hazard() [v3]", {
     expect_gt(litter_hazard(met, rain_threshold = 1.0), 0)
   })
 })
+
+
+describe("litter_hazard_vec() [units handling]", {
+
+  it("accepts units-tagged wind inputs and converts them to m/s", {
+    skip_if_no_litter_v3()
+    # 16 m/s = 57.6 km/h, 12.5 m/s = 45 km/h: tagged km/h must match bare m/s.
+    bare   <- litter_hazard_vec(16, 12.5, 0, 0.02)
+    tagged <- litter_hazard_vec(
+      units::set_units(57.6, "km/h"), units::set_units(45, "km/h"), 0, 0.02
+    )
+    expect_equal(tagged, bare, tolerance = LRI_TOL)
+  })
+
+  it("converts a units-tagged precipitation input", {
+    skip_if_no_litter_v3()
+    # 0.05 cm = 0.5 mm >= rain_threshold -> gated to 0, same as bare 0.5 mm.
+    tagged <- litter_hazard_vec(16, 15, units::set_units(0.05, "cm"), 0.02)
+    expect_equal(tagged, 0)
+  })
+
+  it("rejects a wind input tagged with dimensionally incompatible units", {
+    skip_if_no_litter_v3()
+    expect_error(
+      litter_hazard_vec(units::set_units(16, "degree_C"), 15, 0, 0.02),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("returns a plain numeric index, not a units object", {
+    skip_if_no_litter_v3()
+    out <- litter_hazard_vec(16, 12.5, 0, 0.02)
+    expect_false(inherits(out, "units"))
+    expect_type(out, "double")
+  })
+
+  it("litter_hazard() accepts a met tibble carrying units columns", {
+    skip_if_no_litter_v3()
+    met <- data.frame(precipitation = 0, soil_moisture_0_to_1cm = 0.02)
+    met$wind_gusts_10m <- units::set_units(57.6, "km/h")
+    met$wind_speed_10m <- units::set_units(45, "km/h")
+    expect_equal(litter_hazard(met), litter_hazard_vec(16, 12.5, 0, 0.02),
+                 tolerance = LRI_TOL)
+  })
+})
