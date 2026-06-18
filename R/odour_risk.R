@@ -23,7 +23,7 @@
 #'
 #' @seealso [odour_hazard()], [odour_exposure()].
 #' @export
-generate_odour_risk_index <- function(met_data, receptors, drainage_axes = NULL,
+odour_risk <- function(met_data, receptors, drainage_axes = NULL,
                                        stability = c("turner", "shear"),
                                        datetime = NULL) {
   stability <- match.arg(stability)

@@ -20,6 +20,16 @@
 #' variables from the Open-Meteo `/v1/forecast` (or archive) endpoint and passes
 #' them as a data frame, one row per consecutive hourly timestep.
 #'
+#' @section Units:
+#' The dimensional columns (`wind_speed_10m`, `wind_speed_80m`,
+#' `direct_radiation`, `boundary_layer_height`, `temperature_2m`, `pressure_msl`,
+#' `precipitation`) may each be a bare numeric in the documented unit or a
+#' \pkg{units} object, which is converted automatically (a dimensionally
+#' incompatible unit is an error). The percentage / ratio columns (`cloud_cover`,
+#' `relative_humidity_2m`, `soil_moisture_*`) and `wind_direction_10m` (degrees)
+#' are taken as-is. The returned hazard is a dimensionless relative index (plain
+#' numeric).
+#'
 #' @section Model:
 #' The hazard is the **ventilation index** -- source emission strength divided
 #' by the atmosphere's ability to ventilate it (wind speed times mixing depth):
@@ -58,6 +68,12 @@
 #' @return A numeric vector of length `nrow(met_data)`: the relative odour
 #'   hazard index for each hour (reference baseline = 1.0; not clamped).
 #'
+#'   **Scale note.** Unlike [litter_hazard()] and [dust_hazard()], which return
+#'   bounded 0--100 indices, this is an *unbounded relative* index: a ventilation
+#'   index has no natural ceiling, and the 0--100 framing is applied downstream
+#'   by [odour_exposure()]. Whether to unify all hazards onto one scale is a
+#'   deferred modelling/API decision (GitHub issue #11).
+#'
 #' @references
 #' Turner, D.B. (1970). \emph{Workbook of Atmospheric Dispersion Estimates}.
 #' US EPA AP-26.
@@ -74,7 +90,7 @@
 #'   if they are not (the computation proceeds on row order regardless).
 #'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
-#'   [generate_odour_risk_index()] for the combined convenience wrapper.
+#'   [odour_risk()] for the combined convenience wrapper.
 #' @export
 odour_hazard <- function(met_data, stability = c("turner", "shear"),
                          datetime = NULL) {
@@ -89,35 +105,25 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   )
 
   checkmate::assert_data_frame(met_data, min.rows = 1)
-  missing_cols <- setdiff(required_cols, names(met_data))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-        "i" = "See {.code ?odour_hazard} for the required Open-Meteo columns."
-      ),
-      class = "meteoHazard_input_error"
-    )
-  }
-  for (col in required_cols) {
-    if (!is.numeric(met_data[[col]])) {
-      cli::cli_abort(
-        "{.arg met_data} column {.val {col}} must be numeric, not {.cls {class(met_data[[col]])}}.",
-        class = "meteoHazard_input_error"
-      )
-    }
-  }
+  .assert_required_cols(met_data, required_cols, arg = "met_data",
+                        info = "See {.code ?odour_hazard} for the required Open-Meteo columns.")
+  .assert_numeric_cols(met_data, required_cols, arg = "met_data")
+
+  # Normalise dimensional columns to canonical-unit plain doubles (bare assumed
+  # in unit; units objects converted; mismatch errors). The case_when gate logic
+  # below and the shared dispersion state then run on plain doubles.
+  met_data <- .odour_normalise_met(met_data)
 
   state <- .odour_dispersion_state(met_data, stability)
   n_t   <- nrow(met_data)
 
   # ---- G: source generation modifier (additive, labelled) ----------------- #
   pressure    <- met_data$pressure_msl
-  precip_safe <- ifelse(is.na(met_data$precipitation), 0, met_data$precipitation)
+  precip_safe <- .na_fill(met_data$precipitation, 0)
   temp        <- met_data$temperature_2m
-  rh_safe     <- ifelse(is.na(met_data$relative_humidity_2m), 0, met_data$relative_humidity_2m)
-  sm01_safe   <- ifelse(is.na(met_data$soil_moisture_0_to_1cm), 0, met_data$soil_moisture_0_to_1cm)
-  sm13_safe   <- ifelse(is.na(met_data$soil_moisture_1_to_3cm), 0, met_data$soil_moisture_1_to_3cm)
+  rh_safe     <- .na_fill(met_data$relative_humidity_2m, 0)
+  sm01_safe   <- .na_fill(met_data$soil_moisture_0_to_1cm, 0)
+  sm13_safe   <- .na_fill(met_data$soil_moisture_1_to_3cm, 0)
 
   # Barometric pumping: falling pressure increases advective gas flux.
   dP3 <- pressure - dplyr::lag(pressure, 3)
@@ -186,6 +192,32 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
 }
 
 
+# ---- Dimensional-column normalisation -------------------------------------- #
+# Convert the dimensional met_data columns to canonical-unit plain doubles: a
+# bare numeric is assumed already in the canonical unit, a units object is
+# converted (a dimensional mismatch errors). Percentage / ratio columns
+# (cloud_cover, relative_humidity_2m, soil_moisture_*) and wind_direction_10m
+# (degrees) are dimensionless-by-convention here and left untouched. Columns
+# that are absent are skipped (presence is validated by the caller).
+.odour_normalise_met <- function(met_data) {
+  canonical <- c(
+    wind_speed_10m        = "m/s",
+    wind_speed_80m        = "m/s",
+    direct_radiation      = "W/m^2",
+    boundary_layer_height = "m",
+    temperature_2m        = "degree_C",
+    pressure_msl          = "hPa",
+    precipitation         = "mm"
+  )
+  for (col in names(canonical)) {
+    if (!is.null(met_data[[col]])) {
+      met_data[[col]] <- .drop_to(met_data[[col]], canonical[[col]], arg = col)
+    }
+  }
+  met_data
+}
+
+
 # ---- Shared dispersion state ----------------------------------------------- #
 # Computes the per-hour atmospheric state used by BOTH odour_hazard() and
 # odour_exposure(): the Pasquill-Gifford stability index s in [0, 5] (A = 0,
@@ -203,9 +235,9 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   cloud <- met_data$cloud_cover
   bl    <- met_data$boundary_layer_height
 
-  u10_safe   <- ifelse(is.na(u10), 0, u10)
-  rad_safe   <- ifelse(is.na(rad), 0, rad)
-  cloud_safe <- ifelse(is.na(cloud), 50, cloud)
+  u10_safe   <- .na_fill(u10, 0)
+  rad_safe   <- .na_fill(rad, 0)
+  cloud_safe <- .na_fill(cloud, 50)
 
   is_calm <- is.na(u10) | u10 < ODOUR_CONSTANTS$U_CALM_FLOOR
   is_day  <- rad_safe > 10

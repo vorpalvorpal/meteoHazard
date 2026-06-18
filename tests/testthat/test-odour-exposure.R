@@ -127,3 +127,29 @@ test_that("missing met_data columns raise a classed error", {
     class = "meteoHazard_input_error"
   )
 })
+
+# ── Units handling ───────────────────────────────────────────────────────────
+test_that("odour_exposure accepts units-tagged met columns and receptor distance", {
+  bare <- odour_exposure(0.3, me(), rcp(0, 250))
+  d <- me()
+  d$wind_speed_10m <- units::set_units(10.8, "km/h") # 3 m/s
+  tagged <- odour_exposure(
+    0.3, d,
+    data.frame(bearing = 0, distance = units::set_units(0.25, "km")) # 250 m
+  )
+  expect_equal(tagged, bare, tolerance = 1e-6)
+})
+
+test_that("odour_exposure rejects a receptor distance tagged with incompatible units", {
+  expect_error(
+    odour_exposure(0.3, me(),
+                   data.frame(bearing = 0, distance = units::set_units(250, "degree_C"))),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("odour_exposure returns a plain numeric 0-100 band", {
+  out <- odour_exposure(0.3, me(), rcp(0, 250))
+  expect_false(inherits(out, "units"))
+  expect_type(out, "double")
+})

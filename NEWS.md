@@ -2,16 +2,62 @@
 
 First release under the name **meteoHazard** (formerly the `TWL` package),
 reframed as a collection of meteorological hazard predictors for waste
-management. The Thermal Work Limit (`generate_twl()`) is the first implemented
-function; `predict_odour()` and `predict_litter()` are stubs.
+management: Thermal Work Limit (`generate_twl()`), odour, wind-blown litter,
+and dust.
+
+## Explicit units (the `units` package)
+
+Every dimensional quantity in the package is now unit-checked, so a wrong-unit
+input can no longer be silently misread (the class of bug behind the earlier
+km/h-vs-m/s litter/dust error).
+
+* **Inputs** may be supplied either as bare numerics in the documented unit or
+  as `units` objects, which are converted automatically; a dimensionally
+  incompatible unit (e.g. a temperature where a speed is expected) is a classed
+  error. This applies to the wind, temperature, pressure, radiation, length and
+  density inputs of `generate_twl()`, `odour_hazard()`/`odour_exposure()`,
+  `litter_hazard()`/`litter_hazard_vec()` and `dust_hazard()`/`dust_flux()`
+  (including receptor distances). Percentage and ratio fields (relative
+  humidity, cloud cover, soil moisture) and bearings (degrees) are taken as-is.
+* **Outputs** that are genuine physical quantities are returned as `units`
+  objects: `generate_twl()` now returns W/m^2. `categorise_twl()` and
+  `twl_colour()` are units-aware (they accept the typed output or a bare
+  numeric). The dimensionless scores -- the 0-100 litter/dust/odour indices and
+  the relative odour hazard -- stay plain numeric.
+* Internal conversions (km/h<->m/s, hPa<->kPa, etc.) now go through `units`
+  rather than hand-rolled factors. `units` is a new hard dependency.
+
+## Cross-function consistency
+
+The four hazard families were swept for naming, unit, and helper consistency
+(pre-v1; no backwards-compatibility shims):
+
+* **Units.** All wind inputs are now in **m/s** across every function (matching
+  the bundled Open-Meteo fetcher, which requests `&wind_speed_unit=ms`).
+  Previously the litter and dust functions expected km/h while odour expected
+  m/s — the same column name silently meant different units. Affected defaults
+  were converted to preserve their physical thresholds.
+* **Naming.** The risk-index families converge on a `*_hazard()` /
+  `*_exposure()` scheme: `litter_hazard()` (was `generate_litter_risk_index`),
+  `litter_hazard_vec()` (was `litter_risk_index`), `dust_hazard()` (was
+  `generate_dust_risk_index`), `dust_flux()` (was `dust_emission_potential`),
+  and `odour_risk()` (was `generate_odour_risk_index`). `generate_twl()` is
+  unchanged (it returns W/m^2 with physiological zones, not a 0–100 index).
+* **Hazard tiers.** New `categorise_litter()`/`litter_colour()`,
+  `categorise_dust()`/`dust_colour()`, and `categorise_odour()`/`odour_colour()`
+  apply the documented operational bands on a shared green/amber/orange/red
+  palette, mirroring `categorise_twl()`/`twl_colour()`.
+* Shared internal validation helpers (`.assert_required_cols()`,
+  `.assert_numeric_cols()`, `.na_fill()`) replace the duplicated input-check
+  blocks; the litter/dust missing-column errors are now classed
+  `meteoHazard_input_error` like the rest.
 
 ## Odour model: hazard / exposure split
 
-* The monolithic `generate_odour_risk_index()` is split into two layers,
-  mirroring the litter functions: `odour_hazard()` (receptor-independent,
-  direction-agnostic) and `odour_exposure()` (geometry-aware).
-  `generate_odour_risk_index()` is now a backward-compatible convenience wrapper
-  over the two.
+* The monolithic odour risk index is split into two layers, mirroring the
+  litter functions: `odour_hazard()` (receptor-independent, direction-agnostic)
+  and `odour_exposure()` (geometry-aware). `odour_risk()` is now a thin
+  convenience wrapper over the two.
 * `odour_hazard()` returns a relative **ventilation index** (source emission
   divided by wind speed times mixing depth), capturing the dominant
   calm/stable/shallow-boundary-layer signal without baking in receptor

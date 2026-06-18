@@ -44,7 +44,15 @@
 #'   operational knob; default 0.3.
 #'
 #' @return A numeric vector of length `length(hazard)`: the worst-case 0-100
-#'   odour exposure across receptors for each hour.
+#'   odour exposure across receptors for each hour (dimensionless, plain
+#'   numeric).
+#'
+#' @section Units:
+#' The dimensional `met_data` columns (see [odour_hazard()]) and the receptor
+#' `distance` (canonical metres) may each be supplied as a bare numeric in the
+#' documented unit or as a \pkg{units} object, which is converted automatically
+#' (a dimensionally incompatible unit is an error). Bearings (`receptors$bearing`,
+#' `drainage_axes$bearing_from`) are in degrees and taken as-is.
 #'
 #' @references
 #' Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}. NOAA.
@@ -53,7 +61,7 @@
 #' Whiteman, C.D. (2000). \emph{Mountain Meteorology}. Oxford University Press.
 #'
 #' @seealso [odour_hazard()] for the upstream hazard index, and
-#'   [generate_odour_risk_index()] for the combined wrapper.
+#'   [odour_risk()] for the combined wrapper.
 #' @export
 odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
                            stability = c("turner", "shear"), map_c50 = 0.3) {
@@ -72,13 +80,10 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
     "wind_direction_10m", "wind_speed_10m", "direct_radiation",
     "cloud_cover", "boundary_layer_height"
   )
-  missing_cols <- setdiff(required_cols, names(met_data))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-      class = "meteoHazard_input_error"
-    )
-  }
+  .assert_required_cols(met_data, required_cols, arg = "met_data")
+  # Normalise dimensional met columns to canonical-unit plain doubles (bare =
+  # documented unit; units objects converted; mismatch errors).
+  met_data <- .odour_normalise_met(met_data)
   checkmate::assert_data_frame(receptors, min.rows = 1)
   if (!all(c("bearing", "distance") %in% names(receptors))) {
     cli::cli_abort(
@@ -86,6 +91,9 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
       class = "meteoHazard_input_error"
     )
   }
+  # receptor distance is a length (canonical m); bearing stays in degrees.
+  receptors$distance <- .drop_to(receptors$distance, "m",
+                                 arg = "receptors$distance")
   checkmate::assert_numeric(receptors$bearing, lower = 0, upper = 360,
                             any.missing = FALSE, .var.name = "receptors$bearing")
   checkmate::assert_numeric(receptors$distance, lower = .Machine$double.eps,
@@ -208,7 +216,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
 
 # ---- Drainage / morning-fumigation state (relocated, optional) ------------- #
 # revisit: this is the single-site terrain heuristic carried over unchanged in
-# logic from the monolithic generate_odour_risk_index(). It is a bespoke state
+# logic from the monolithic odour_risk(). It is a bespoke state
 # machine with uncalibrated magic numbers, kept to prompt future generalisation
 # (a generic nocturnal-accumulation / morning-release pulse) and calibration.
 # It now rides the Pasquill-Turner stability index s (so its s > 4.0 thresholds
@@ -223,8 +231,8 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   is_calm     <- state$is_calm
   s_t         <- state$s
   h_effective <- state$h_mix
-  rad_safe    <- ifelse(is.na(met_data$direct_radiation), 0, met_data$direct_radiation)
-  cloud_safe  <- ifelse(is.na(met_data$cloud_cover), 50, met_data$cloud_cover)
+  rad_safe    <- .na_fill(met_data$direct_radiation, 0)
+  cloud_safe  <- .na_fill(met_data$cloud_cover, 50)
 
   is_drainage          <- rep(FALSE, n_t)
   is_fumigation        <- rep(FALSE, n_t)

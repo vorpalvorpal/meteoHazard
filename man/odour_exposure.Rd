@@ -39,7 +39,8 @@ operational knob; default 0.3.}
 }
 \value{
 A numeric vector of length \code{length(hazard)}: the worst-case 0-100
-odour exposure across receptors for each hour.
+odour exposure across receptors for each hour (dimensionless, plain
+numeric).
 }
 \description{
 Maps the direction-agnostic odour hazard (\code{\link[=odour_hazard]{odour_hazard()}}) onto an
@@ -55,6 +56,15 @@ distance-aware directional Gaussian. Forecast wind-direction uncertainty is
 added as a separate convolution term. The relative concentration is mapped to
 a 0-100 band and the worst-case across receptors is returned.
 }
+\section{Units}{
+
+The dimensional \code{met_data} columns (see \code{\link[=odour_hazard]{odour_hazard()}}) and the receptor
+\code{distance} (canonical metres) may each be supplied as a bare numeric in the
+documented unit or as a \pkg{units} object, which is converted automatically
+(a dimensionally incompatible unit is an error). Bearings (\code{receptors$bearing},
+\code{drainage_axes$bearing_from}) are in degrees and taken as-is.
+}
+
 \references{
 Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}. NOAA.
 Schauberger, G. et al. (2002). Calculating direction-dependent separation
@@ -63,5 +73,5 @@ Whiteman, C.D. (2000). \emph{Mountain Meteorology}. Oxford University Press.
 }
 \seealso{
 \code{\link[=odour_hazard]{odour_hazard()}} for the upstream hazard index, and
-\code{\link[=generate_odour_risk_index]{generate_odour_risk_index()}} for the combined wrapper.
+\code{\link[=odour_risk]{odour_risk()}} for the combined wrapper.
 }

@@ -29,6 +29,12 @@ if they are not (the computation proceeds on row order regardless).}
 \value{
 A numeric vector of length \code{nrow(met_data)}: the relative odour
 hazard index for each hour (reference baseline = 1.0; not clamped).
+
+\strong{Scale note.} Unlike \code{\link[=litter_hazard]{litter_hazard()}} and \code{\link[=dust_hazard]{dust_hazard()}}, which return
+bounded 0--100 indices, this is an \emph{unbounded relative} index: a ventilation
+index has no natural ceiling, and the 0--100 framing is applied downstream
+by \code{\link[=odour_exposure]{odour_exposure()}}. Whether to unify all hazards onto one scale is a
+deferred modelling/API decision (GitHub issue #11).
 }
 \description{
 Computes an hourly \strong{relative odour hazard} for a landfill site: given the
@@ -43,6 +49,18 @@ The function does not query any API. The caller fetches the required hourly
 variables from the Open-Meteo \verb{/v1/forecast} (or archive) endpoint and passes
 them as a data frame, one row per consecutive hourly timestep.
 }
+\section{Units}{
+
+The dimensional columns (\code{wind_speed_10m}, \code{wind_speed_80m},
+\code{direct_radiation}, \code{boundary_layer_height}, \code{temperature_2m}, \code{pressure_msl},
+\code{precipitation}) may each be a bare numeric in the documented unit or a
+\pkg{units} object, which is converted automatically (a dimensionally
+incompatible unit is an error). The percentage / ratio columns (\code{cloud_cover},
+\code{relative_humidity_2m}, \verb{soil_moisture_*}) and \code{wind_direction_10m} (degrees)
+are taken as-is. The returned hazard is a dimensionless relative index (plain
+numeric).
+}
+
 \section{Model}{
 
 The hazard is the \strong{ventilation index} -- source emission strength divided
@@ -79,5 +97,5 @@ Zou, S.C. et al. (2003). Volatile organic compound emissions from landfills.
 }
 \seealso{
 \code{\link[=odour_exposure]{odour_exposure()}} for the geometry-aware exposure layer, and
-\code{\link[=generate_odour_risk_index]{generate_odour_risk_index()}} for the combined convenience wrapper.
+\code{\link[=odour_risk]{odour_risk()}} for the combined convenience wrapper.
 }
