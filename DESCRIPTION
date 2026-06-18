@@ -21,7 +21,8 @@ Imports:
     cli,
     dplyr,
     httr2,
-    purrr
+    purrr,
+    units
 Suggests:
     testthat (>= 3.0.0)
 Config/testthat/edition: 3
