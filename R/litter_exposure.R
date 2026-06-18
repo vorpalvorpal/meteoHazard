@@ -1,6 +1,6 @@
 #' Litter exposure layer (direction- and geometry-aware)
 #'
-#' Maps the direction-agnostic litter hazard ([litter_risk_index()]) onto an
+#' Maps the direction-agnostic litter hazard ([litter_hazard_vec()]) onto an
 #' operational consequence, given the wind direction and the site geometry.
 #' Where the hazard index answers *how strongly is litter being entrained and
 #' moved*, the exposure layer answers *where does it go and how bad is that*:
@@ -22,7 +22,7 @@
 #' destination.
 #'
 #' @param hazard Numeric vector in `[0, 100]`. The litter hazard index from
-#'   [litter_risk_index()], one value per forecast hour.
+#'   [litter_hazard_vec()], one value per forecast hour.
 #' @param wind_direction_10m Numeric vector, degrees `[0, 360]`. Wind direction
 #'   at 10 m (meteorological convention: the direction the wind blows *from*).
 #'   Same length as `hazard`.
@@ -58,7 +58,7 @@
 #' NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 #' (2nd edn). Barrier-class guidance informing `permeability`.
 #'
-#' @seealso [litter_risk_index()] for the upstream hazard index.
+#' @seealso [litter_hazard_vec()] for the upstream hazard index.
 #' @export
 litter_exposure <- function(
   hazard,

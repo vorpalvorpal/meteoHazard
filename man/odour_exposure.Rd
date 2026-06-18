@@ -63,5 +63,5 @@ Whiteman, C.D. (2000). \emph{Mountain Meteorology}. Oxford University Press.
 }
 \seealso{
 \code{\link[=odour_hazard]{odour_hazard()}} for the upstream hazard index, and
-\code{\link[=generate_odour_risk_index]{generate_odour_risk_index()}} for the combined wrapper.
+\code{\link[=odour_risk]{odour_risk()}} for the combined wrapper.
 }

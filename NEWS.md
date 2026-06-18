@@ -7,10 +7,10 @@ function; `predict_odour()` and `predict_litter()` are stubs.
 
 ## Odour model: hazard / exposure split
 
-* The monolithic `generate_odour_risk_index()` is split into two layers,
+* The monolithic `odour_risk()` is split into two layers,
   mirroring the litter functions: `odour_hazard()` (receptor-independent,
   direction-agnostic) and `odour_exposure()` (geometry-aware).
-  `generate_odour_risk_index()` is now a backward-compatible convenience wrapper
+  `odour_risk()` is now a backward-compatible convenience wrapper
   over the two.
 * `odour_hazard()` returns a relative **ventilation index** (source emission
   divided by wind speed times mixing depth), capturing the dominant

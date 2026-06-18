@@ -74,7 +74,7 @@
 #'   if they are not (the computation proceeds on row order regardless).
 #'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
-#'   [generate_odour_risk_index()] for the combined convenience wrapper.
+#'   [odour_risk()] for the combined convenience wrapper.
 #' @export
 odour_hazard <- function(met_data, stability = c("turner", "shear"),
                          datetime = NULL) {

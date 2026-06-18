@@ -1,4 +1,4 @@
-# Tests for generate_odour_risk_index() (the combined wrapper) and the optional
+# Tests for odour_risk() (the combined wrapper) and the optional
 # consecutive-hourly datetime guard on odour_hazard().
 
 mw <- function(n = 6, ...) {
@@ -24,13 +24,13 @@ rcp <- function(bearing, distance) data.frame(bearing = bearing, distance = dist
 test_that("the wrapper equals exposure(hazard(...)) composed by hand", {
   d   <- mw()
   rec <- rcp(c(0, 90), c(300, 700))
-  combined <- generate_odour_risk_index(d, rec)
+  combined <- odour_risk(d, rec)
   manual   <- odour_exposure(odour_hazard(d), d, rec)
   expect_equal(combined, manual)
 })
 
 test_that("the wrapper returns one 0-100 value per row", {
-  ex <- generate_odour_risk_index(mw(n = 12), rcp(0, 400))
+  ex <- odour_risk(mw(n = 12), rcp(0, 400))
   expect_length(ex, 12)
   expect_true(all(ex >= 0 & ex <= 100))
 })

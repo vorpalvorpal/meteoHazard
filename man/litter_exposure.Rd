@@ -17,7 +17,7 @@ litter_exposure(
 }
 \arguments{
 \item{hazard}{Numeric vector in \verb{[0, 100]}. The litter hazard index from
-\code{\link[=litter_risk_index]{litter_risk_index()}}, one value per forecast hour.}
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, one value per forecast hour.}
 
 \item{wind_direction_10m}{Numeric vector, degrees \verb{[0, 360]}. Wind direction
 at 10 m (meteorological convention: the direction the wind blows \emph{from}).
@@ -58,7 +58,7 @@ factor.}
 }
 }
 \description{
-Maps the direction-agnostic litter hazard (\code{\link[=litter_risk_index]{litter_risk_index()}}) onto an
+Maps the direction-agnostic litter hazard (\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}) onto an
 operational consequence, given the wind direction and the site geometry.
 Where the hazard index answers \emph{how strongly is litter being entrained and
 moved}, the exposure layer answers \emph{where does it go and how bad is that}:
@@ -86,5 +86,5 @@ NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 (2nd edn). Barrier-class guidance informing \code{permeability}.
 }
 \seealso{
-\code{\link[=litter_risk_index]{litter_risk_index()}} for the upstream hazard index.
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} for the upstream hazard index.
 }

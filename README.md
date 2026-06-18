@@ -9,9 +9,9 @@ An R package that turns meteorological data into **management-relevant predictio
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
 | `odour_hazard()` | **Odour nuisance hazard** — site ventilation index (direction-agnostic) | ✅ Implemented |
 | `odour_exposure()` | **Odour nuisance exposure** — downwind impact, given receptors & geometry | ✅ Implemented |
-| `generate_litter_risk_index()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
+| `litter_hazard()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
 | `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
-| `generate_dust_risk_index()` | **Dust hazard** — wind erosion of exposed surfaces | ✅ Implemented |
+| `dust_hazard()` | **Dust hazard** — wind erosion of exposed surfaces | ✅ Implemented |
 
 ## Installation
 
@@ -106,7 +106,7 @@ The odour model is split into two layers, mirroring the litter functions:
 * `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard: source emission strength divided by atmospheric ventilation (the ventilation index). It answers *how strong is the odour situation around the site this hour*, and returns a relative index (baseline = 1.0).
 * `odour_exposure()` — the **geometry-aware** layer: it maps the hazard onto each receptor through a Pasquill-Gifford Gaussian plume (distance decay and a stability- and distance-aware directional term, plus forecast-direction uncertainty), and returns the worst-case 0–100 exposure across receptors. The optional `drainage_axes` argument enables a terrain-aware katabatic-drainage / morning-fumigation refinement.
 
-`generate_odour_risk_index()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
+`odour_risk()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
 ```r
 library(meteoHazard)
@@ -123,7 +123,7 @@ receptors <- data.frame(
   distance = c(500, 800)
 )
 
-odour <- generate_odour_risk_index(met_data, receptors)
+odour <- odour_risk(met_data, receptors)
 ```
 
 The 0–100 exposure maps to provisional operational tiers (subject to calibration against complaint records; the mapping is tunable via the `map_c50` argument):
@@ -143,7 +143,7 @@ Litter is split into two composable layers: a **hazard** index (the meteorology 
 
 ### Hazard index
 
-`generate_litter_risk_index()` computes an hourly litter **hazard** in the range 0–100: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below.
+`litter_hazard()` computes an hourly litter **hazard** in the range 0–100: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below.
 
 The caller supplies pre-fetched Open-Meteo data (one row per hour) with four columns:
 
@@ -152,10 +152,10 @@ The caller supplies pre-fetched Open-Meteo data (one row per hour) with four col
 #                   precipitation (mm), soil_moisture_0_to_1cm (m³/m³).
 # Fetch winds from Open-Meteo with &wind_speed_unit=ms.
 
-hazard <- generate_litter_risk_index(met_data)
+hazard <- litter_hazard(met_data)
 ```
 
-The vector API `litter_risk_index()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Suggested tier mapping (high uncertainty — requires site calibration):
+The vector API `litter_hazard_vec()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Suggested tier mapping (high uncertainty — requires site calibration):
 
 | Hazard | Tier | Meaning |
 |---|---|---|
@@ -181,11 +181,11 @@ exposure <- litter_exposure(hazard, met_data$wind_direction_10m, site)
 #   within_face < on_site < off_site
 ```
 
-See `?litter_risk_index`, `?generate_litter_risk_index`, and `?litter_exposure` for the full parameter lists, model structure, and references.
+See `?litter_hazard_vec`, `?litter_hazard`, and `?litter_exposure` for the full parameter lists, model structure, and references.
 
 ## Dust hazard
 
-`generate_dust_risk_index()` computes an hourly dust hazard (0–100) from wind erosion of an exposed, erodible surface. It uses a physical saltation-to-emission chain — a Shao & Lu (2000) threshold friction velocity, a Fécan et al. (1999) soil-moisture correction, an optional Marticorena & Bergametti (1995) drag partition, an Owen/White saltation flux, and the MB95 sandblasting efficiency — driven by the gust (fastest-mile proxy). The index is normalised against a reference gust on a dry surface, so it keeps resolution rather than saturating.
+`dust_hazard()` computes an hourly dust hazard (0–100) from wind erosion of an exposed, erodible surface. It uses a physical saltation-to-emission chain — a Shao & Lu (2000) threshold friction velocity, a Fécan et al. (1999) soil-moisture correction, an Owen/White saltation flux, and the MB95 sandblasting efficiency — driven by the gust (fastest-mile proxy). The erodible surface is assumed smooth (no non-erodible roughness drag partition). The index is normalised against a reference gust on a dry surface, so it keeps resolution rather than saturating.
 
 Meteorological inputs are pre-fetched Open-Meteo columns; the surface is described by one-time site-survey parameters (Tyler sieve number for the modal aggregate size, clay %, roughness, bulk density).
 
@@ -194,14 +194,14 @@ Meteorological inputs are pre-fetched Open-Meteo columns; the surface is describ
 #                   soil_moisture_0_to_1cm (m³/m³); + precipitation (mm) when
 #                   crust = TRUE. Fetch winds with &wind_speed_unit=ms.
 
-dust <- generate_dust_risk_index(
+dust <- dust_hazard(
   met_data,
   tyler_sieve_no = 20L,   # modal aggregate size of the erodible surface
   clay_percent   = 10
 )
 ```
 
-An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_emission_potential()` returns the underlying relative dust flux. See `?generate_dust_risk_index` and `?dust_emission_potential` for the full parameter list and references.
+An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_flux()` returns the underlying relative dust flux. See `?dust_hazard` and `?dust_flux` for the full parameter list and references.
 
 ## Reference
 

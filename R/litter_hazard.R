@@ -8,8 +8,9 @@
 #' handled separately by [litter_exposure()].
 #'
 #' The function does not query any API. The caller fetches the four required
-#' hourly variables from the Open-Meteo `/v1/forecast` endpoint (default metric
-#' units) and passes them as numeric vectors, one element per forecast hour.
+#' hourly variables from the Open-Meteo `/v1/forecast` endpoint (winds in m/s,
+#' `&wind_speed_unit=ms`) and passes them as numeric vectors, one element per
+#' forecast hour.
 #'
 #' @section Model:
 #' The index is a bounded, multiplicative combination of entrainment, transport
@@ -95,7 +96,7 @@
 #' @seealso [litter_exposure()] for the direction- and geometry-aware exposure
 #'   layer that sits on top of this hazard index.
 #' @export
-litter_risk_index <- function(
+litter_hazard_vec <- function(
   wind_gusts_10m,
   wind_speed_10m,
   precipitation,
@@ -200,7 +201,7 @@ litter_risk_index <- function(
 
 #' Litter hazard index for a forecast tibble
 #'
-#' Computes the hourly litter hazard index ([litter_risk_index()]) for each row
+#' Computes the hourly litter hazard index ([litter_hazard_vec()]) for each row
 #' of a meteorological forecast tibble. Wraps the vector API, accepting a tibble
 #' with named columns rather than individual vectors.
 #'
@@ -208,14 +209,14 @@ litter_risk_index <- function(
 #'   containing at least the columns `wind_gusts_10m` (m/s), `wind_speed_10m`
 #'   (m/s), `precipitation` (mm), and `soil_moisture_0_to_1cm` (m^3/m^3).
 #' @param ... Additional calibration parameters forwarded to
-#'   [litter_risk_index()] (e.g. `rain_threshold`, `soil_wet`, `z0`).
+#'   [litter_hazard_vec()] (e.g. `rain_threshold`, `soil_wet`, `z0`).
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the litter hazard index in
 #'   `[0, 100]` for each forecast hour.
 #'
-#' @seealso [litter_risk_index()], [litter_exposure()].
+#' @seealso [litter_hazard_vec()], [litter_exposure()].
 #' @export
-generate_litter_risk_index <- function(met_data, ...) {
+litter_hazard <- function(met_data, ...) {
   checkmate::assert_data_frame(met_data, min.rows = 1)
 
   required_cols <- c(
@@ -229,7 +230,7 @@ generate_litter_risk_index <- function(met_data, ...) {
     )
   )
 
-  litter_risk_index(
+  litter_hazard_vec(
     wind_gusts_10m         = met_data$wind_gusts_10m,
     wind_speed_10m         = met_data$wind_speed_10m,
     precipitation          = met_data$precipitation,

@@ -53,7 +53,7 @@
 #' Whiteman, C.D. (2000). \emph{Mountain Meteorology}. Oxford University Press.
 #'
 #' @seealso [odour_hazard()] for the upstream hazard index, and
-#'   [generate_odour_risk_index()] for the combined wrapper.
+#'   [odour_risk()] for the combined wrapper.
 #' @export
 odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
                            stability = c("turner", "shear"), map_c50 = 0.3) {
@@ -202,7 +202,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
 
 # ---- Drainage / morning-fumigation state (relocated, optional) ------------- #
 # revisit: this is the single-site terrain heuristic carried over unchanged in
-# logic from the monolithic generate_odour_risk_index(). It is a bespoke state
+# logic from the monolithic odour_risk(). It is a bespoke state
 # machine with uncalibrated magic numbers, kept to prompt future generalisation
 # (a generic nocturnal-accumulation / morning-release pulse) and calibration.
 # It now rides the Pasquill-Turner stability index s (so its s > 4.0 thresholds

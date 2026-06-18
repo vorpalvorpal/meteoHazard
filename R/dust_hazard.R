@@ -6,7 +6,7 @@
 #' an Owen/White saltation flux, and the Marticorena & Bergametti (1995)
 #' sandblasting efficiency. The erodible surface is assumed smooth (no
 #' non-erodible roughness drag partition). The returned flux is in relative
-#' units; for an operational, bounded index use [generate_dust_risk_index()].
+#' units; for an operational, bounded index use [dust_hazard()].
 #'
 #' The function does not query any API. The caller supplies the per-hour
 #' meteorological vectors (from Open-Meteo) and one-time site-survey parameters.
@@ -26,7 +26,7 @@
 #' @param gust_factor Gust-duration factor converting the 3-second gust to the
 #'   fastest-mile driving wind. Default 0.84 (Durst).
 #' @param threshold_multiplier Multiplier on the threshold friction velocity,
-#'   length 1 or matching the met vectors. Used by [generate_dust_risk_index()]
+#'   length 1 or matching the met vectors. Used by [dust_hazard()]
 #'   to inject the crust-persistence factor; defaults to 1 (no effect).
 #'
 #' @return Numeric vector of vertical dust flux (relative units), one per hour;
@@ -40,9 +40,9 @@
 #' Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690}.
 #' Owen, P.R. (1964) saltation of uniform grains in air; White, B.R. (1979).
 #'
-#' @seealso [generate_dust_risk_index()] for the bounded operational index.
+#' @seealso [dust_hazard()] for the bounded operational index.
 #' @export
-dust_emission_potential <- function(
+dust_flux <- function(
   tyler_sieve_no,
   clay_percent,
   wind_speed_10m,
@@ -115,7 +115,7 @@ dust_emission_potential <- function(
 #' Dust Hazard Index for landfill operations
 #'
 #' Computes an hourly Dust Hazard Index in the range `[0, 100]` for each row of a
-#' meteorological forecast tibble. Wraps [dust_emission_potential()] and
+#' meteorological forecast tibble. Wraps [dust_flux()] and
 #' normalises the relative dust flux against a reference condition (a strong gust
 #' on a dry surface), so the index keeps resolution across ordinary winds rather
 #' than saturating.
@@ -125,7 +125,7 @@ dust_emission_potential <- function(
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
 #'   `crust = TRUE`.
 #' @param tyler_sieve_no,clay_percent,z0,bulk_density,gust_factor
-#'   Site and model parameters forwarded to [dust_emission_potential()].
+#'   Site and model parameters forwarded to [dust_flux()].
 #' @param crust Logical. Enable the precipitation-driven crust-persistence gate.
 #'   Default `FALSE`. When `TRUE`, `met_data$precipitation` is required.
 #' @param rain_crust_threshold Precipitation (mm) at or above which an hour is
@@ -141,9 +141,9 @@ dust_emission_potential <- function(
 #' @return Numeric vector of length `nrow(met_data)`, the Dust Hazard Index in
 #'   `[0, 100]` for each forecast hour.
 #'
-#' @seealso [dust_emission_potential()].
+#' @seealso [dust_flux()].
 #' @export
-generate_dust_risk_index <- function(
+dust_hazard <- function(
   met_data,
   tyler_sieve_no       = 20L,
   clay_percent         = 10,
@@ -187,7 +187,7 @@ generate_dust_risk_index <- function(
     z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
   )
 
-  flux <- do.call(dust_emission_potential, c(common, list(
+  flux <- do.call(dust_flux, c(common, list(
     wind_speed_10m       = met_data$wind_speed_10m,
     wind_gusts_10m       = met_data$wind_gusts_10m,
     soil_moisture        = met_data$soil_moisture_0_to_1cm,
@@ -195,7 +195,7 @@ generate_dust_risk_index <- function(
   )))
 
   # Reference flux: the scaling gust on a dry, crust-free surface, calm mean wind.
-  flux_ref <- do.call(dust_emission_potential, c(common, list(
+  flux_ref <- do.call(dust_flux, c(common, list(
     wind_speed_10m       = 0,
     wind_gusts_10m       = scale_ref_gust,
     soil_moisture        = 0,

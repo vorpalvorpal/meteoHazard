@@ -79,5 +79,5 @@ Zou, S.C. et al. (2003). Volatile organic compound emissions from landfills.
 }
 \seealso{
 \code{\link[=odour_exposure]{odour_exposure()}} for the geometry-aware exposure layer, and
-\code{\link[=generate_odour_risk_index]{generate_odour_risk_index()}} for the combined convenience wrapper.
+\code{\link[=odour_risk]{odour_risk()}} for the combined convenience wrapper.
 }
