@@ -8,8 +8,8 @@ generate_litter_risk_index(met_data, ...)
 }
 \arguments{
 \item{met_data}{A tibble (or data frame) with one row per hourly timestep
-containing at least the columns \code{wind_gusts_10m} (km/h), \code{wind_speed_10m}
-(km/h), \code{precipitation} (mm), and \code{soil_moisture_0_to_1cm} (m^3/m^3).}
+containing at least the columns \code{wind_gusts_10m} (m/s), \code{wind_speed_10m}
+(m/s), \code{precipitation} (mm), and \code{soil_moisture_0_to_1cm} (m^3/m^3).}
 
 \item{...}{Additional calibration parameters forwarded to
 \code{\link[=litter_risk_index]{litter_risk_index()}} (e.g. \code{rain_threshold}, \code{soil_wet}, \code{z0}).}

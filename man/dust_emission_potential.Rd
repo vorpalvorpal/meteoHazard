@@ -24,9 +24,9 @@ aggregate size of the erodible surface. Must be one of the tabulated values
 \item{clay_percent}{Clay fraction of the surface material (\% by mass), in
 \code{0}–\code{100}.}
 
-\item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (km/h).}
+\item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (m/s).}
 
-\item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (km/h).}
+\item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (m/s).}
 
 \item{soil_moisture}{Numeric vector. Volumetric water content of the top
 0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}

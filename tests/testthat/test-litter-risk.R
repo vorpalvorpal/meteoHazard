@@ -1,14 +1,12 @@
 # Behaviour specification for the v3 Litter Hazard Index.
 #
 # These specs encode the behaviour defined in specs/Litter_v3.md (the approved
-# v3 design). v3 is NOT yet implemented — R/litter_risk.R currently implements
-# v2 — so every spec below is written against the v3 contract and SKIPS until
-# the v3 API is present. This is the BDD "red" checklist for the v3
-# reimplementation: the implement step turns these green.
+# v3 design). Detection: the v3 `litter_risk_index()` introduces a roughness-
+# length argument `z0` (friction-velocity conversion) absent in v2; presence of
+# that formal is the "v3 is implemented" signal.
 #
-# Detection: the v3 `litter_risk_index()` introduces a roughness-length argument
-# `z0` (friction-velocity conversion) that v2 does not have. Presence of that
-# formal is used as the "v3 is implemented" signal.
+# Wind inputs are in m/s (Open-Meteo fetched with &wind_speed_unit=ms), matching
+# the rest of the package.
 #
 # Proposed v3 signature these specs assume (names may be adjusted by the
 # implementer, but the *behaviour* and *default values* are the contract):
@@ -18,14 +16,16 @@
 #     kappa = 0.40, z0 = 0.05,
 #     ustar_t0 = 0.30, ustar_ref = 1.05, entrainment_max = 50, excess_exponent = 2,
 #     moisture_gain = 2.0, moisture_curve = 0.5, soil_dry = 0.05, soil_wet = 0.20,
-#     wind_transport_onset = 20, wind_transport_ref = 55, transport_max = 2.0,
+#     wind_transport_onset = 5.5, wind_transport_ref = 15.0, transport_max = 2.0,
 #     rain_threshold = 0.5
 #   )
 #
 # Friction-velocity conversion used by the worked-answer oracles (spec §3.1):
 #   u* = (kappa / ln(10 / z0)) * W   with W in m/s
 #   ln(10 / 0.05) = ln(200) = 5.2983174
-#   per-km/h factor = 0.40 / 5.2983174 / 3.6 = 0.02097219
+#   per-(m/s) factor = 0.40 / 5.2983174 = 0.07549567
+#   dry-threshold gust  = ustar_t0 / factor = 0.30 / 0.07549567 = 3.9737 m/s
+#   reference gust (E saturates) = ustar_ref / factor = 1.05 / 0.07549567 = 13.908 m/s
 
 litter_v3_available <- function() {
   exists("litter_risk_index", mode = "function") &&
@@ -49,8 +49,8 @@ describe("litter_risk_index() [v3]", {
     it("returns one numeric value per input hour", {
       skip_if_no_litter_v3()
       out <- litter_risk_index(
-        wind_gusts_10m         = c(10, 35, 55),
-        wind_speed_10m         = c(5, 25, 45),
+        wind_gusts_10m         = c(3, 10, 15),
+        wind_speed_10m         = c(1.5, 7, 12.5),
         precipitation          = c(0, 0, 0),
         soil_moisture_0_to_1cm = c(0.02, 0.10, 0.02)
       )
@@ -62,8 +62,8 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # Sweep a wide grid; the bound must hold everywhere.
       g <- expand.grid(
-        gust = c(0, 15, 40, 80, 150),
-        wind = c(0, 20, 60, 120),
+        gust = c(0, 4, 11, 22, 42),
+        wind = c(0, 6, 17, 33),
         rain = c(0, 1),
         sm   = c(0, 0.05, 0.12, 0.30)
       )
@@ -75,7 +75,7 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # E = entrainment_max (50) and T = transport_max (2) -> 50 * 2 = 100 (spec §5.1).
       out <- litter_risk_index(
-        wind_gusts_10m = 60, wind_speed_10m = 55,
+        wind_gusts_10m = 16, wind_speed_10m = 15,
         precipitation = 0, soil_moisture_0_to_1cm = 0.02
       )
       expect_equal(out, 100, tolerance = LRI_TOL)
@@ -105,9 +105,9 @@ describe("litter_risk_index() [v3]", {
 
     it("is zero when the gust friction velocity is below the dry threshold", {
       skip_if_no_litter_v3()
-      # u*_g(14 km/h) = 0.02097219 * 14 = 0.2936 < ustar_t0 = 0.30 -> E = 0.
+      # u*_g(3.9 m/s) = 0.07549567 * 3.9 = 0.2944 < ustar_t0 = 0.30 -> E = 0.
       out <- litter_risk_index(
-        wind_gusts_10m = c(0, 10, 14), wind_speed_10m = c(45, 45, 45),
+        wind_gusts_10m = c(0, 3, 3.9), wind_speed_10m = c(12, 12, 12),
         precipitation = c(0, 0, 0), soil_moisture_0_to_1cm = c(0.02, 0.02, 0.02)
       )
       expect_equal(out, c(0, 0, 0))
@@ -116,8 +116,8 @@ describe("litter_risk_index() [v3]", {
     it("increases monotonically with gust above the threshold", {
       skip_if_no_litter_v3()
       out <- litter_risk_index(
-        wind_gusts_10m = c(10, 20, 30, 40, 55, 70),
-        wind_speed_10m = rep(45, 6),
+        wind_gusts_10m = c(3, 6, 9, 12, 15, 20),
+        wind_speed_10m = rep(12, 6),
         precipitation = rep(0, 6),
         soil_moisture_0_to_1cm = rep(0.02, 6)
       )
@@ -129,7 +129,7 @@ describe("litter_risk_index() [v3]", {
       # Once u*_g exceeds ustar_ref the entrainment caps at entrainment_max, so
       # further gust gives no increase (dry surface, identical wind).
       out <- litter_risk_index(
-        wind_gusts_10m = c(55, 70, 120), wind_speed_10m = rep(45, 3),
+        wind_gusts_10m = c(14, 18, 35), wind_speed_10m = rep(12, 3),
         precipitation = rep(0, 3), soil_moisture_0_to_1cm = rep(0.02, 3)
       )
       expect_equal(out[1], out[2], tolerance = LRI_TOL)
@@ -141,7 +141,7 @@ describe("litter_risk_index() [v3]", {
       # (u*_g - u*t)^2 is convex, so equal gust steps in the ramp produce
       # increasing increments. Dry surface, calm wind (T = 1) isolates E.
       out <- litter_risk_index(
-        wind_gusts_10m = c(20, 30, 40, 50), wind_speed_10m = rep(5, 4),
+        wind_gusts_10m = c(6, 8, 10, 12), wind_speed_10m = rep(1.5, 4),
         precipitation = rep(0, 4), soil_moisture_0_to_1cm = rep(0.02, 4)
       )
       incr <- diff(out)
@@ -155,7 +155,7 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # Rising soil moisture (below wet) raises u*t, shrinking the excess.
       out <- litter_risk_index(
-        wind_gusts_10m = rep(40, 4), wind_speed_10m = rep(30, 4),
+        wind_gusts_10m = rep(12, 4), wind_speed_10m = rep(8, 4),
         precipitation = rep(0, 4),
         soil_moisture_0_to_1cm = c(0.05, 0.10, 0.15, 0.19)
       )
@@ -166,7 +166,7 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # Below soil_dry the threshold is not raised, so SM = 0.00, 0.02, 0.05 match.
       out <- litter_risk_index(
-        wind_gusts_10m = rep(40, 3), wind_speed_10m = rep(30, 3),
+        wind_gusts_10m = rep(12, 3), wind_speed_10m = rep(8, 3),
         precipitation = rep(0, 3), soil_moisture_0_to_1cm = c(0.00, 0.02, 0.05)
       )
       expect_equal(out[1], out[2], tolerance = LRI_TOL)
@@ -177,7 +177,7 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # Saturation veto: hazard is exactly 0 regardless of gust strength.
       out <- litter_risk_index(
-        wind_gusts_10m = c(55, 120), wind_speed_10m = c(45, 55),
+        wind_gusts_10m = c(16, 35), wind_speed_10m = c(13, 15),
         precipitation = c(0, 0), soil_moisture_0_to_1cm = c(0.20, 0.30)
       )
       expect_equal(out, c(0, 0))
@@ -187,8 +187,8 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # A gust that produces hazard on a dry face produces less (here ~zero) on a
       # damp face because the threshold has risen above it.
-      dry  <- litter_risk_index(35, 5, 0, 0.02)
-      damp <- litter_risk_index(35, 5, 0, 0.14)
+      dry  <- litter_risk_index(9, 1.5, 0, 0.02)
+      damp <- litter_risk_index(9, 1.5, 0, 0.14)
       expect_gt(dry, damp)
     })
   })
@@ -199,7 +199,7 @@ describe("litter_risk_index() [v3]", {
       skip_if_no_litter_v3()
       # Even extreme dry-surface wind is fully suppressed by rain >= rain_threshold.
       out <- litter_risk_index(
-        wind_gusts_10m = c(60, 60), wind_speed_10m = c(55, 55),
+        wind_gusts_10m = c(16, 16), wind_speed_10m = c(15, 15),
         precipitation = c(0.5, 3.0), soil_moisture_0_to_1cm = c(0.02, 0.02)
       )
       expect_equal(out, c(0, 0))
@@ -208,7 +208,7 @@ describe("litter_risk_index() [v3]", {
     it("does not gate when precipitation is below the threshold", {
       skip_if_no_litter_v3()
       out <- litter_risk_index(
-        wind_gusts_10m = 60, wind_speed_10m = 55,
+        wind_gusts_10m = 16, wind_speed_10m = 15,
         precipitation = 0.4, soil_moisture_0_to_1cm = 0.02
       )
       expect_gt(out, 0)
@@ -219,10 +219,10 @@ describe("litter_risk_index() [v3]", {
 
     it("applies no amplification at or below the transport onset wind", {
       skip_if_no_litter_v3()
-      # W <= wind_transport_onset (20 km/h) -> T = 1, so the result equals the
+      # W <= wind_transport_onset (5.5 m/s) -> T = 1, so the result equals the
       # entrainment-only value and calm vs onset winds match.
       out <- litter_risk_index(
-        wind_gusts_10m = c(55, 55), wind_speed_10m = c(5, 20),
+        wind_gusts_10m = c(16, 16), wind_speed_10m = c(1.5, 5.5),
         precipitation = c(0, 0), soil_moisture_0_to_1cm = c(0.02, 0.02)
       )
       expect_equal(out[1], out[2], tolerance = LRI_TOL)
@@ -233,8 +233,8 @@ describe("litter_risk_index() [v3]", {
     it("increases the hazard with mean wind above the onset (the distance penalty)", {
       skip_if_no_litter_v3()
       out <- litter_risk_index(
-        wind_gusts_10m = rep(55, 6),
-        wind_speed_10m = c(0, 20, 30, 40, 55, 70),
+        wind_gusts_10m = rep(16, 6),
+        wind_speed_10m = c(0, 5.5, 8, 11, 15, 20),
         precipitation = rep(0, 6),
         soil_moisture_0_to_1cm = rep(0.02, 6)
       )
@@ -243,9 +243,9 @@ describe("litter_risk_index() [v3]", {
 
     it("saturates the transport amplification at the reference wind", {
       skip_if_no_litter_v3()
-      # At/above wind_transport_ref (55 km/h) T = transport_max; more wind adds nothing.
+      # At/above wind_transport_ref (15 m/s) T = transport_max; more wind adds nothing.
       out <- litter_risk_index(
-        wind_gusts_10m = rep(55, 3), wind_speed_10m = c(55, 70, 120),
+        wind_gusts_10m = rep(16, 3), wind_speed_10m = c(15, 20, 35),
         precipitation = rep(0, 3), soil_moisture_0_to_1cm = rep(0.02, 3)
       )
       expect_equal(out[1], out[2], tolerance = LRI_TOL)
@@ -255,8 +255,8 @@ describe("litter_risk_index() [v3]", {
     it("never reduces the hazard below the entrainment-only value", {
       skip_if_no_litter_v3()
       # T >= 1 always, so any wind can only amplify, never suppress.
-      calm   <- litter_risk_index(40, 0, 0, 0.02)
-      windy  <- litter_risk_index(40, 60, 0, 0.02)
+      calm   <- litter_risk_index(12, 0, 0, 0.02)
+      windy  <- litter_risk_index(12, 16, 0, 0.02)
       expect_gte(windy, calm)
     })
   })
@@ -268,8 +268,8 @@ describe("litter_risk_index() [v3]", {
       # Each row has strong gust+wind but one veto active: rain / saturated /
       # sub-threshold gust. All must be exactly zero.
       out <- litter_risk_index(
-        wind_gusts_10m         = c(60, 60, 10),
-        wind_speed_10m         = c(55, 55, 55),
+        wind_gusts_10m         = c(16, 16, 3),
+        wind_speed_10m         = c(15, 15, 15),
         precipitation          = c(2.0, 0.0, 0.0),
         soil_moisture_0_to_1cm = c(0.02, 0.25, 0.02)
       )
@@ -279,25 +279,25 @@ describe("litter_risk_index() [v3]", {
 
   describe("worked examples from spec section 5.2", {
 
-    it("Example 1 — hot, dry, strong gust -> 85.7 (EXTREME)", {
+    it("Example 1 — strong gust, strong wind, dry -> ~86.8 (EXTREME)", {
       skip_if_no_litter_v3()
-      # G=55, W=45, P=0, SM=0.02 (dry). E saturates at 50; T(45)=1.714286.
-      # LRI = 50 * 1.714286 = 85.7143.
-      out <- litter_risk_index(55, 45, 0, 0.02)
-      expect_equal(out, 85.7143, tolerance = LRI_TOL)
+      # G=16, W=12.5, P=0, SM=0.02 (dry). E saturates at 50; T(12.5)=1.736842.
+      # LRI = 50 * 1.736842 = 86.84211.
+      out <- litter_risk_index(16, 12.5, 0, 0.02)
+      expect_equal(out, 86.8421, tolerance = LRI_TOL)
     })
 
-    it("Example 2 — moderate gust on a damp surface -> ~0.78 (LOW)", {
+    it("Example 2 — moderate gust on a damp surface -> ~1.2 (LOW)", {
       skip_if_no_litter_v3()
-      # G=35, W=25, P=0, SM=0.10. u*t rises to 0.6464; E=0.68237; T(25)=1.142857.
-      # LRI = 0.779847.
-      out <- litter_risk_index(35, 25, 0, 0.10)
-      expect_equal(out, 0.7798, tolerance = LRI_TOL)
+      # G=10, W=7, P=0, SM=0.10. u*t rises; E small; T(7)=1.157895.
+      # LRI = 1.212686.
+      out <- litter_risk_index(10, 7, 0, 0.10)
+      expect_equal(out, 1.2127, tolerance = LRI_TOL)
     })
 
     it("Example 3 — rain now -> 0 (LOW)", {
       skip_if_no_litter_v3()
-      out <- litter_risk_index(55, 45, 3.0, 0.02)
+      out <- litter_risk_index(16, 12.5, 3.0, 0.02)
       expect_equal(out, 0)
     })
   })
@@ -306,15 +306,15 @@ describe("litter_risk_index() [v3]", {
 
     it("rejects missing values in any input (no NA imputation; spec section 1.1)", {
       skip_if_no_litter_v3()
-      expect_error(litter_risk_index(c(40, NA), c(30, 30), c(0, 0), c(0.1, 0.1)))
-      expect_error(litter_risk_index(c(40, 40), c(30, NA), c(0, 0), c(0.1, 0.1)))
-      expect_error(litter_risk_index(c(40, 40), c(30, 30), c(0, NA), c(0.1, 0.1)))
-      expect_error(litter_risk_index(c(40, 40), c(30, 30), c(0, 0), c(0.1, NA)))
+      expect_error(litter_risk_index(c(12, NA), c(8, 8), c(0, 0), c(0.1, 0.1)))
+      expect_error(litter_risk_index(c(12, 12), c(8, NA), c(0, 0), c(0.1, 0.1)))
+      expect_error(litter_risk_index(c(12, 12), c(8, 8), c(0, NA), c(0.1, 0.1)))
+      expect_error(litter_risk_index(c(12, 12), c(8, 8), c(0, 0), c(0.1, NA)))
     })
 
     it("rejects inputs of differing length", {
       skip_if_no_litter_v3()
-      expect_error(litter_risk_index(c(40, 40), 30, 0, 0.1))
+      expect_error(litter_risk_index(c(12, 12), 8, 0, 0.1))
     })
 
     it("rejects zero-length input", {
@@ -324,20 +324,20 @@ describe("litter_risk_index() [v3]", {
 
     it("rejects physically impossible meteorology", {
       skip_if_no_litter_v3()
-      expect_error(litter_risk_index(-1, 30, 0, 0.1))    # negative gust
-      expect_error(litter_risk_index(40, -1, 0, 0.1))    # negative wind
-      expect_error(litter_risk_index(40, 30, -1, 0.1))   # negative precip
-      expect_error(litter_risk_index(40, 30, 0, 1.5))    # soil moisture > 1
-      expect_error(litter_risk_index(40, 30, 0, -0.1))   # soil moisture < 0
+      expect_error(litter_risk_index(-1, 8, 0, 0.1))    # negative gust
+      expect_error(litter_risk_index(12, -1, 0, 0.1))   # negative wind
+      expect_error(litter_risk_index(12, 8, -1, 0.1))   # negative precip
+      expect_error(litter_risk_index(12, 8, 0, 1.5))    # soil moisture > 1
+      expect_error(litter_risk_index(12, 8, 0, -0.1))   # soil moisture < 0
     })
 
     it("rejects parameter sets that violate ordering constraints", {
       skip_if_no_litter_v3()
       # Each denominator/threshold pair must be strictly ordered.
-      expect_error(litter_risk_index(40, 30, 0, 0.1, soil_dry = 0.20, soil_wet = 0.10))
-      expect_error(litter_risk_index(40, 30, 0, 0.1, ustar_t0 = 1.2, ustar_ref = 1.0))
+      expect_error(litter_risk_index(12, 8, 0, 0.1, soil_dry = 0.20, soil_wet = 0.10))
+      expect_error(litter_risk_index(12, 8, 0, 0.1, ustar_t0 = 1.2, ustar_ref = 1.0))
       expect_error(litter_risk_index(
-        40, 30, 0, 0.1, wind_transport_onset = 60, wind_transport_ref = 55
+        12, 8, 0, 0.1, wind_transport_onset = 16, wind_transport_ref = 15
       ))
     })
   })
@@ -348,8 +348,8 @@ describe("generate_litter_risk_index() [v3]", {
 
   v3_met <- function(n = 3) {
     data.frame(
-      wind_gusts_10m         = seq(10, 60, length.out = n),
-      wind_speed_10m         = seq(5, 55, length.out = n),
+      wind_gusts_10m         = seq(3, 16, length.out = n),
+      wind_speed_10m         = seq(1.5, 15, length.out = n),
       precipitation          = rep(0, n),
       soil_moisture_0_to_1cm = rep(0.02, n)
     )
@@ -393,7 +393,7 @@ describe("generate_litter_risk_index() [v3]", {
     # Raising the rain threshold lets a light-rain hour through that the default
     # (0.5 mm) would gate; the two calls must differ for such an hour.
     met <- data.frame(
-      wind_gusts_10m = 60, wind_speed_10m = 55,
+      wind_gusts_10m = 16, wind_speed_10m = 15,
       precipitation = 0.6, soil_moisture_0_to_1cm = 0.02
     )
     expect_equal(generate_litter_risk_index(met), 0)            # gated by default

@@ -32,7 +32,7 @@
 #'   \item{Transport potential `T`}{Driven by the **mean wind** directly (not
 #'     `u*`; transport is flight-height advection). A linear ramp from 1 to
 #'     `transport_max` between `wind_transport_onset` and `wind_transport_ref`
-#'     km/h — the "how far is it moved" penalty.}
+#'     m/s — the "how far is it moved" penalty.}
 #'   \item{Rainfall gate `R`}{Binary: `R = 0` when `precipitation >=
 #'     rain_threshold`, else 1.}
 #' }
@@ -40,9 +40,10 @@
 #' the index to zero. The maximum attainable value is exactly 100
 #' (`entrainment_max * transport_max = 50 * 2`).
 #'
-#' @param wind_gusts_10m Numeric vector. Peak wind gust at 10 m (km/h),
-#'   Open-Meteo `wind_gusts_10m`. Drives entrainment.
-#' @param wind_speed_10m Numeric vector. Mean wind speed at 10 m (km/h),
+#' @param wind_gusts_10m Numeric vector. Peak wind gust at 10 m (m/s),
+#'   Open-Meteo `wind_gusts_10m` (fetch with `&wind_speed_unit=ms`). Drives
+#'   entrainment.
+#' @param wind_speed_10m Numeric vector. Mean wind speed at 10 m (m/s),
 #'   Open-Meteo `wind_speed_10m`. Drives transport potential.
 #' @param precipitation Numeric vector. Hourly precipitation (mm), Open-Meteo
 #'   `precipitation`. Feeds the rainfall hard gate.
@@ -68,9 +69,9 @@
 #' @param soil_wet Soil moisture at or above which the surface is saturated and
 #'   entrainment is vetoed (m^3/m^3). Default 0.20. Must exceed `soil_dry`.
 #' @param wind_transport_onset Mean wind below which transport adds nothing
-#'   (km/h). Default 20.
-#' @param wind_transport_ref Mean wind at which transport saturates (km/h).
-#'   Default 55. Must exceed `wind_transport_onset`.
+#'   (m/s). Default 5.5 (~20 km/h).
+#' @param wind_transport_ref Mean wind at which transport saturates (m/s).
+#'   Default 15 (~54 km/h). Must exceed `wind_transport_onset`.
 #' @param transport_max Maximum transport multiplier. Default 2.0.
 #' @param rain_threshold Hourly precipitation at or above which all litter
 #'   hazard is suppressed (mm). Default 0.5.
@@ -109,8 +110,8 @@ litter_risk_index <- function(
   moisture_curve       = 0.5,
   soil_dry             = 0.05,
   soil_wet             = 0.20,
-  wind_transport_onset = 20,
-  wind_transport_ref   = 55,
+  wind_transport_onset = 5.5,
+  wind_transport_ref   = 15.0,
   transport_max        = 2.0,
   rain_threshold       = 0.5
 ) {
@@ -159,11 +160,11 @@ litter_risk_index <- function(
 
   # ---- Entrainment friction velocity from the gust ------------------------- #
   # Neutral logarithmic wind profile: u* = kappa * U / ln(z / z0), with the
-  # 10 m gust converted from km/h to m/s. Using the gust (peak wind) as the
-  # effective driving wind for entrainment follows AP-42's "fastest-mile"
-  # device. (specs/Litter_v3.md S3.1)
+  # 10 m gust in m/s. Using the gust (peak wind) as the effective driving wind
+  # for entrainment follows AP-42's "fastest-mile" device. (specs/Litter_v3.md
+  # S3.1)
   ln_factor <- kappa / log(10 / z0)
-  ustar_g   <- ln_factor * (wind_gusts_10m / 3.6)
+  ustar_g   <- ln_factor * wind_gusts_10m
 
   # ---- Moisture-raised entrainment threshold (Fecan et al. 1999) ----------- #
   # A damp surface raises u*t; a dry surface (SM <= soil_dry) sits at the base
@@ -182,7 +183,7 @@ litter_risk_index <- function(
   entrainment[soil_moisture_0_to_1cm >= soil_wet] <- 0
 
   # ---- Transport potential from the mean wind ------------------------------ #
-  # Linear ramp [1, transport_max] over the mean wind (km/h). Transport is
+  # Linear ramp [1, transport_max] over the mean wind (m/s). Transport is
   # flight-height advection, so it is driven by the mean wind, not u*.
   # (specs/Litter_v3.md S4.3)
   transport <- 1 + (transport_max - 1) *
@@ -204,8 +205,8 @@ litter_risk_index <- function(
 #' with named columns rather than individual vectors.
 #'
 #' @param met_data A tibble (or data frame) with one row per hourly timestep
-#'   containing at least the columns `wind_gusts_10m` (km/h), `wind_speed_10m`
-#'   (km/h), `precipitation` (mm), and `soil_moisture_0_to_1cm` (m^3/m^3).
+#'   containing at least the columns `wind_gusts_10m` (m/s), `wind_speed_10m`
+#'   (m/s), `precipitation` (mm), and `soil_moisture_0_to_1cm` (m^3/m^3).
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_risk_index()] (e.g. `rain_threshold`, `soil_wet`, `z0`).
 #'
@@ -223,7 +224,7 @@ generate_litter_risk_index <- function(met_data, ...) {
   .assert_required_cols(
     met_data, required_cols, arg = "met_data",
     info = paste0(
-      "Required: wind_gusts_10m (km/h), wind_speed_10m (km/h), ",
+      "Required: wind_gusts_10m (m/s), wind_speed_10m (m/s), ",
       "precipitation (mm), soil_moisture_0_to_1cm (m\u00b3/m\u00b3)."
     )
   )

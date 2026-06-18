@@ -148,8 +148,9 @@ Litter is split into two composable layers: a **hazard** index (the meteorology 
 The caller supplies pre-fetched Open-Meteo data (one row per hour) with four columns:
 
 ```r
-# met_data columns: wind_gusts_10m, wind_speed_10m, precipitation,
-#                   soil_moisture_0_to_1cm
+# met_data columns: wind_gusts_10m (m/s), wind_speed_10m (m/s),
+#                   precipitation (mm), soil_moisture_0_to_1cm (m³/m³).
+# Fetch winds from Open-Meteo with &wind_speed_unit=ms.
 
 hazard <- generate_litter_risk_index(met_data)
 ```
@@ -189,8 +190,9 @@ See `?litter_risk_index`, `?generate_litter_risk_index`, and `?litter_exposure` 
 Meteorological inputs are pre-fetched Open-Meteo columns; the surface is described by one-time site-survey parameters (Tyler sieve number for the modal aggregate size, clay %, roughness, bulk density).
 
 ```r
-# met_data columns: wind_speed_10m, wind_gusts_10m, soil_moisture_0_to_1cm
-#                   (+ precipitation when crust = TRUE)
+# met_data columns: wind_speed_10m (m/s), wind_gusts_10m (m/s),
+#                   soil_moisture_0_to_1cm (m³/m³); + precipitation (mm) when
+#                   crust = TRUE. Fetch winds with &wind_speed_unit=ms.
 
 dust <- generate_dust_risk_index(
   met_data,

@@ -15,12 +15,12 @@ generate_dust_risk_index(
   rain_crust_threshold = 2,
   crust_factor_max = 3,
   crust_decay_hours = 72,
-  scale_ref_gust = 65
+  scale_ref_gust = 18
 )
 }
 \arguments{
 \item{met_data}{A tibble (or data frame), one row per hourly timestep, with at
-least \code{wind_speed_10m} (km/h), \code{wind_gusts_10m} (km/h), and
+least \code{wind_speed_10m} (m/s), \code{wind_gusts_10m} (m/s), and
 \code{soil_moisture_0_to_1cm} (m^3/m^3); plus \code{precipitation} (mm) when
 \code{crust = TRUE}.}
 
@@ -38,8 +38,9 @@ Default 3.}
 \item{crust_decay_hours}{E-folding time (hours) over which the crust
 suppression decays. Default 72.}
 
-\item{scale_ref_gust}{Gust speed (km/h) that, on a dry crust-free surface,
-maps to index 100. Default 65. Must exceed the entrainment threshold.}
+\item{scale_ref_gust}{Gust speed (m/s) that, on a dry crust-free surface,
+maps to index 100. Default 18 (~65 km/h). Must exceed the entrainment
+threshold.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the Dust Hazard Index in

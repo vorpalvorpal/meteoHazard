@@ -16,8 +16,8 @@
 #'   (see `TYLER_SIEVE_DIAMETERS_M`).
 #' @param clay_percent Clay fraction of the surface material (% by mass), in
 #'   `0`–`100`.
-#' @param wind_speed_10m Numeric vector. Hourly mean wind speed at 10 m (km/h).
-#' @param wind_gusts_10m Numeric vector. Peak gust at 10 m (km/h).
+#' @param wind_speed_10m Numeric vector. Hourly mean wind speed at 10 m (m/s).
+#' @param wind_gusts_10m Numeric vector. Peak gust at 10 m (m/s).
 #' @param soil_moisture Numeric vector. Volumetric water content of the top
 #'   0--1 cm layer (m^3/m^3), in `0`–`1`.
 #' @param z0 Aerodynamic roughness length for the wind profile (m). Default
@@ -94,7 +94,7 @@ dust_emission_potential <- function(
   u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier)
 
   # ---- Effective friction velocity (gust-driven, fastest-mile proxy) ------- #
-  U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m) / 3.6  # km/h -> m/s
+  U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
   u_star <- kappa * U_fm / log(z / z0)
 
   # ---- Saltation flux (Owen 1964 / White 1979) ----------------------------- #
@@ -121,7 +121,7 @@ dust_emission_potential <- function(
 #' than saturating.
 #'
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
-#'   least `wind_speed_10m` (km/h), `wind_gusts_10m` (km/h), and
+#'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
 #'   `crust = TRUE`.
 #' @param tyler_sieve_no,clay_percent,z0,bulk_density,gust_factor
@@ -134,8 +134,9 @@ dust_emission_potential <- function(
 #'   Default 3.
 #' @param crust_decay_hours E-folding time (hours) over which the crust
 #'   suppression decays. Default 72.
-#' @param scale_ref_gust Gust speed (km/h) that, on a dry crust-free surface,
-#'   maps to index 100. Default 65. Must exceed the entrainment threshold.
+#' @param scale_ref_gust Gust speed (m/s) that, on a dry crust-free surface,
+#'   maps to index 100. Default 18 (~65 km/h). Must exceed the entrainment
+#'   threshold.
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the Dust Hazard Index in
 #'   `[0, 100]` for each forecast hour.
@@ -153,7 +154,7 @@ generate_dust_risk_index <- function(
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
   crust_decay_hours    = 72,
-  scale_ref_gust       = 65
+  scale_ref_gust       = 18
 ) {
   checkmate::assert_data_frame(met_data, min.rows = 1)
   checkmate::assert_flag(crust)
@@ -167,7 +168,7 @@ generate_dust_risk_index <- function(
   .assert_required_cols(
     met_data, required_cols, arg = "met_data",
     info = paste0(
-      "Required: wind_speed_10m (km/h), wind_gusts_10m (km/h), ",
+      "Required: wind_speed_10m (m/s), wind_gusts_10m (m/s), ",
       "soil_moisture_0_to_1cm (m\u00b3/m\u00b3)",
       if (crust) ", precipitation (mm)." else "."
     )
@@ -202,7 +203,7 @@ generate_dust_risk_index <- function(
   )))
   if (flux_ref <= 0) {
     cli::cli_abort(c(
-      "{.arg scale_ref_gust} ({scale_ref_gust} km/h) does not exceed the erosion threshold.",
+      "{.arg scale_ref_gust} ({scale_ref_gust} m/s) does not exceed the erosion threshold.",
       "i" = "Increase {.arg scale_ref_gust} so the reference condition produces dust."
     ))
   }

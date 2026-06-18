@@ -19,17 +19,18 @@ litter_risk_index(
   moisture_curve = 0.5,
   soil_dry = 0.05,
   soil_wet = 0.2,
-  wind_transport_onset = 20,
-  wind_transport_ref = 55,
+  wind_transport_onset = 5.5,
+  wind_transport_ref = 15,
   transport_max = 2,
   rain_threshold = 0.5
 )
 }
 \arguments{
-\item{wind_gusts_10m}{Numeric vector. Peak wind gust at 10 m (km/h),
-Open-Meteo \code{wind_gusts_10m}. Drives entrainment.}
+\item{wind_gusts_10m}{Numeric vector. Peak wind gust at 10 m (m/s),
+Open-Meteo \code{wind_gusts_10m} (fetch with \verb{&wind_speed_unit=ms}). Drives
+entrainment.}
 
-\item{wind_speed_10m}{Numeric vector. Mean wind speed at 10 m (km/h),
+\item{wind_speed_10m}{Numeric vector. Mean wind speed at 10 m (m/s),
 Open-Meteo \code{wind_speed_10m}. Drives transport potential.}
 
 \item{precipitation}{Numeric vector. Hourly precipitation (mm), Open-Meteo
@@ -68,10 +69,10 @@ surface approaches wet. Default 2.0. High calibration uncertainty.}
 entrainment is vetoed (m^3/m^3). Default 0.20. Must exceed \code{soil_dry}.}
 
 \item{wind_transport_onset}{Mean wind below which transport adds nothing
-(km/h). Default 20.}
+(m/s). Default 5.5 (~20 km/h).}
 
-\item{wind_transport_ref}{Mean wind at which transport saturates (km/h).
-Default 55. Must exceed \code{wind_transport_onset}.}
+\item{wind_transport_ref}{Mean wind at which transport saturates (m/s).
+Default 15 (~54 km/h). Must exceed \code{wind_transport_onset}.}
 
 \item{transport_max}{Maximum transport multiplier. Default 2.0.}
 
@@ -117,7 +118,7 @@ vetoed (\code{E = 0}).}
 \item{Transport potential \code{T}}{Driven by the \strong{mean wind} directly (not
 \verb{u*}; transport is flight-height advection). A linear ramp from 1 to
 \code{transport_max} between \code{wind_transport_onset} and \code{wind_transport_ref}
-km/h — the "how far is it moved" penalty.}
+m/s — the "how far is it moved" penalty.}
 \item{Rainfall gate \code{R}}{Binary: \code{R = 0} when \code{precipitation >= rain_threshold}, else 1.}
 }
 Any single suppressor (rain, saturated surface, sub-threshold gust) drives
