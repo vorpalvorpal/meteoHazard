@@ -11,6 +11,14 @@
 #' The function does not query any API. The caller supplies the per-hour
 #' meteorological vectors (from Open-Meteo) and one-time site-survey parameters.
 #'
+#' @section Units:
+#' The dimensional inputs (`wind_speed_10m`, `wind_gusts_10m`, `z0`,
+#' `bulk_density`) may be supplied as bare numerics in the documented unit or as
+#' \pkg{units} objects, which are converted automatically (a dimensionally
+#' incompatible unit is an error). `clay_percent`, `soil_moisture` (m^3/m^3) and
+#' `gust_factor` are dimensionless and taken as-is. The returned flux is in
+#' relative units (plain numeric).
+#'
 #' @param tyler_sieve_no Integer Tyler Standard Sieve number for the modal
 #'   aggregate size of the erodible surface. Must be one of the tabulated values
 #'   (see `TYLER_SIEVE_DIAMETERS_M`).
@@ -53,6 +61,14 @@ dust_flux <- function(
   gust_factor          = 0.84,
   threshold_multiplier = 1
 ) {
+  # ---- Normalise dimensional inputs (bare = documented unit; units = converted) #
+  # clay_percent, soil_moisture (m^3/m^3 ratio) and gust_factor are dimensionless
+  # and taken as-is; the returned flux is in relative units (plain numeric).
+  wind_speed_10m <- .drop_to(wind_speed_10m, "m/s",    arg = "wind_speed_10m")
+  wind_gusts_10m <- .drop_to(wind_gusts_10m, "m/s",    arg = "wind_gusts_10m")
+  z0             <- .drop_to(z0,             "m",      arg = "z0")
+  bulk_density   <- .drop_to(bulk_density,   "Mg/m^3", arg = "bulk_density")
+
   # ---- Validation ---------------------------------------------------------- #
   if (!as.character(tyler_sieve_no) %in% names(TYLER_SIEVE_DIAMETERS_M)) {
     cli::cli_abort(c(
@@ -157,6 +173,12 @@ dust_hazard <- function(
   crust_decay_hours    = 72,
   scale_ref_gust       = 18
 ) {
+  # Normalise the dimensional scalars (bare = documented unit; units = converted).
+  # met_data wind columns are normalised inside dust_flux(); crust_factor_max and
+  # crust_decay_hours are dimensionless / in hours and taken as-is.
+  scale_ref_gust       <- .drop_to(scale_ref_gust, "m/s", arg = "scale_ref_gust")
+  rain_crust_threshold <- .drop_to(rain_crust_threshold, "mm", arg = "rain_crust_threshold")
+
   checkmate::assert_data_frame(met_data, min.rows = 1)
   checkmate::assert_flag(crust)
   checkmate::assert_number(rain_crust_threshold, lower = 0)
@@ -177,8 +199,8 @@ dust_hazard <- function(
 
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
   crust_mult <- if (crust) {
-    .dust_crust_factor(met_data$precipitation, rain_crust_threshold,
-                       crust_factor_max, crust_decay_hours)
+    .dust_crust_factor(.drop_to(met_data$precipitation, "mm", arg = "precipitation"),
+                       rain_crust_threshold, crust_factor_max, crust_decay_hours)
   } else {
     1
   }

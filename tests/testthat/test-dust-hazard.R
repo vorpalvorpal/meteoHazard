@@ -164,3 +164,54 @@ describe("dust_hazard() [v2]", {
     expect_gte(fine, coarse)
   })
 })
+
+
+describe("dust units handling", {
+
+  it("dust_flux accepts units-tagged winds and converts them to m/s", {
+    skip_if_no_dust_v2()
+    # 16 m/s = 57.6 km/h.
+    bare   <- dust_flux(20L, 10, 0, 16, 0.02)
+    tagged <- dust_flux(20L, 10, units::set_units(0, "m/s"),
+                        units::set_units(57.6, "km/h"), 0.02)
+    expect_equal(tagged, bare, tolerance = DUST_TOL)
+  })
+
+  it("dust_flux rejects a wind tagged with incompatible units", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(20L, 10, 0, units::set_units(16, "degree_C"), 0.02),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("dust_hazard accepts a met tibble carrying units wind columns", {
+    skip_if_no_dust_v2()
+    met <- data.frame(soil_moisture_0_to_1cm = 0.02)
+    met$wind_speed_10m <- units::set_units(0, "m/s")
+    met$wind_gusts_10m <- units::set_units(72, "km/h")  # 20 m/s
+    bare <- dust_hazard(data.frame(wind_speed_10m = 0, wind_gusts_10m = 20,
+                                   soil_moisture_0_to_1cm = 0.02))
+    expect_equal(dust_hazard(met), bare, tolerance = DUST_TOL)
+  })
+
+  it("dust_hazard accepts a units-tagged scale_ref_gust", {
+    skip_if_no_dust_v2()
+    # 64.8 km/h = 18 m/s, the default reference gust.
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = 18,
+                      soil_moisture_0_to_1cm = 0.02)
+    expect_equal(
+      dust_hazard(met, scale_ref_gust = units::set_units(64.8, "km/h")),
+      dust_hazard(met, scale_ref_gust = 18),
+      tolerance = DUST_TOL
+    )
+  })
+
+  it("dust_hazard returns a plain numeric index", {
+    skip_if_no_dust_v2()
+    out <- dust_hazard(data.frame(wind_speed_10m = 0, wind_gusts_10m = 18,
+                                  soil_moisture_0_to_1cm = 0.02))
+    expect_false(inherits(out, "units"))
+    expect_type(out, "double")
+  })
+})

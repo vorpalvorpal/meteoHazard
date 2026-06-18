@@ -61,6 +61,16 @@ units; for an operational, bounded index use \code{\link[=dust_hazard]{dust_haza
 The function does not query any API. The caller supplies the per-hour
 meteorological vectors (from Open-Meteo) and one-time site-survey parameters.
 }
+\section{Units}{
+
+The dimensional inputs (\code{wind_speed_10m}, \code{wind_gusts_10m}, \code{z0},
+\code{bulk_density}) may be supplied as bare numerics in the documented unit or as
+\pkg{units} objects, which are converted automatically (a dimensionally
+incompatible unit is an error). \code{clay_percent}, \code{soil_moisture} (m^3/m^3) and
+\code{gust_factor} are dimensionless and taken as-is. The returned flux is in
+relative units (plain numeric).
+}
+
 \references{
 Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304}.
 Fecan, F., Marticorena, B. & Bergametti, G. (1999)
