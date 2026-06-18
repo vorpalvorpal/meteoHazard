@@ -2,16 +2,40 @@
 
 First release under the name **meteoHazard** (formerly the `TWL` package),
 reframed as a collection of meteorological hazard predictors for waste
-management. The Thermal Work Limit (`generate_twl()`) is the first implemented
-function; `predict_odour()` and `predict_litter()` are stubs.
+management: Thermal Work Limit (`generate_twl()`), odour, wind-blown litter,
+and dust.
+
+## Cross-function consistency
+
+The four hazard families were swept for naming, unit, and helper consistency
+(pre-v1; no backwards-compatibility shims):
+
+* **Units.** All wind inputs are now in **m/s** across every function (matching
+  the bundled Open-Meteo fetcher, which requests `&wind_speed_unit=ms`).
+  Previously the litter and dust functions expected km/h while odour expected
+  m/s — the same column name silently meant different units. Affected defaults
+  were converted to preserve their physical thresholds.
+* **Naming.** The risk-index families converge on a `*_hazard()` /
+  `*_exposure()` scheme: `litter_hazard()` (was `generate_litter_risk_index`),
+  `litter_hazard_vec()` (was `litter_risk_index`), `dust_hazard()` (was
+  `generate_dust_risk_index`), `dust_flux()` (was `dust_emission_potential`),
+  and `odour_risk()` (was `generate_odour_risk_index`). `generate_twl()` is
+  unchanged (it returns W/m^2 with physiological zones, not a 0–100 index).
+* **Hazard tiers.** New `categorise_litter()`/`litter_colour()`,
+  `categorise_dust()`/`dust_colour()`, and `categorise_odour()`/`odour_colour()`
+  apply the documented operational bands on a shared green/amber/orange/red
+  palette, mirroring `categorise_twl()`/`twl_colour()`.
+* Shared internal validation helpers (`.assert_required_cols()`,
+  `.assert_numeric_cols()`, `.na_fill()`) replace the duplicated input-check
+  blocks; the litter/dust missing-column errors are now classed
+  `meteoHazard_input_error` like the rest.
 
 ## Odour model: hazard / exposure split
 
-* The monolithic `odour_risk()` is split into two layers,
-  mirroring the litter functions: `odour_hazard()` (receptor-independent,
-  direction-agnostic) and `odour_exposure()` (geometry-aware).
-  `odour_risk()` is now a backward-compatible convenience wrapper
-  over the two.
+* The monolithic odour risk index is split into two layers, mirroring the
+  litter functions: `odour_hazard()` (receptor-independent, direction-agnostic)
+  and `odour_exposure()` (geometry-aware). `odour_risk()` is now a thin
+  convenience wrapper over the two.
 * `odour_hazard()` returns a relative **ventilation index** (source emission
   divided by wind speed times mixing depth), capturing the dominant
   calm/stable/shallow-boundary-layer signal without baking in receptor

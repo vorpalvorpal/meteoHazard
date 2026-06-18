@@ -135,6 +135,8 @@ The 0–100 exposure maps to provisional operational tiers (subject to calibrati
 | 40 – 70 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
 | > 70 | VERY HIGH | Maximum response — consider ceasing tipping |
 
+`categorise_odour()` returns these tier labels and `odour_colour()` the matching colours (the shared package hazard palette).
+
 Stability defaults to Pasquill-Turner (insolation/cloud and wind), with a legacy 10 m/80 m shear estimator available via `stability = "shear"`. See `?odour_hazard` and `?odour_exposure` (and `specs/Odour_v2.md`) for the full model and references.
 
 ## Wind-blown litter
@@ -163,6 +165,8 @@ The vector API `litter_hazard_vec()` takes the columns directly (handy inside `d
 | 20 – 44 | MODERATE | Enhanced controls warranted |
 | 45 – 69 | HIGH | Likely without intervention |
 | 70 – 100 | EXTREME | Maximum controls or cessation required |
+
+`categorise_litter()` returns these tier labels and `litter_colour()` the matching colours.
 
 ### Exposure layer
 
@@ -202,6 +206,15 @@ dust <- dust_hazard(
 ```
 
 An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_flux()` returns the underlying relative dust flux. See `?dust_hazard` and `?dust_flux` for the full parameter list and references.
+
+Suggested tier mapping (pre-calibration); `categorise_dust()` returns these labels and `dust_colour()` the matching colours:
+
+| Hazard | Tier | Meaning |
+|---|---|---|
+| 0 – 24 | LOW | Erosion unlikely |
+| 25 – 49 | MODERATE | Enhanced controls warranted |
+| 50 – 74 | HIGH | Likely without intervention |
+| 75 – 100 | EXTREME | Maximum controls or cessation required |
 
 ## Reference
 
