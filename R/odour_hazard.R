@@ -58,6 +58,12 @@
 #' @return A numeric vector of length `nrow(met_data)`: the relative odour
 #'   hazard index for each hour (reference baseline = 1.0; not clamped).
 #'
+#'   **Scale note.** Unlike [litter_hazard()] and [dust_hazard()], which return
+#'   bounded 0--100 indices, this is an *unbounded relative* index: a ventilation
+#'   index has no natural ceiling, and the 0--100 framing is applied downstream
+#'   by [odour_exposure()]. Whether to unify all hazards onto one scale is a
+#'   deferred modelling/API decision (GitHub issue #11).
+#'
 #' @references
 #' Turner, D.B. (1970). \emph{Workbook of Atmospheric Dispersion Estimates}.
 #' US EPA AP-26.

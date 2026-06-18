@@ -44,7 +44,8 @@ threshold.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the Dust Hazard Index in
-\verb{[0, 100]} for each forecast hour.
+\verb{[0, 100]} for each forecast hour. (The odour hazard is on a different,
+relative scale; unifying the two is tracked in GitHub issue #11.)
 }
 \description{
 Computes an hourly Dust Hazard Index in the range \verb{[0, 100]} for each row of a

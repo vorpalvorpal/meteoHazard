@@ -212,7 +212,8 @@ litter_hazard_vec <- function(
 #'   [litter_hazard_vec()] (e.g. `rain_threshold`, `soil_wet`, `z0`).
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the litter hazard index in
-#'   `[0, 100]` for each forecast hour.
+#'   `[0, 100]` for each forecast hour. (The odour hazard is on a different,
+#'   relative scale; unifying the two is tracked in GitHub issue #11.)
 #'
 #' @seealso [litter_hazard_vec()], [litter_exposure()].
 #' @export

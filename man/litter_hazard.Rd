@@ -16,7 +16,8 @@ containing at least the columns \code{wind_gusts_10m} (m/s), \code{wind_speed_10
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the litter hazard index in
-\verb{[0, 100]} for each forecast hour.
+\verb{[0, 100]} for each forecast hour. (The odour hazard is on a different,
+relative scale; unifying the two is tracked in GitHub issue #11.)
 }
 \description{
 Computes the hourly litter hazard index (\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}) for each row

@@ -29,6 +29,12 @@ if they are not (the computation proceeds on row order regardless).}
 \value{
 A numeric vector of length \code{nrow(met_data)}: the relative odour
 hazard index for each hour (reference baseline = 1.0; not clamped).
+
+\strong{Scale note.} Unlike \code{\link[=litter_hazard]{litter_hazard()}} and \code{\link[=dust_hazard]{dust_hazard()}}, which return
+bounded 0--100 indices, this is an \emph{unbounded relative} index: a ventilation
+index has no natural ceiling, and the 0--100 framing is applied downstream
+by \code{\link[=odour_exposure]{odour_exposure()}}. Whether to unify all hazards onto one scale is a
+deferred modelling/API decision (GitHub issue #11).
 }
 \description{
 Computes an hourly \strong{relative odour hazard} for a landfill site: given the

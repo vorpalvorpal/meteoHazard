@@ -139,7 +139,8 @@ dust_flux <- function(
 #'   threshold.
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the Dust Hazard Index in
-#'   `[0, 100]` for each forecast hour.
+#'   `[0, 100]` for each forecast hour. (The odour hazard is on a different,
+#'   relative scale; unifying the two is tracked in GitHub issue #11.)
 #'
 #' @seealso [dust_flux()].
 #' @export
