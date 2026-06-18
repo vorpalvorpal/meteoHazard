@@ -123,3 +123,24 @@ test_that("a non-numeric required column raises a classed input error", {
   d$temperature_2m <- "warm"
   expect_error(odour_hazard(d), class = "meteoHazard_input_error")
 })
+
+# ── Units handling ───────────────────────────────────────────────────────────
+test_that("odour_hazard accepts units-tagged met columns and converts them", {
+  bare   <- odour_hazard(mh())
+  tagged <- mh()
+  tagged$wind_speed_10m        <- units::set_units(10.8, "km/h")    # 3 m/s
+  tagged$temperature_2m        <- units::set_units(59, "degree_F")  # 15 degC
+  tagged$boundary_layer_height <- units::set_units(0.5, "km")       # 500 m
+  tagged$pressure_msl          <- units::set_units(101300, "Pa")    # 1013 hPa
+  expect_equal(odour_hazard(tagged), bare, tolerance = 1e-6)
+})
+
+test_that("odour_hazard rejects a met column tagged with incompatible units", {
+  bad <- mh()
+  bad$wind_speed_10m <- units::set_units(3, "degree_C")
+  expect_error(odour_hazard(bad), class = "meteoHazard_input_error")
+})
+
+test_that("odour_hazard returns a plain numeric (relative) index", {
+  expect_false(inherits(odour_hazard(mh()), "units"))
+})

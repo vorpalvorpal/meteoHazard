@@ -44,7 +44,15 @@
 #'   operational knob; default 0.3.
 #'
 #' @return A numeric vector of length `length(hazard)`: the worst-case 0-100
-#'   odour exposure across receptors for each hour.
+#'   odour exposure across receptors for each hour (dimensionless, plain
+#'   numeric).
+#'
+#' @section Units:
+#' The dimensional `met_data` columns (see [odour_hazard()]) and the receptor
+#' `distance` (canonical metres) may each be supplied as a bare numeric in the
+#' documented unit or as a \pkg{units} object, which is converted automatically
+#' (a dimensionally incompatible unit is an error). Bearings (`receptors$bearing`,
+#' `drainage_axes$bearing_from`) are in degrees and taken as-is.
 #'
 #' @references
 #' Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}. NOAA.
@@ -73,6 +81,9 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
     "cloud_cover", "boundary_layer_height"
   )
   .assert_required_cols(met_data, required_cols, arg = "met_data")
+  # Normalise dimensional met columns to canonical-unit plain doubles (bare =
+  # documented unit; units objects converted; mismatch errors).
+  met_data <- .odour_normalise_met(met_data)
   checkmate::assert_data_frame(receptors, min.rows = 1)
   if (!all(c("bearing", "distance") %in% names(receptors))) {
     cli::cli_abort(
@@ -80,6 +91,9 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
       class = "meteoHazard_input_error"
     )
   }
+  # receptor distance is a length (canonical m); bearing stays in degrees.
+  receptors$distance <- .drop_to(receptors$distance, "m",
+                                 arg = "receptors$distance")
   checkmate::assert_numeric(receptors$bearing, lower = 0, upper = 360,
                             any.missing = FALSE, .var.name = "receptors$bearing")
   checkmate::assert_numeric(receptors$distance, lower = .Machine$double.eps,

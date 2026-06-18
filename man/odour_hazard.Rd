@@ -49,6 +49,18 @@ The function does not query any API. The caller fetches the required hourly
 variables from the Open-Meteo \verb{/v1/forecast} (or archive) endpoint and passes
 them as a data frame, one row per consecutive hourly timestep.
 }
+\section{Units}{
+
+The dimensional columns (\code{wind_speed_10m}, \code{wind_speed_80m},
+\code{direct_radiation}, \code{boundary_layer_height}, \code{temperature_2m}, \code{pressure_msl},
+\code{precipitation}) may each be a bare numeric in the documented unit or a
+\pkg{units} object, which is converted automatically (a dimensionally
+incompatible unit is an error). The percentage / ratio columns (\code{cloud_cover},
+\code{relative_humidity_2m}, \verb{soil_moisture_*}) and \code{wind_direction_10m} (degrees)
+are taken as-is. The returned hazard is a dimensionless relative index (plain
+numeric).
+}
+
 \section{Model}{
 
 The hazard is the \strong{ventilation index} -- source emission strength divided

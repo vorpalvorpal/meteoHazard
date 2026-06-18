@@ -20,6 +20,16 @@
 #' variables from the Open-Meteo `/v1/forecast` (or archive) endpoint and passes
 #' them as a data frame, one row per consecutive hourly timestep.
 #'
+#' @section Units:
+#' The dimensional columns (`wind_speed_10m`, `wind_speed_80m`,
+#' `direct_radiation`, `boundary_layer_height`, `temperature_2m`, `pressure_msl`,
+#' `precipitation`) may each be a bare numeric in the documented unit or a
+#' \pkg{units} object, which is converted automatically (a dimensionally
+#' incompatible unit is an error). The percentage / ratio columns (`cloud_cover`,
+#' `relative_humidity_2m`, `soil_moisture_*`) and `wind_direction_10m` (degrees)
+#' are taken as-is. The returned hazard is a dimensionless relative index (plain
+#' numeric).
+#'
 #' @section Model:
 #' The hazard is the **ventilation index** -- source emission strength divided
 #' by the atmosphere's ability to ventilate it (wind speed times mixing depth):
@@ -99,6 +109,11 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
                         info = "See {.code ?odour_hazard} for the required Open-Meteo columns.")
   .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
+  # Normalise dimensional columns to canonical-unit plain doubles (bare assumed
+  # in unit; units objects converted; mismatch errors). The case_when gate logic
+  # below and the shared dispersion state then run on plain doubles.
+  met_data <- .odour_normalise_met(met_data)
+
   state <- .odour_dispersion_state(met_data, stability)
   n_t   <- nrow(met_data)
 
@@ -174,6 +189,32 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
 
   hazard_raw / hazard_ref
+}
+
+
+# ---- Dimensional-column normalisation -------------------------------------- #
+# Convert the dimensional met_data columns to canonical-unit plain doubles: a
+# bare numeric is assumed already in the canonical unit, a units object is
+# converted (a dimensional mismatch errors). Percentage / ratio columns
+# (cloud_cover, relative_humidity_2m, soil_moisture_*) and wind_direction_10m
+# (degrees) are dimensionless-by-convention here and left untouched. Columns
+# that are absent are skipped (presence is validated by the caller).
+.odour_normalise_met <- function(met_data) {
+  canonical <- c(
+    wind_speed_10m        = "m/s",
+    wind_speed_80m        = "m/s",
+    direct_radiation      = "W/m^2",
+    boundary_layer_height = "m",
+    temperature_2m        = "degree_C",
+    pressure_msl          = "hPa",
+    precipitation         = "mm"
+  )
+  for (col in names(canonical)) {
+    if (!is.null(met_data[[col]])) {
+      met_data[[col]] <- .drop_to(met_data[[col]], canonical[[col]], arg = col)
+    }
+  }
+  met_data
 }
 
 
