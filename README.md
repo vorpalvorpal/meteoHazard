@@ -13,6 +13,19 @@ An R package that turns meteorological data into **management-relevant predictio
 | `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
 | `dust_hazard()` | **Dust hazard** — wind erosion of exposed surfaces | ✅ Implemented |
 
+## Units
+
+Every dimensional input is unit-checked via the [`units`](https://r-quantities.github.io/units/) package. You can pass a value either as a **bare numeric in the documented unit** or as a **`units` object**, which is converted automatically — a dimensionally incompatible unit (say, a temperature where a wind speed is expected) is a hard error. This makes the historical "same column name, different unit" bug impossible:
+
+```r
+library(units)
+# these two calls are equivalent — the tagged wind is converted to m/s
+litter_hazard_vec(set_units(57.6, "km/h"), set_units(45, "km/h"), 0, 0.02)
+litter_hazard_vec(16, 12.5, 0, 0.02)
+```
+
+Outputs that are genuine physical quantities are returned as `units` objects — `generate_twl()` returns W/m² (use `units::drop_units()` for a bare numeric; `categorise_twl()`/`twl_colour()` accept either). The 0–100 indices and the relative odour hazard are dimensionless and stay plain numeric. Percentages (relative humidity, cloud cover), ratios (soil moisture) and bearings (degrees) are taken as-is.
+
 ## Installation
 
 Install from GitHub using the `remotes` or `pak` package:
@@ -43,6 +56,7 @@ The package requires R (>= 4.1) and the following packages, which are installed 
 - `dplyr`
 - `httr2`
 - `purrr`
+- `units`
 
 ## Thermal Work Limit (TWL)
 

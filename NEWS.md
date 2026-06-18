@@ -5,6 +5,28 @@ reframed as a collection of meteorological hazard predictors for waste
 management: Thermal Work Limit (`generate_twl()`), odour, wind-blown litter,
 and dust.
 
+## Explicit units (the `units` package)
+
+Every dimensional quantity in the package is now unit-checked, so a wrong-unit
+input can no longer be silently misread (the class of bug behind the earlier
+km/h-vs-m/s litter/dust error).
+
+* **Inputs** may be supplied either as bare numerics in the documented unit or
+  as `units` objects, which are converted automatically; a dimensionally
+  incompatible unit (e.g. a temperature where a speed is expected) is a classed
+  error. This applies to the wind, temperature, pressure, radiation, length and
+  density inputs of `generate_twl()`, `odour_hazard()`/`odour_exposure()`,
+  `litter_hazard()`/`litter_hazard_vec()` and `dust_hazard()`/`dust_flux()`
+  (including receptor distances). Percentage and ratio fields (relative
+  humidity, cloud cover, soil moisture) and bearings (degrees) are taken as-is.
+* **Outputs** that are genuine physical quantities are returned as `units`
+  objects: `generate_twl()` now returns W/m^2. `categorise_twl()` and
+  `twl_colour()` are units-aware (they accept the typed output or a bare
+  numeric). The dimensionless scores -- the 0-100 litter/dust/odour indices and
+  the relative odour hazard -- stay plain numeric.
+* Internal conversions (km/h<->m/s, hPa<->kPa, etc.) now go through `units`
+  rather than hand-rolled factors. `units` is a new hard dependency.
+
 ## Cross-function consistency
 
 The four hazard families were swept for naming, unit, and helper consistency
