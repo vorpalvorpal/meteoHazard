@@ -46,7 +46,18 @@
 #' @param verbose If `TRUE` (the default), show progress and diagnostic
 #'   messages.
 #'
-#' @return Numeric vector of TWL values in W/m^2.
+#' @return A \pkg{units} vector of TWL values in W/m^2 (a genuine physical
+#'   quantity). Use [categorise_twl()] / [twl_colour()] (both units-aware) to
+#'   map it to zones, or `units::drop_units()` for a bare numeric.
+#'
+#' @section Units:
+#' The dimensional weather inputs (`temp` degC, `wind_speed` m/s, `direct_solar`
+#' / `diffuse_solar` W/m^2, `pressure`, `wet_bulb` degC) and `max_core_temp`
+#' (degC) may each be supplied as a bare numeric in the documented unit or as a
+#' \pkg{units} object, which is converted automatically (a dimensionally
+#' incompatible unit is an error). `RH` is a percentage and is taken as-is. A
+#' units-tagged `pressure` is converted to kPa directly, bypassing the
+#' `convert_pressure` hPa/kPa flag (which only governs bare pressure input).
 #'
 #' @details
 #' TWL categories (from Brake & Bates 2002):
@@ -114,6 +125,20 @@ generate_twl <- function(datetime,
       class = "meteoHazard_input_error"
     )
   }
+
+  # --- Normalise dimensional weather inputs (bare = documented unit; units =
+  # converted, erroring on a dimensional mismatch). NULL means "fetch from API"
+  # and is resolved later as bare canonical-unit data. RH (%) stays plain. A
+  # units-tagged pressure is converted to kPa here; a bare pressure keeps the
+  # hPa/kPa convert_pressure semantics applied further below.
+  if (!is.null(temp))          temp          <- .drop_to(temp, "degree_C", arg = "temp")
+  if (!is.null(wind_speed))    wind_speed    <- .drop_to(wind_speed, "m/s", arg = "wind_speed")
+  if (!is.null(direct_solar))  direct_solar  <- .drop_to(direct_solar, "W/m^2", arg = "direct_solar")
+  if (!is.null(diffuse_solar)) diffuse_solar <- .drop_to(diffuse_solar, "W/m^2", arg = "diffuse_solar")
+  if (!is.null(wet_bulb))      wet_bulb      <- .drop_to(wet_bulb, "degree_C", arg = "wet_bulb")
+  pressure_was_units <- inherits(pressure, "units")
+  if (pressure_was_units)      pressure      <- .drop_to(pressure, "kPa", arg = "pressure")
+  max_core_temp <- .drop_to(max_core_temp, "degree_C", arg = "max_core_temp")
 
   # Per-observation weather args: numeric, length 1 or n, range constraints
   weather_args <- list(
@@ -240,10 +265,14 @@ generate_twl <- function(datetime,
   # API-fetched pressure is always in hPa (Open-Meteo surface_pressure) and
   # must be divided by 10 to get kPa.  User-supplied pressure is divided by 10
   # only when convert_pressure = TRUE (i.e. the user passed hPa, not kPa).
-  if (pressure_from_api) {
-    pressure <- pressure / 10
-  } else if (convert_pressure) {
-    pressure <- pressure / 10
+  # A units-tagged pressure was already converted to kPa above, so skip the
+  # bare-numeric hPa->kPa conversion in that case.
+  if (!pressure_was_units) {
+    if (pressure_from_api) {
+      pressure <- pressure / 10
+    } else if (convert_pressure) {
+      pressure <- pressure / 10
+    }
   }
 
   # Apply log-profile wind height correction for API-sourced wind speed.
@@ -413,5 +442,6 @@ generate_twl <- function(datetime,
     }
   }
 
-  return(TWL)
+  # TWL is a genuine physical quantity -> return as a units object (W/m^2).
+  units::set_units(TWL, "W/m2")
 }

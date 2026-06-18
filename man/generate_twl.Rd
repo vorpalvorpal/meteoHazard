@@ -71,7 +71,9 @@ pressure from hPa to kPa. API-fetched pressure (Open-Meteo
 messages.}
 }
 \value{
-Numeric vector of TWL values in W/m^2.
+A \pkg{units} vector of TWL values in W/m^2 (a genuine physical
+quantity). Use \code{\link[=categorise_twl]{categorise_twl()}} / \code{\link[=twl_colour]{twl_colour()}} (both units-aware) to
+map it to zones, or \code{units::drop_units()} for a bare numeric.
 }
 \description{
 Calculates the maximum sustainable metabolic rate (W/m^2) that
@@ -99,6 +101,17 @@ TWL categories (from Brake & Bates 2002):
 \item < 115 W/m^2: Withdrawal required
 }
 }
+\section{Units}{
+
+The dimensional weather inputs (\code{temp} degC, \code{wind_speed} m/s, \code{direct_solar}
+/ \code{diffuse_solar} W/m^2, \code{pressure}, \code{wet_bulb} degC) and \code{max_core_temp}
+(degC) may each be supplied as a bare numeric in the documented unit or as a
+\pkg{units} object, which is converted automatically (a dimensionally
+incompatible unit is an error). \code{RH} is a percentage and is taken as-is. A
+units-tagged \code{pressure} is converted to kPa directly, bypassing the
+\code{convert_pressure} hPa/kPa flag (which only governs bare pressure input).
+}
+
 \references{
 Brake, D.J. and Bates, G.P. (2002) Limiting Metabolic Rate (Thermal Work
 Limit) as an Index of Thermal Stress. Applied Occupational and Environmental

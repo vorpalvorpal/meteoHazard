@@ -7,7 +7,8 @@
 twl_colour(twl)
 }
 \arguments{
-\item{twl}{Numeric vector of TWL values in W/m^2.}
+\item{twl}{TWL values in W/m^2, either a bare numeric or a \pkg{units} object
+(e.g. the \code{\link[=generate_twl]{generate_twl()}} return value); a tagged value is converted.}
 }
 \value{
 Character vector of hex colour codes:

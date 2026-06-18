@@ -84,7 +84,7 @@ test_that("TWL increases as wind speed increases at fixed temp and RH", {
 # 3. Output range is physically valid (60--380 W/m^2)
 # ---------------------------------------------------------------------------
 test_that("TWL is constrained to [60, 380] W/m^2", {
-  result <- twl_supplied(40, 0.5, 70)
+  result <- units::drop_units(twl_supplied(40, 0.5, 70))
   expect_gte(result, 60)
   expect_lte(result, 380)
 })
@@ -93,7 +93,7 @@ test_that("TWL is constrained to [60, 380] W/m^2", {
 # 4. Withdrawal limits are applied
 # ---------------------------------------------------------------------------
 test_that("DB > 44 C caps TWL to 115 W/m^2", {
-  result <- twl_supplied(45, 0.5, 30)
+  result <- units::drop_units(twl_supplied(45, 0.5, 30))
   expect_lte(result, 115)
 })
 
@@ -108,6 +108,52 @@ test_that("categorise_twl correctly maps generate_twl output to zones", {
   # Cool and dry -> should be Unrestricted
   high <- twl_supplied(28, 2.0, 30)
   expect_equal(categorise_twl(high), "Unrestricted")
+})
+
+# ---------------------------------------------------------------------------
+# 5b. Units: generate_twl returns a units object; inputs accept bare or units
+# ---------------------------------------------------------------------------
+test_that("generate_twl returns a units vector in W/m^2", {
+  result <- twl_supplied(35, 0.5, 50)
+  expect_s3_class(result, "units")
+  # Converting to kW/m^2 divides by 1000 -> confirms the unit really is W/m^2.
+  expect_equal(as.numeric(units::set_units(result, "kW/m2")),
+               as.numeric(result) / 1000, tolerance = 1e-9)
+})
+
+test_that("categorise_twl / twl_colour accept both the units output and bare numerics", {
+  result <- twl_supplied(28, 2.0, 30)            # units object
+  expect_equal(categorise_twl(result), categorise_twl(units::drop_units(result)))
+  expect_equal(twl_colour(result), twl_colour(units::drop_units(result)))
+})
+
+test_that("generate_twl accepts units-tagged weather inputs (auto-converted)", {
+  bare <- twl_supplied(38, 0.5, 50, pressure_hpa = 1013)
+  tagged <- generate_twl(
+    datetime      = make_dt("2024-06-15 10:00:00"),
+    latitude      = -31.95, longitude = 115.86,
+    temp          = units::set_units(100.4, "degree_F"), # 38 C
+    wind_speed    = units::set_units(1.8, "km/h"),       # 0.5 m/s
+    RH            = 50,
+    direct_solar  = 0, diffuse_solar = 0,
+    pressure      = units::set_units(1013, "hPa"),
+    verbose       = FALSE
+  )
+  expect_equal(units::drop_units(tagged), units::drop_units(bare), tolerance = 1e-6)
+})
+
+test_that("generate_twl rejects a weather input tagged with incompatible units", {
+  expect_error(
+    generate_twl(
+      datetime = make_dt("2024-06-15 10:00:00"),
+      latitude = -31.95, longitude = 115.86,
+      temp = units::set_units(38, "m/s"),  # speed where a temperature is expected
+      wind_speed = 0.5, RH = 50,
+      direct_solar = 0, diffuse_solar = 0, pressure = 1013,
+      verbose = FALSE
+    ),
+    class = "meteoHazard_input_error"
+  )
 })
 
 # ---------------------------------------------------------------------------
@@ -158,7 +204,7 @@ test_that("trad is close to air temp when solar = 0", {
   # With no solar and wind=0.2, globe_temp ≈ air_temp, so trad ≈ air_temp.
   # The TWL result should be consistent with the low-radiant-load scenario.
   # We check it is in a plausible range rather than testing trad directly.
-  result <- twl_supplied(35, 0.5, 50)
+  result <- units::drop_units(twl_supplied(35, 0.5, 50))
   expect_gte(result, 60)
   expect_lte(result, 380)
 })

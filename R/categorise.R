@@ -2,7 +2,8 @@
 #'
 #' Maps TWL values to the four standard zones defined by Brake & Bates (2002).
 #'
-#' @param twl Numeric vector of TWL values in W/m^2.
+#' @param twl TWL values in W/m^2, either a bare numeric or a \pkg{units} object
+#'   (e.g. the [generate_twl()] return value); a tagged value is converted.
 #' @return Character vector of categories: `"Withdrawal"`, `"Buffer"`,
 #'   `"Acclimatisation"`, or `"Unrestricted"`.
 #'
@@ -11,6 +12,9 @@
 #'
 #' @export
 categorise_twl <- function(twl) {
+  # Accept either a bare numeric (assumed W/m^2) or a units object from
+  # generate_twl() (converted); the band logic runs on plain W/m^2 doubles.
+  twl <- .drop_to(twl, "W/m^2", arg = "twl")
   case_when(
     is.na(twl) ~ NA_character_,
     twl < 115 ~ "Withdrawal",
@@ -25,7 +29,8 @@ categorise_twl <- function(twl) {
 #' Returns hex colour codes corresponding to each TWL zone for use in
 #' visualisations.
 #'
-#' @param twl Numeric vector of TWL values in W/m^2.
+#' @param twl TWL values in W/m^2, either a bare numeric or a \pkg{units} object
+#'   (e.g. the [generate_twl()] return value); a tagged value is converted.
 #' @return Character vector of hex colour codes:
 #' \describe{
 #'   \item{`"#D32F2F"`}{Red -- Withdrawal}
@@ -40,6 +45,8 @@ categorise_twl <- function(twl) {
 #'
 #' @export
 twl_colour <- function(twl) {
+  # Accept a bare numeric (W/m^2) or a units object from generate_twl().
+  twl <- .drop_to(twl, "W/m^2", arg = "twl")
   case_when(
     is.na(twl) ~ "#CCCCCC",
     twl < 115 ~ "#D32F2F",
