@@ -89,35 +89,20 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   )
 
   checkmate::assert_data_frame(met_data, min.rows = 1)
-  missing_cols <- setdiff(required_cols, names(met_data))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      c(
-        "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-        "i" = "See {.code ?odour_hazard} for the required Open-Meteo columns."
-      ),
-      class = "meteoHazard_input_error"
-    )
-  }
-  for (col in required_cols) {
-    if (!is.numeric(met_data[[col]])) {
-      cli::cli_abort(
-        "{.arg met_data} column {.val {col}} must be numeric, not {.cls {class(met_data[[col]])}}.",
-        class = "meteoHazard_input_error"
-      )
-    }
-  }
+  .assert_required_cols(met_data, required_cols, arg = "met_data",
+                        info = "See {.code ?odour_hazard} for the required Open-Meteo columns.")
+  .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
   state <- .odour_dispersion_state(met_data, stability)
   n_t   <- nrow(met_data)
 
   # ---- G: source generation modifier (additive, labelled) ----------------- #
   pressure    <- met_data$pressure_msl
-  precip_safe <- ifelse(is.na(met_data$precipitation), 0, met_data$precipitation)
+  precip_safe <- .na_fill(met_data$precipitation, 0)
   temp        <- met_data$temperature_2m
-  rh_safe     <- ifelse(is.na(met_data$relative_humidity_2m), 0, met_data$relative_humidity_2m)
-  sm01_safe   <- ifelse(is.na(met_data$soil_moisture_0_to_1cm), 0, met_data$soil_moisture_0_to_1cm)
-  sm13_safe   <- ifelse(is.na(met_data$soil_moisture_1_to_3cm), 0, met_data$soil_moisture_1_to_3cm)
+  rh_safe     <- .na_fill(met_data$relative_humidity_2m, 0)
+  sm01_safe   <- .na_fill(met_data$soil_moisture_0_to_1cm, 0)
+  sm13_safe   <- .na_fill(met_data$soil_moisture_1_to_3cm, 0)
 
   # Barometric pumping: falling pressure increases advective gas flux.
   dP3 <- pressure - dplyr::lag(pressure, 3)
@@ -203,9 +188,9 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   cloud <- met_data$cloud_cover
   bl    <- met_data$boundary_layer_height
 
-  u10_safe   <- ifelse(is.na(u10), 0, u10)
-  rad_safe   <- ifelse(is.na(rad), 0, rad)
-  cloud_safe <- ifelse(is.na(cloud), 50, cloud)
+  u10_safe   <- .na_fill(u10, 0)
+  rad_safe   <- .na_fill(rad, 0)
+  cloud_safe <- .na_fill(cloud, 50)
 
   is_calm <- is.na(u10) | u10 < ODOUR_CONSTANTS$U_CALM_FLOOR
   is_day  <- rad_safe > 10

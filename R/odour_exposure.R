@@ -72,13 +72,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
     "wind_direction_10m", "wind_speed_10m", "direct_radiation",
     "cloud_cover", "boundary_layer_height"
   )
-  missing_cols <- setdiff(required_cols, names(met_data))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-      class = "meteoHazard_input_error"
-    )
-  }
+  .assert_required_cols(met_data, required_cols, arg = "met_data")
   checkmate::assert_data_frame(receptors, min.rows = 1)
   if (!all(c("bearing", "distance") %in% names(receptors))) {
     cli::cli_abort(
@@ -223,8 +217,8 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   is_calm     <- state$is_calm
   s_t         <- state$s
   h_effective <- state$h_mix
-  rad_safe    <- ifelse(is.na(met_data$direct_radiation), 0, met_data$direct_radiation)
-  cloud_safe  <- ifelse(is.na(met_data$cloud_cover), 50, met_data$cloud_cover)
+  rad_safe    <- .na_fill(met_data$direct_radiation, 0)
+  cloud_safe  <- .na_fill(met_data$cloud_cover, 50)
 
   is_drainage          <- rep(FALSE, n_t)
   is_fumigation        <- rep(FALSE, n_t)

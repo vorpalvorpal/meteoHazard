@@ -164,13 +164,14 @@ generate_dust_risk_index <- function(
 
   required_cols <- c("wind_speed_10m", "wind_gusts_10m", "soil_moisture_0_to_1cm")
   if (crust) required_cols <- c(required_cols, "precipitation")
-  missing_cols <- setdiff(required_cols, names(met_data))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(c(
-      "{.arg met_data} is missing required columns: {.val {missing_cols}}.",
-      "i" = "Required: wind_speed_10m (km/h), wind_gusts_10m (km/h), soil_moisture_0_to_1cm (m\u00b3/m\u00b3){if (crust) ', precipitation (mm)' else ''}."
-    ))
-  }
+  .assert_required_cols(
+    met_data, required_cols, arg = "met_data",
+    info = paste0(
+      "Required: wind_speed_10m (km/h), wind_gusts_10m (km/h), ",
+      "soil_moisture_0_to_1cm (m\u00b3/m\u00b3)",
+      if (crust) ", precipitation (mm)." else "."
+    )
+  )
 
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
   crust_mult <- if (crust) {
