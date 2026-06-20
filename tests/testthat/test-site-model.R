@@ -93,6 +93,19 @@ describe("mh_site()", {
     expect_equal(site_coords, exp_coords, tolerance = 1e-6)
   })
 
+  it("reprojects a differing projected CRS to the supplied epsg", {
+    # features already projected, but in a DIFFERENT projection (UTM 56S) -> 32755
+    feat56 <- sf::st_transform(.make_geo_features(), 32756)
+    roles  <- .make_roles()
+    site   <- mh_site(feat56, roles, epsg = 32755)
+    expect_equal(sf::st_crs(site@features), sf::st_crs(32755))
+    expect_equal(
+      sf::st_coordinates(site@features),
+      sf::st_coordinates(sf::st_transform(feat56, 32755)),
+      tolerance = 1e-6
+    )
+  })
+
   it("enforces a shared AGL datum between source and terrain heights", {
     feat  <- .make_proj_features()
     roles <- .make_roles()

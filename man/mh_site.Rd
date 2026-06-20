@@ -17,9 +17,9 @@ Optional columns: \code{weight}, \code{sensitive}, \code{permeability}. Every
 \item{terrain}{An \code{mh_terrain} object or \code{NULL} (default).}
 
 \item{epsg}{Integer. EPSG code for the projected metric CRS to use
-internally. Must identify a projected (non-geographic) CRS. If \code{features}
-is in a geographic CRS it is reprojected to \code{epsg} automatically; if it
-is already in a different projected CRS an error is raised.}
+internally. Must identify a projected (non-geographic) CRS. Features in any
+other CRS (geographic or a different projection) are reprojected to \code{epsg}
+automatically.}
 
 \item{datum}{Character. Vertical datum string. Currently only \code{"AGL"} is
 recognised.}

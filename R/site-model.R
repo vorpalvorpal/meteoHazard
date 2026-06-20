@@ -152,9 +152,9 @@ mh_terrain <- S7::new_class(
 #'   `feature_id` must exist in `features$id`.
 #' @param terrain An `mh_terrain` object or `NULL` (default).
 #' @param epsg Integer. EPSG code for the projected metric CRS to use
-#'   internally. Must identify a projected (non-geographic) CRS. If `features`
-#'   is in a geographic CRS it is reprojected to `epsg` automatically; if it
-#'   is already in a different projected CRS an error is raised.
+#'   internally. Must identify a projected (non-geographic) CRS. Features in any
+#'   other CRS (geographic or a different projection) are reprojected to `epsg`
+#'   automatically.
 #' @param datum Character. Vertical datum string. Currently only `"AGL"` is
 #'   recognised.
 #'
@@ -276,16 +276,9 @@ mh_site <- S7::new_class(
       )
     }
 
-    if (isTRUE(sf::st_is_longlat(features))) {
-      # geographic → reproject to epsg
+    if (sf::st_crs(features) != target_crs) {
+      # reproject any differing CRS (geographic or projected) to the metric epsg
       features <- sf::st_transform(features, epsg_int)
-    } else if (sf::st_crs(features) != target_crs) {
-      cli::cli_abort(
-        c("{.arg features} is already in a projected CRS that differs from {.arg epsg} {.val {epsg_int}}.",
-          "i" = "Re-project {.arg features} to {.val {epsg_int}} before constructing {.fn mh_site},",
-          "i" = "or pass the matching {.arg epsg}."),
-        class = "meteoHazard_input_error"
-      )
     }
 
     S7::new_object(
