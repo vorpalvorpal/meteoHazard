@@ -22,6 +22,8 @@ Imports:
     dplyr,
     httr2,
     purrr,
+    S7,
+    sf,
     units
 Suggests:
     testthat (>= 3.0.0)
