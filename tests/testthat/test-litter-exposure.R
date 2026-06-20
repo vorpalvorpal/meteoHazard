@@ -227,3 +227,18 @@ describe("litter_exposure()", {
     })
   })
 })
+
+# === C4 behaviour spec (issue #18): litter_exposure() on the mh_site model ===
+# Supersedes the compass-sector specs above when the rewrite lands. Pending here.
+describe("litter_exposure() on the mh_site model", {
+  it("reproduces the current compass-sector outputs via site_from_sectors() with a centroid source")
+  it("uses the most permeable hit barrier as the directional factor")
+  it("applies the default permeability when the downwind bearing hits no barrier")
+  it("expands each barrier arc by direction_tol")
+  it("orders the zone ladder within_face < on_site < off_site")
+  it("flags off-site only for a sensitive receptor with permeability >= p_open_min")
+  it("errors (classed) when move_threshold is not below offsite_threshold")
+  it("errors (classed) on an invalid mh_site or a missing litter source")
+  it("computes bearings from an offset source's actual geometry, not the centroid")
+  it("takes the worst case among multiple overlapping barriers")
+})

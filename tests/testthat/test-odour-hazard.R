@@ -144,3 +144,12 @@ test_that("odour_hazard rejects a met column tagged with incompatible units", {
 test_that("odour_hazard returns a plain numeric (relative) index", {
   expect_false(inherits(odour_hazard(mh()), "units"))
 })
+
+# === C2 behaviour spec (issue #15): odour_hazard() as a summary over the split ===
+# Pending specs; /implement turns these green. The numeric no-op is the guardrail.
+describe("odour_hazard() after the C2 ventilation/generation split", {
+  it("returns numerically identical values to the current implementation for the existing cases")
+  it("is composed from ventilation_state() and .odour_generation()")
+  # gap-fill — characterises EXISTING behaviour the current tests do not assert:
+  it("is higher for a calm, shallow, stable hour than a windy, deep, neutral one")
+})

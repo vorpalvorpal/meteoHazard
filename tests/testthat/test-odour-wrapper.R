@@ -54,3 +54,9 @@ test_that("a non-POSIXct datetime is a classed input error", {
     class = "meteoHazard_input_error"
   )
 })
+
+# === C3a behaviour spec (issue #16): odour_risk() on the new signatures ===
+describe("odour_risk() on the mh_site model", {
+  it("equals odour_exposure() applied to the ventilation/hazard composed by hand")
+  it("returns one 0-100 value per forecast hour")
+})

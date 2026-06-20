@@ -153,3 +153,29 @@ test_that("odour_exposure returns a plain numeric 0-100 band", {
   expect_false(inherits(out, "units"))
   expect_type(out, "double")
 })
+
+# === C3a behaviour spec (issue #16): odour_exposure() on mh_site, area + multi-source ===
+# Supersedes the test_that() blocks above when the rewrite lands. Pending here.
+describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
+  # preserved behaviours, on the new API:
+  it("makes a nearer on-axis receptor more exposed than a far one")
+  it("falls as the plume swings off the receptor bearing")
+  it("reads ~0 for a receptor directly upwind of the source")
+  it("keeps a small off-axis miss substantial via forecast-direction uncertainty")
+  it("is direction-agnostic at a fixed distance under calm winds")
+  it("returns the worst-affected receptor's value for the hour")
+  it("increases with hazard and stays within [0, 100]")
+  it("returns a plain numeric band")
+  it("errors (classed) on an invalid mh_site or a hazard/met length mismatch")
+  # area source:
+  it("stays finite for a receptor at the source edge (no point-source divergence)")
+  it("tends to the initial spread sigma_y0 as distance goes to zero")
+  # multiple sources:
+  it("sums concentrations from multiple sources at a receptor")
+  it("gives ~twice the single-source concentration for two identical co-located sources")
+  it("applies the 0-100 map to the summed concentration, so two moderate sources can be severe")
+  it("reduces to the current max-over-receptors for a single source")
+  # edges:
+  it("produces no morning pulse with terrain_backend = 'none'")
+  it("skips a receptor coincident with the source")
+})
