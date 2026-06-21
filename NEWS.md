@@ -1,5 +1,16 @@
 # meteoHazard 0.2.0
 
+## Performance
+
+* `odour_exposure()` was rewritten to evaluate the source/receptor dispersion
+  as `(hour x receptor)` matrix operations rather than a per-receptor loop, and
+  the flat Gaussian dispersion is now computed once and shared with the
+  terrain backend instead of being recomputed. `.pool_partition()` and the
+  terrain pathway factors (`.cw_venting()`, `.cw_fumigation()`) are fully
+  vectorised. On a 3-source x 100-receptor x 168-hour case this is ~6x faster
+  for `terrain_backend = "none"` and ~10x faster for `"descriptors"`; output is
+  unchanged (guarded by golden characterisation tests).
+
 ## Phase 1 — unified geo-referenced site model and corrected dispersion physics
 
 New S7 domain objects, a corrected Gaussian-plume odour architecture,

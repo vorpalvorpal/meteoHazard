@@ -38,28 +38,28 @@
 
   phi <- function(u) 1 / (1 + exp(-pmin(pmax(u, -30), 30)))
 
-  f_1b <- numeric(n)
+  # NA in any argument → f_1b = 0 (handled after the vectorised quadrature).
+  na_mask <- is.na(emit_extent) | is.na(pool_top) | is.na(delta)
 
-  for (i in seq_len(n)) {
-    e  <- emit_extent[i]
-    pt <- pool_top[i]
-    d  <- max(delta[i], 1e-6)
+  # Substitute safe values so the quadrature never sees NA; emit_extent <= 0 is
+  # the point-source case, which the quadrature reproduces exactly (all 50
+  # samples collapse to z = 0, so mean phi = phi(-pool_top / delta)).
+  e_eff <- pmax(ifelse(na_mask, 0, emit_extent), 0)
+  pt    <- ifelse(na_mask, 0, pool_top)
+  d     <- pmax(ifelse(na_mask, 1, delta), 1e-6)
 
-    if (is.na(e) || is.na(pt) || is.na(d)) {
-      f_1b[i] <- 0.0
-      next
-    }
+  # 50-point quadrature of phi((z - pool_top)/delta) over z in [0, emit_extent].
+  # With z = emit_extent * u and u = linspace(0, 1, 50), the sample grid is
+  # identical to seq(0, emit_extent, length.out = 50). Build the (50 x n)
+  # argument matrix and average down columns.
+  #   arg[q, i] = (e_eff[i] * u[q] - pt[i]) / d[i]
+  u   <- seq(0, 1, length.out = 50)
+  arg <- (outer(u, e_eff) -
+            matrix(pt, nrow = 50L, ncol = n, byrow = TRUE)) /
+            matrix(d,  nrow = 50L, ncol = n, byrow = TRUE)
+  f_1b <- colMeans(phi(arg))
 
-    if (e <= 0) {
-      # Point source at z = 0
-      f_1b[i] <- phi(-pt / d)
-    } else {
-      # Uniform E(z) over [0, e]: mean of Phi over that range
-      z_seq   <- seq(0, e, length.out = 50)
-      f_1b[i] <- mean(phi((z_seq - pt) / d))
-    }
-  }
-
+  f_1b[na_mask] <- 0.0
   f_1b <- pmin(pmax(f_1b, 0), 1)
   list(f_1a = 1 - f_1b, f_1b = f_1b)
 }
@@ -88,11 +88,14 @@
 # vs: list from ventilation_state()
 # terrain: mh_terrain or NULL
 
-.cw_venting <- function(bearing_to_receptor, vs, terrain,
-                        CONFINEMENT_1A = ODOUR_CONSTANTS$CONFINEMENT_1A,
-                        VENTING_1A     = ODOUR_CONSTANTS$VENTING_1A) {
-  n_t   <- length(vs$is_day)
-  cw_1a <- rep(NA_real_, n_t)
+# Matrix form: `bearings` is a length-n_r vector of receptor bearings; returns
+# an (n_t x n_r) matrix. The alignment term is the only receptor-dependent
+# quantity, so each hour-mask row is filled with the per-receptor vector.
+.cw_venting_matrix <- function(bearings, vs, terrain,
+                               CONFINEMENT_1A = ODOUR_CONSTANTS$CONFINEMENT_1A,
+                               VENTING_1A     = ODOUR_CONSTANTS$VENTING_1A) {
+  n_t <- length(vs$is_day)
+  n_r <- length(bearings)
 
   drain_bearing <- if (!is.null(terrain) && !is.na(terrain@drainage_bearing))
     terrain@drainage_bearing else NA_real_
@@ -101,22 +104,33 @@
 
   is_channelled <- !is.na(drain_bearing) && flow_conv >= 0.5
 
-  # Time-invariant hour masks (alignment scalar doesn't depend on t).
   is_night   <- !vs$is_day
   is_morning <- vs$is_day & !is.na(vs$cbl_growth) & vs$cbl_growth > 0
 
+  cw <- matrix(NA_real_, n_t, n_r)
   if (is_channelled) {
-    diff_deg  <- .angular_diff(bearing_to_receptor, drain_bearing)
-    alignment <- max(0, cos(diff_deg * pi / 180))
-    cw_1a[is_night]   <- CONFINEMENT_1A * (1 - 0.9 * alignment)
-    cw_1a[is_morning] <- VENTING_1A * alignment
+    alignment   <- pmax(0, cos(.angular_diff(bearings, drain_bearing) * pi / 180))
+    night_val   <- CONFINEMENT_1A * (1 - 0.9 * alignment)
+    morning_val <- VENTING_1A * alignment
+    if (any(is_night))
+      cw[is_night, ]   <- matrix(night_val,   sum(is_night),   n_r, byrow = TRUE)
+    if (any(is_morning))
+      cw[is_morning, ] <- matrix(morning_val, sum(is_morning), n_r, byrow = TRUE)
   } else {
-    cw_1a[is_night]   <- CONFINEMENT_1A
-    cw_1a[is_morning] <- VENTING_1A
+    if (any(is_night))   cw[is_night, ]   <- CONFINEMENT_1A
+    if (any(is_morning)) cw[is_morning, ] <- VENTING_1A
   }
   # Daytime hours with no cbl_growth > 0 remain NA (caller uses flat Gaussian).
+  cw
+}
 
-  cw_1a
+# Scalar form (single receptor bearing): thin wrapper over the matrix form so
+# the two share one implementation. Returns a length-n_t vector.
+.cw_venting <- function(bearing_to_receptor, vs, terrain,
+                        CONFINEMENT_1A = ODOUR_CONSTANTS$CONFINEMENT_1A,
+                        VENTING_1A     = ODOUR_CONSTANTS$VENTING_1A) {
+  .cw_venting_matrix(bearing_to_receptor, vs, terrain,
+                     CONFINEMENT_1A, VENTING_1A)[, 1L]
 }
 
 
@@ -184,13 +198,17 @@
 }
 
 
-.cw_fumigation <- function(bearing_to_receptor, vs, terrain,
-                           above_pool_ht = 0,    # above-pool emission height (m)
-                           prep     = NULL,       # pre-computed from .cw_fumigation_prep()
-                           FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
+# Matrix form: `bearings` is a length-n_r vector of receptor bearings; returns
+# an (n_t x n_r) matrix. The residual-wind direction (and hence the per-hour
+# downwind bearing) is receptor-independent, so the only outer combination is
+# the cosine of each receptor bearing against the per-hour downwind direction.
+.cw_fumigation_matrix <- function(bearings, vs, terrain,
+                                  above_pool_ht = 0,
+                                  prep     = NULL,
+                                  FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
   n_t <- length(vs$is_day)
+  n_r <- length(bearings)
 
-  # Run the expensive prep only when the caller has not pre-computed it.
   if (is.null(prep)) prep <- .cw_fumigation_prep(vs, above_pool_ht)
 
   # Active hours: morning transition with a pool present.
@@ -198,7 +216,7 @@
                !is.na(vs$cbl_growth) & vs$cbl_growth > 0 &
                !is.na(vs$pool_top)   & vs$pool_top   > 0
 
-  # Coalesce direction across levels (priority order) then fallbacks.
+  # Coalesce direction across levels (priority order) then fallbacks (len n_t).
   rw_dir_vec <- rep(NA_real_, n_t)
   for (lev_nm in prep$level_names) {
     fill <- is.na(rw_dir_vec)
@@ -207,14 +225,30 @@
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$dir_10m_frz[fill]
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$wind_dir_surf[fill]
 
-  # Vectorised cosine for all active hours at once.
+  # Outer cosine: downwind per hour (down columns) vs bearing per receptor.
   downwind_dir <- (rw_dir_vec + 180) %% 360
-  diff_deg     <- .angular_diff(bearing_to_receptor, downwind_dir)
-  cw_val       <- FUMIC_1B * pmax(0, cos(diff_deg * pi / 180))^2
+  diff_deg <- .angular_diff(matrix(bearings,     n_t, n_r, byrow = TRUE),
+                            matrix(downwind_dir, n_t, n_r))
+  cw_val   <- FUMIC_1B * pmax(0, cos(diff_deg * pi / 180))^2
+  dim(cw_val) <- c(n_t, n_r)   # pmax() drops the matrix dim; restore it
 
-  ifelse(is_active & !is.na(rw_dir_vec), cw_val,
-  ifelse(is_active,                        0,
-         NA_real_))
+  cw         <- matrix(NA_real_, n_t, n_r)
+  known      <- !is.na(rw_dir_vec)               # len n_t
+  rows_known <- is_active & known
+  rows_zero  <- is_active & !known
+  if (any(rows_known)) cw[rows_known, ] <- cw_val[rows_known, ]
+  if (any(rows_zero))  cw[rows_zero, ]  <- 0
+  cw
+}
+
+# Scalar form (single receptor bearing): thin wrapper over the matrix form.
+.cw_fumigation <- function(bearing_to_receptor, vs, terrain,
+                           above_pool_ht = 0,
+                           prep     = NULL,
+                           FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
+  .cw_fumigation_matrix(bearing_to_receptor, vs, terrain,
+                        above_pool_ht = above_pool_ht, prep = prep,
+                        FUMIC_1B = FUMIC_1B)[, 1L]
 }
 
 
