@@ -23,8 +23,10 @@ litter_exposure(
 at 10 m (meteorological convention: the direction the wind blows \emph{from}).
 Same length as \code{hazard}.}
 
-\item{site}{A data frame describing the site boundary as sectors, one row per
-sector, with columns:
+\item{site}{Either a data frame describing the site boundary as compass
+sectors (legacy API), or an \code{\link{mh_site}} S7 object (new API).
+
+\strong{Legacy data frame} columns:
 \describe{
 \item{\code{arc_start}, \code{arc_end}}{Compass labels (one of N, NE, E, SE, S, SW,
 W, NW) giving the clockwise start and end of the boundary sector.}
@@ -33,7 +35,12 @@ lower = better containment (e.g. engineered wall ~0.3).}
 \item{\code{sensitive}}{Logical: \code{TRUE} if off-site impact in that direction
 matters (a receptor).}
 }
-An optional \code{distance_m} column is accepted but unused in basic mode.}
+An optional \code{distance_m} column is accepted but unused in basic mode.
+
+\strong{mh_site}: must carry a \verb{(litter, source)} feature and one or more
+\verb{(litter, barrier)} features with \code{permeability} and \code{sensitive} columns
+in the roles table. Use \code{\link[=site_from_sectors]{site_from_sectors()}} to build an \code{mh_site} from
+the legacy compass-sector format.}
 
 \item{direction_tol}{Tolerance (degrees) added to each arc edge. Default 15.}
 

@@ -6,27 +6,31 @@
 \usage{
 odour_risk(
   met_data,
-  receptors,
-  drainage_axes = NULL,
+  site,
   stability = c("turner", "shear"),
+  map_c50 = 0.3,
+  terrain_backend = c("none", "descriptors"),
   datetime = NULL
 )
 }
 \arguments{
-\item{met_data}{A data frame, one row per consecutive hourly timestep, with
-the columns required by both layers (see \code{\link[=odour_hazard]{odour_hazard()}} and
-\code{\link[=odour_exposure]{odour_exposure()}}). \code{NA} values are permitted and handled conservatively.}
+\item{met_data}{A data frame, one row per consecutive hourly timestep. Must
+contain at minimum: \code{wind_direction_10m}, \code{wind_speed_10m},
+\code{direct_radiation}, \code{cloud_cover}, \code{boundary_layer_height}. Columns for
+the generation modifier \code{G} (\code{pressure_msl}, \code{precipitation},
+\code{temperature_2m}, \code{relative_humidity_2m}, \code{soil_moisture_0_to_1cm},
+\code{soil_moisture_1_to_3cm}) are optional; if absent \code{G} defaults to 1.}
 
-\item{receptors}{A data frame, one row per receptor, with \code{bearing} (degrees
-from north, 0-360, landfill to receptor) and \code{distance} (m, strictly
-positive).}
+\item{site}{An \code{\link[=mh_site]{mh_site()}} object with at least one \verb{(odour, source)} role
+and one \verb{(odour, receptor)} role.}
 
-\item{drainage_axes}{Optional data frame enabling the terrain-aware katabatic
-drainage and morning fumigation refinement (\code{bearing_from} 0-360, \code{weight}
-positive). When \code{NULL} (default) that logic is skipped.}
+\item{stability}{Stability estimator: \code{"turner"} (default) or \code{"shear"}.}
 
-\item{stability}{Stability estimator (\code{"turner"} or \code{"shear"}); see
-\code{\link[=odour_hazard]{odour_hazard()}}.}
+\item{map_c50}{Relative concentration at which the 0-100 map reaches ~63
+(\code{100 * (1 - exp(-C_rel / map_c50))}). Default 0.3.}
+
+\item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
+(terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
 
 \item{datetime}{Optional \code{POSIXct} vector for the consecutive-hourly spacing
 check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
@@ -36,16 +40,15 @@ A numeric vector of length \code{nrow(met_data)}: the worst-case 0-100
 odour exposure across receptors for each hour.
 }
 \description{
-Convenience wrapper that computes the meteorological odour \code{\link[=odour_hazard]{odour_hazard()}}
-and maps it through the geometry-aware \code{\link[=odour_exposure]{odour_exposure()}} layer in one call,
+Convenience wrapper that computes the atmospheric ventilation state and maps
+it through the geometry-aware \code{\link[=odour_exposure]{odour_exposure()}} layer in one call,
 returning the worst-case 0-100 odour exposure across the receptors for each
 forecast hour.
 }
 \details{
-This is the entry point for the common case; use \code{\link[=odour_hazard]{odour_hazard()}} alone for a
-receptor-independent site index, or \code{\link[=odour_exposure]{odour_exposure()}} directly to reuse a
-precomputed hazard. See \code{specs/Odour_v2.md} for the model.
+This is the entry point for the common case; use \code{\link[=odour_exposure]{odour_exposure()}} directly
+when you need to inspect the per-source or per-receptor concentrations.
 }
 \seealso{
-\code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=odour_exposure]{odour_exposure()}}.
+\code{\link[=odour_exposure]{odour_exposure()}}, \code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=ventilation_state]{ventilation_state()}}.
 }
