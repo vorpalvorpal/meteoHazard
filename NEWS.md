@@ -1,3 +1,70 @@
+# meteoHazard 0.2.0
+
+## Phase 1 — unified geo-referenced site model and corrected dispersion physics
+
+New S7 domain objects, a corrected Gaussian-plume odour architecture,
+terrain-aware morning-pulse pathways, a reworked ventilation-state
+decomposition, and a geometry-aware litter-exposure rewrite. **Pre-1.0
+breaking-change release: no compatibility shims are provided.**
+
+### New domain objects
+
+* `mh_terrain` — S7 value object carrying site terrain descriptors
+  (`drainage_bearing`, `flow_convergence`).
+* `mh_site` — S7 object holding geo-referenced source, receptor, and barrier
+  features (sf geometry) plus a hazard-role table. Automatically reprojects any
+  input CRS to the supplied metric `epsg`.
+
+### New functions
+
+* `ventilation_state(met_data, terrain)` — decomposes an hourly met data frame
+  into the full dispersion state: effective wind speed (`u_eff`), mixing depth
+  (`h_mix`), Pasquill-Gifford stability class (`s`), calm flag (`is_calm`),
+  daytime flag (`is_day`), peak-to-mean factor (`PM`), rainfall factor
+  (`W_rain`), cold-pool depth (`pool_top`), CBL growth rate (`cbl_growth`), and
+  overnight residual-layer wind at 80/120/180/10 m (`residual_wind`).
+* `site_from_sectors(sectors, centroid, ring_radius, epsg)` — builds an
+  `mh_site` from a compass-sector data frame, constructing wedge-arc barrier
+  polygons projected from the site centroid. Used to feed `litter_exposure()`.
+
+### Breaking API changes
+
+* **`odour_exposure(met_data, site, stability, map_c50, terrain_backend)`** —
+  `site` is now an `mh_site` object (previously a `receptors` data frame with
+  `bearing` and `distance` columns). New `terrain_backend = c("none",
+  "descriptors")` argument activates cold-pool / morning-fumigation pathways.
+  Area sources (polygon features) use ISC3-derived initial spreads; multi-source
+  concentrations are summed, mapped 0–100, then maximised over receptors.
+* **`odour_risk()`** — thin wrapper; passes through all new arguments.
+* **`litter_exposure(hazard, wind_direction_10m, site)`** — `site` is now an
+  `mh_site` (previously a compass-sector data frame). Use `site_from_sectors()`
+  to build an `mh_site` from a sector data frame.
+
+### New required met columns
+
+`ventilation_state()` (and therefore `odour_exposure()` / `odour_risk()`) now
+accepts six multi-level wind columns. All are optional individually; the code
+degrades gracefully along the 180→120→80→10 m fallback ladder.
+
+| Column | Unit | Purpose |
+|---|---|---|
+| `wind_speed_80m` | m/s | Residual-layer wind; shear-stability estimator |
+| `wind_direction_80m` | ° | Residual-layer direction |
+| `wind_speed_120m` | m/s | Improves residual-wind accuracy (optional) |
+| `wind_direction_120m` | ° | |
+| `wind_speed_180m` | m/s | Improves residual-wind accuracy (optional) |
+| `wind_direction_180m` | ° | |
+
+Fetch all six from Open-Meteo by adding `&models=best_match` with hourly
+variables `wind_speed_80m,wind_direction_80m,wind_speed_120m,wind_direction_120m,
+wind_speed_180m,wind_direction_180m` (the existing `&wind_speed_unit=ms`
+request parameter applies).
+
+### New dependencies
+
+* `sf` — geo-referenced feature geometries.
+* `S7` — the OOP framework for `mh_site` / `mh_terrain`.
+
 # meteoHazard 0.1.0
 
 First release under the name **meteoHazard** (formerly the `TWL` package),
