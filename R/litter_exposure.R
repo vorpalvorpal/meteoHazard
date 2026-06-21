@@ -26,17 +26,11 @@
 #' @param wind_direction_10m Numeric vector, degrees `[0, 360]`. Wind direction
 #'   at 10 m (meteorological convention: the direction the wind blows *from*).
 #'   Same length as `hazard`.
-#' @param site A data frame describing the site boundary as sectors, one row per
-#'   sector, with columns:
-#'   \describe{
-#'     \item{`arc_start`, `arc_end`}{Compass labels (one of N, NE, E, SE, S, SW,
-#'       W, NW) giving the clockwise start and end of the boundary sector.}
-#'     \item{`permeability`}{Numeric `[0, 1]`: 1 = open / no effective barrier,
-#'       lower = better containment (e.g. engineered wall ~0.3).}
-#'     \item{`sensitive`}{Logical: `TRUE` if off-site impact in that direction
-#'       matters (a receptor).}
-#'   }
-#'   An optional `distance_m` column is accepted but unused in basic mode.
+#' @param site An [`mh_site`] S7 object. Must carry a `(litter, source)`
+#'   feature and one or more `(litter, barrier)` features with `permeability`
+#'   and `sensitive` columns in the roles table. Use [site_from_sectors()] to
+#'   build an `mh_site` from a compass-sector data frame.
+#'
 #' @param direction_tol Tolerance (degrees) added to each arc edge. Default 15.
 #' @param p_open_min Minimum permeability for a sensitive sector to count as
 #'   "open" when deciding off-site risk. Default 0.5.
@@ -70,6 +64,12 @@ litter_exposure <- function(
   offsite_threshold    = 45,
   default_permeability = 0.5
 ) {
+  if (!S7::S7_inherits(site, mh_site)) {
+    cli::cli_abort(
+      "{.arg site} must be an {.cls mh_site}.",
+      class = "meteoHazard_input_error"
+    )
+  }
 
   # ---- Validate hazard / direction vectors --------------------------------- #
   n <- length(hazard)
@@ -78,60 +78,81 @@ litter_exposure <- function(
   checkmate::assert_numeric(wind_direction_10m, lower = 0, upper = 360,
                             any.missing = FALSE, len = n)
 
-  # ---- Validate the site configuration ------------------------------------- #
-  checkmate::assert_data_frame(site, min.rows = 1)
-  required_cols <- c("arc_start", "arc_end", "permeability", "sensitive")
-  missing_cols <- setdiff(required_cols, names(site))
-  if (length(missing_cols) > 0) {
-    cli::cli_abort(
-      "{.arg site} is missing required columns: {.val {missing_cols}}."
-    )
-  }
-  valid_labels <- names(LITTER_COMPASS_DEGREES)
-  bad_labels <- setdiff(c(site$arc_start, site$arc_end), valid_labels)
-  if (length(bad_labels) > 0) {
-    cli::cli_abort(c(
-      "{.arg site} contains invalid compass label(s): {.val {bad_labels}}.",
-      "i" = "Valid labels are: {.val {valid_labels}}."
-    ))
-  }
-  checkmate::assert_numeric(site$permeability, lower = 0, upper = 1,
-                            any.missing = FALSE, .var.name = "site$permeability")
-  checkmate::assert_logical(site$sensitive, any.missing = FALSE,
-                            .var.name = "site$sensitive")
-
   # ---- Validate scalar parameters ------------------------------------------ #
   checkmate::assert_number(direction_tol, lower = 0, upper = 90)
   checkmate::assert_number(p_open_min, lower = 0, upper = 1)
   checkmate::assert_number(move_threshold, lower = 0)
   checkmate::assert_number(offsite_threshold)
   if (move_threshold >= offsite_threshold) {
-    cli::cli_abort(c(
-      "{.arg move_threshold} ({move_threshold}) must be less than {.arg offsite_threshold} ({offsite_threshold}).",
-      "i" = "The zone ladder requires within_face < on_site < off_site."
-    ))
+    cli::cli_abort(
+      c(
+        "{.arg move_threshold} ({move_threshold}) must be less than {.arg offsite_threshold} ({offsite_threshold}).",
+        "i" = "The zone ladder requires within_face < on_site < off_site."
+      ),
+      class = "meteoHazard_input_error"
+    )
   }
   checkmate::assert_number(default_permeability, lower = 0, upper = 1)
 
-  # ---- Downwind bearing (reciprocal of the blows-from direction) ----------- #
+  # ---- Get source and barrier features ------------------------------------- #
+  sources  <- .role_features(site, "litter", "source")
+  barriers <- .role_features(site, "litter", "barrier")
+
+  if (nrow(sources) == 0) {
+    cli::cli_abort(
+      "{.arg site} has no {.val (litter, source)} role.",
+      class = "meteoHazard_input_error"
+    )
+  }
+
+  # Use the first source feature
+  source_pt <- sources[1, ]
+
+  # Barrier roles (permeability + sensitive live here)
+  barrier_roles <- site@roles[
+    site@roles$hazard == "litter" & site@roles$role == "barrier",
+  ]
+
+  # ---- Downwind bearing ---------------------------------------------------- #
   theta_down <- .downwind_bearing(wind_direction_10m)
 
-  alpha <- unname(LITTER_COMPASS_DEGREES[site$arc_start])
-  beta  <- unname(LITTER_COMPASS_DEGREES[site$arc_end])
-
-  # ---- Directional factor and sensitive-hit flag --------------------------- #
-  # Loop over the (few) sectors, vectorising each arc test across all hours.
-  # best_perm holds the most permeable hit sector per hour (worst case across
-  # overlaps); -Inf marks an hour no sector covers, which falls back to the
-  # default permeability.
+  # ---- Per-barrier arc containment test ------------------------------------ #
   best_perm     <- rep(-Inf, n)
   sensitive_hit <- logical(n)
-  for (k in seq_len(nrow(site))) {
-    hit_k <- .litter_arc_contains(theta_down, alpha[k], beta[k], direction_tol)
-    best_perm <- pmax(best_perm, ifelse(hit_k, site$permeability[k], -Inf))
-    sensitive_hit <- sensitive_hit |
-      (hit_k & site$sensitive[k] & site$permeability[k] >= p_open_min)
+
+  for (k in seq_len(nrow(barriers))) {
+    barrier_k <- barriers[k, ]
+
+    # Compute actual bearing range from source to barrier vertices
+    br      <- .barrier_bearing_range(source_pt, barrier_k)
+    alpha_k <- br["alpha"]
+    beta_k  <- br["beta"]
+
+    # Look up roles for this barrier
+    role_k <- barrier_roles[barrier_roles$feature_id == barrier_k$id, ]
+
+    perm_k <- if (nrow(role_k) > 0 &&
+                  "permeability" %in% names(role_k) &&
+                  !is.na(role_k$permeability[1])) {
+      role_k$permeability[1]
+    } else {
+      default_permeability
+    }
+
+    sens_k <- if (nrow(role_k) > 0 &&
+                  "sensitive" %in% names(role_k) &&
+                  !is.na(role_k$sensitive[1])) {
+      as.logical(role_k$sensitive[1])
+    } else {
+      FALSE
+    }
+
+    hit_k <- .litter_arc_contains(theta_down, alpha_k, beta_k, direction_tol)
+
+    best_perm     <- pmax(best_perm, ifelse(hit_k, perm_k, -Inf))
+    sensitive_hit <- sensitive_hit | (hit_k & sens_k & perm_k >= p_open_min)
   }
+
   directional_factor <- ifelse(is.finite(best_perm), best_perm, default_permeability)
 
   # ---- Exposure-adjusted hazard and severity zone -------------------------- #
@@ -176,4 +197,52 @@ LITTER_COMPASS_DEGREES <- c(
   } else {
     theta >= alpha_exp | theta <= beta_exp
   }
+}
+
+# Compute the smallest clockwise arc [alpha, beta] (degrees) that encloses all
+# bearings from source_pt to the vertices of barrier_poly. Returns a named
+# numeric vector c(alpha = <start>, beta = <end>).
+#
+# The algorithm: compute all vertex bearings, sort them, find the largest
+# clockwise gap between consecutive bearings, and declare the complement as the
+# containing arc.
+#
+# Vertices coincident with the source (distance 0) are excluded — they arise
+# when the barrier polygon was built with the source centroid as a vertex (as
+# in site_from_sectors()).
+.barrier_bearing_range <- function(source_pt, barrier_poly) {
+  src_xy <- sf::st_coordinates(source_pt)[1, c("X", "Y")]
+  verts  <- sf::st_coordinates(barrier_poly)[, c("X", "Y")]
+
+  dE <- verts[, "X"] - src_xy["X"]
+  dN <- verts[, "Y"] - src_xy["Y"]
+
+  # Exclude coincident vertices (distance == 0); their bearing is undefined
+  dist2 <- dE^2 + dN^2
+  keep  <- dist2 > 0
+  dE <- dE[keep]
+  dN <- dN[keep]
+
+  brgs <- (atan2(dE, dN) * 180 / pi) %% 360
+
+  # Deduplicate and sort
+  brgs_sorted <- sort(unique(round(brgs, 6)))
+
+  if (length(brgs_sorted) == 1) {
+    return(c(alpha = brgs_sorted[1], beta = brgs_sorted[1]))
+  }
+
+  # Clockwise gaps between consecutive bearings (with wrap-around)
+  n_brgs <- length(brgs_sorted)
+  gaps <- diff(c(brgs_sorted, brgs_sorted[1] + 360))
+
+  # The largest gap is the "outside" of the arc; the arc is its complement
+  largest_gap_idx <- which.max(gaps)
+
+  # Arc starts at the bearing just after the largest gap, ends at the bearing
+  # just before it.
+  alpha_idx <- (largest_gap_idx %% n_brgs) + 1
+  beta_idx  <- largest_gap_idx
+
+  c(alpha = brgs_sorted[alpha_idx], beta = brgs_sorted[beta_idx])
 }

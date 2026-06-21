@@ -19,21 +19,28 @@ mw <- function(n = 6, ...) {
   base[names(ov)] <- ov
   as.data.frame(lapply(base, rep_len, n))
 }
-rcp <- function(bearing, distance) data.frame(bearing = bearing, distance = distance)
 
-test_that("the wrapper equals exposure(hazard(...)) composed by hand", {
-  d   <- mw()
-  rec <- rcp(c(0, 90), c(300, 700))
-  combined <- odour_risk(d, rec)
-  manual   <- odour_exposure(odour_hazard(d), d, rec)
-  expect_equal(combined, manual)
-})
+# Build a minimal mh_site for wrapper tests.
+.make_wrapper_site <- function() {
+  feats <- sf::st_sf(
+    id       = c("src", "rec1", "rec2"),
+    geometry = sf::st_sfc(
+      sf::st_point(c(335000,       6250000)),
+      sf::st_point(c(335000,       6250400)),   # 400 m north
+      sf::st_point(c(335000 + 700, 6250000)),   # 700 m east
+      crs = 32755
+    )
+  )
+  roles <- data.frame(
+    feature_id = c("src", "rec1", "rec2"),
+    hazard     = "odour",
+    role       = c("source", "receptor", "receptor"),
+    stringsAsFactors = FALSE
+  )
+  mh_site(feats, roles, epsg = 32755L)
+}
 
-test_that("the wrapper returns one 0-100 value per row", {
-  ex <- odour_risk(mw(n = 12), rcp(0, 400))
-  expect_length(ex, 12)
-  expect_true(all(ex >= 0 & ex <= 100))
-})
+# ── datetime guard (these call odour_hazard() directly, unchanged) ───────────
 
 test_that("a consecutive-hourly datetime passes the spacing guard silently", {
   d  <- mw(n = 6)
@@ -43,7 +50,7 @@ test_that("a consecutive-hourly datetime passes the spacing guard silently", {
 
 test_that("an irregular datetime warns but still computes", {
   d  <- mw(n = 6)
-  dt <- as.POSIXct("2024-06-01 00:00", tz = "UTC") + 3600 * c(0, 1, 2, 4, 5, 6) # gap
+  dt <- as.POSIXct("2024-06-01 00:00", tz = "UTC") + 3600 * c(0, 1, 2, 4, 5, 6)
   expect_warning(h <- odour_hazard(d, datetime = dt), "consecutive hourly")
   expect_length(h, 6)
 })
@@ -53,4 +60,24 @@ test_that("a non-POSIXct datetime is a classed input error", {
     odour_hazard(mw(), datetime = 1:6),
     class = "meteoHazard_input_error"
   )
+})
+
+# === C3a behaviour spec (issue #16): odour_risk() on the new signatures ===
+describe("odour_risk() on the mh_site model", {
+
+  it("equals odour_exposure() applied to the ventilation/hazard composed by hand", {
+    d    <- mw(n = 6)
+    site <- .make_wrapper_site()
+    risk_out     <- odour_risk(d, site)
+    exposure_out <- odour_exposure(d, site)
+    expect_equal(risk_out, exposure_out)
+  })
+
+  it("returns one 0-100 value per forecast hour", {
+    d    <- mw(n = 12)
+    site <- .make_wrapper_site()
+    out  <- odour_risk(d, site)
+    expect_length(out, 12)
+    expect_true(all(out >= 0 & out <= 100))
+  })
 })

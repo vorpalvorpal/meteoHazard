@@ -144,3 +144,58 @@ test_that("odour_hazard rejects a met column tagged with incompatible units", {
 test_that("odour_hazard returns a plain numeric (relative) index", {
   expect_false(inherits(odour_hazard(mh()), "units"))
 })
+
+# === C2 behaviour spec (issue #15): odour_hazard() as a summary over the split ===
+describe("odour_hazard() after the C2 ventilation/generation split", {
+
+  it("returns numerically identical values to the current implementation for the existing cases", {
+    # Run every fixture from the characterisation tests above and verify the
+    # values are bit-for-bit identical.  These are the golden-test inputs.
+    cases <- list(
+      mh(),
+      mh(wind_speed_10m = 1.5, direct_radiation = 0, cloud_cover = 10,
+         boundary_layer_height = 100),
+      mh(wind_speed_10m = 8, direct_radiation = 800, cloud_cover = 0,
+         boundary_layer_height = 2000),
+      mh(temperature_2m = 5),
+      mh(temperature_2m = 35),
+      mh(n = 5, pressure_msl = c(1013, 1010, 1007, 1004, 1001)),
+      mh(n = 26, precipitation = c(rep(1, 25), 0)),
+      mh(n = 26, precipitation = c(rep(1, 25), 5)),
+      mh(precipitation = 5),
+      mh(wind_speed_10m = 4, direct_radiation = 0, cloud_cover = 10),
+      mh(wind_speed_10m = 4, direct_radiation = 800, cloud_cover = 0),
+      mh(n = 24)
+    )
+    for (d in cases) {
+      vs  <- ventilation_state(d, terrain = NULL)
+      G   <- .odour_generation(d)
+      raw <- G * vs$PM * vs$W_rain / (vs$u_eff * vs$h_mix)
+      ref <- ODOUR_CONSTANTS$PM_MAX /
+        (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
+      expected <- raw / ref
+      expect_equal(odour_hazard(d), expected, tolerance = 1e-12)
+    }
+  })
+
+  it("is composed from ventilation_state() and .odour_generation()", {
+    d  <- mh(n = 4, wind_speed_10m = c(2, 5, 0.3, 8),
+             direct_radiation = c(0, 600, 0, 800))
+    vs <- ventilation_state(d, terrain = NULL)
+    G  <- .odour_generation(d)
+    ref <- ODOUR_CONSTANTS$PM_MAX /
+      (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
+    manual <- G * vs$PM * vs$W_rain / (vs$u_eff * vs$h_mix) / ref
+    expect_equal(odour_hazard(d), manual, tolerance = 1e-12)
+  })
+
+  # gap-fill — characterises EXISTING behaviour the current tests do not assert:
+  it("is higher for a calm, shallow, stable hour than a windy, deep, neutral one", {
+    h_bad  <- odour_hazard(mh(wind_speed_10m = 0.3, direct_radiation = 0,
+                              cloud_cover = 5, boundary_layer_height = 100))
+    h_good <- odour_hazard(mh(wind_speed_10m = 8,   direct_radiation = 500,
+                              cloud_cover = 80, boundary_layer_height = 1500))
+    expect_gt(h_bad, h_good)
+  })
+
+})

@@ -7,11 +7,13 @@ An R package that turns meteorological data into **management-relevant predictio
 | Function | Hazard | Status |
 |---|---|---|
 | `generate_twl()` | **Thermal Work Limit** — heat stress on workers | ✅ Implemented |
+| `ventilation_state()` | **Ventilation state** — full dispersion state including pool-top and residual wind | ✅ Implemented |
 | `odour_hazard()` | **Odour nuisance hazard** — site ventilation index (direction-agnostic) | ✅ Implemented |
-| `odour_exposure()` | **Odour nuisance exposure** — downwind impact, given receptors & geometry | ✅ Implemented |
+| `odour_exposure()` | **Odour nuisance exposure** — Gaussian-plume downwind impact on geo-referenced receptors | ✅ Implemented |
 | `litter_hazard()` | **Wind-blown litter hazard** — entrainment & transport at the working face | ✅ Implemented |
-| `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given direction & site geometry | ✅ Implemented |
+| `litter_exposure()` | **Wind-blown litter exposure** — where litter goes, given wind direction and site geometry | ✅ Implemented |
 | `dust_hazard()` | **Dust hazard** — wind erosion of exposed surfaces | ✅ Implemented |
+| `site_from_sectors()` | **Site constructor** — builds an `mh_site` from a compass-sector data frame | ✅ Implemented |
 
 ## Units
 
@@ -56,6 +58,8 @@ The package requires R (>= 4.1) and the following packages, which are installed 
 - `dplyr`
 - `httr2`
 - `purrr`
+- `sf`
+- `S7`
 - `units`
 
 ## Thermal Work Limit (TWL)
@@ -113,31 +117,88 @@ twl_colour(twl)
 | 115 – 140 | Buffer | Orange |
 | < 115 | Withdrawal | Red |
 
+## Site model
+
+The geometry-aware hazard layers (`odour_exposure()`, `litter_exposure()`) share a common geo-referenced site model built from [sf](https://r-spatial.github.io/sf/) and [S7](https://rconsortium.github.io/S7/).
+
+### `mh_site` and `mh_terrain`
+
+An `mh_site` object holds:
+- An `sf` feature collection of source, receptor, and barrier geometries (points or polygons), all in a common metric CRS.
+- A **roles table** that maps each feature to a hazard type (`"odour"`, `"litter"`, …) and a role (`"source"`, `"receptor"`, `"barrier"`), plus role-specific attributes (e.g. `emit_height`, `permeability`, `sensitive`).
+
+An `mh_terrain` object carries optional site terrain descriptors (`drainage_bearing`, `flow_convergence`) used by the cold-pool / morning-fumigation physics.
+
+```r
+library(meteoHazard)
+library(sf)
+
+terrain <- mh_terrain(drainage_bearing = 135, flow_convergence = 0.7)
+```
+
+### `site_from_sectors()` — litter sites
+
+For the litter model, `site_from_sectors()` builds an `mh_site` from a compact compass-sector data frame: it places a point source at the site centroid and constructs wedge-arc barrier polygons for each sector.
+
+```r
+sectors <- data.frame(
+  arc_start    = c("NE", "SW"),
+  arc_end      = c("SE", "NW"),
+  permeability = c(1.0, 0.3),    # open to the E; tree belt to the W
+  sensitive    = c(TRUE, FALSE)
+)
+
+site <- site_from_sectors(
+  sectors,
+  centroid = c(115.86, -31.95),  # lon/lat of the site
+  epsg     = 32755L              # metric CRS to project into (UTM 55S here)
+)
+```
+
 ## Odour dispersal risk
 
-The odour model is split into two layers, mirroring the litter functions:
+The odour model is split into two layers:
 
-* `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard: source emission strength divided by atmospheric ventilation (the ventilation index). It answers *how strong is the odour situation around the site this hour*, and returns a relative index (baseline = 1.0).
-* `odour_exposure()` — the **geometry-aware** layer: it maps the hazard onto each receptor through a Pasquill-Gifford Gaussian plume (distance decay and a stability- and distance-aware directional term, plus forecast-direction uncertainty), and returns the worst-case 0–100 exposure across receptors. The optional `drainage_axes` argument enables a terrain-aware katabatic-drainage / morning-fumigation refinement.
+* `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard index (source emission divided by ventilation). Answers *how strong is the odour situation around the site this hour* and returns a relative index (baseline = 1.0).
+* `odour_exposure()` — the **geometry-aware** layer: maps the hazard through a Pasquill-Gifford Gaussian plume onto each receptor in an `mh_site`, applies distance decay, direction uncertainty, and (optionally) terrain-driven cold-pool and morning-fumigation corrections, then returns the worst-case 0–100 exposure across receptors.
 
 `odour_risk()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
 ```r
 library(meteoHazard)
+library(sf)
 
-# met_data: one row per hour, with the required Open-Meteo columns
-# (wind_direction_10m, wind_speed_10m, boundary_layer_height, temperature_2m,
-#  pressure_msl, precipitation, relative_humidity_2m, cloud_cover,
-#  direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm).
-# wind_speed_80m is only needed for the optional stability = "shear" estimator.
+# Build the site: a point source and two receptor points in metric CRS
+src  <- st_sfc(st_point(c(0, 0)),       crs = 32755)
+rec1 <- st_sfc(st_point(c(500, 0)),     crs = 32755)
+rec2 <- st_sfc(st_point(c(-800, 200)),  crs = 32755)
 
-# receptors: bearing (° from site centroid) and distance (m) to each location
-receptors <- data.frame(
-  bearing  = c(90, 270),
-  distance = c(500, 800)
+feats <- st_sf(
+  id       = c("source", "rec_east", "rec_west"),
+  geometry = c(src, rec1, rec2)
 )
+roles <- data.frame(
+  feature_id  = c("source", "rec_east", "rec_west"),
+  hazard      = "odour",
+  role        = c("source", "receptor", "receptor"),
+  emit_height = c(5, NA, NA)
+)
+site <- mh_site(features = feats, roles = roles, epsg = 32755L)
 
-odour <- odour_risk(met_data, receptors)
+# met_data: one row per hour, required Open-Meteo columns:
+# wind_direction_10m, wind_speed_10m, boundary_layer_height, temperature_2m,
+# pressure_msl, precipitation, relative_humidity_2m, cloud_cover,
+# direct_radiation, soil_moisture_0_to_1cm, soil_moisture_1_to_3cm
+# Optional upper-level wind columns improve pool-top and terrain physics:
+# wind_speed_80m, wind_direction_80m (and 120m, 180m variants).
+
+odour <- odour_risk(met_data, site)
+
+# With terrain-aware cold-pool / morning-fumigation physics:
+terrain <- mh_terrain(drainage_bearing = 135, flow_convergence = 0.7)
+site_t  <- mh_site(features = feats, roles = roles, epsg = 32755L,
+                   terrain = terrain)
+odour_terrain <- odour_risk(met_data, site_t, terrain_backend = "descriptors")
 ```
 
 The 0–100 exposure maps to provisional operational tiers (subject to calibration against complaint records; the mapping is tunable via the `map_c50` argument):
@@ -149,9 +210,9 @@ The 0–100 exposure maps to provisional operational tiers (subject to calibrati
 | 40 – 70 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
 | > 70 | VERY HIGH | Maximum response — consider ceasing tipping |
 
-`categorise_odour()` returns these tier labels and `odour_colour()` the matching colours (the shared package hazard palette).
+`categorise_odour()` returns these tier labels and `odour_colour()` the matching colours.
 
-Stability defaults to Pasquill-Turner (insolation/cloud and wind), with a legacy 10 m/80 m shear estimator available via `stability = "shear"`. See `?odour_hazard` and `?odour_exposure` (and `specs/Odour_v2.md`) for the full model and references.
+Stability defaults to Pasquill-Turner (insolation/cloud and wind), with a legacy 10 m/80 m shear estimator available via `stability = "shear"`. See `?odour_hazard`, `?odour_exposure`, and `?ventilation_state` for the full model and references.
 
 ## Wind-blown litter
 
@@ -184,22 +245,25 @@ The vector API `litter_hazard_vec()` takes the columns directly (handy inside `d
 
 ### Exposure layer
 
-`litter_exposure()` sits on top of the hazard index and answers the consequence question: given the hazard, the wind direction, and the site geometry, where does the litter end up? The site is described as boundary sectors, each with a `permeability` (1 = open, lower = better barrier) and a `sensitive` flag.
+`litter_exposure()` sits on top of the hazard index and answers the consequence question: given the hazard, the wind direction, and the site geometry, where does the litter end up? The site geometry is an `mh_site` object; use `site_from_sectors()` to build one from a compact compass-sector data frame (see the **Site model** section above).
 
 ```r
-site <- data.frame(
+sectors <- data.frame(
   arc_start    = c("NE", "SW"),
   arc_end      = c("SE", "NW"),
   permeability = c(1.0, 0.3),    # open receptor to the E; tree belt to the W
   sensitive    = c(TRUE, FALSE)
 )
+site <- site_from_sectors(sectors, centroid = c(115.86, -31.95), epsg = 32755L)
 
 exposure <- litter_exposure(hazard, met_data$wind_direction_10m, site)
 # data frame: exposure (hazard attenuated by direction) and a severity zone
 #   within_face < on_site < off_site
 ```
 
-See `?litter_hazard_vec`, `?litter_hazard`, and `?litter_exposure` for the full parameter lists, model structure, and references.
+The directional factor `M` is the highest permeability among barrier sectors whose arc (expanded by `direction_tol` on each edge) contains the downwind bearing — worst-case passage probability. When no sector is hit, `default_permeability` applies. The severity zone uses the raw hazard for mobility and the hit-sector `sensitive` flag for destination classification.
+
+See `?litter_hazard_vec`, `?litter_hazard`, `?litter_exposure`, and `?site_from_sectors` for the full parameter lists, model structure, and references.
 
 ## Dust hazard
 

@@ -2,76 +2,63 @@
 % Please edit documentation in R/odour_exposure.R
 \name{odour_exposure}
 \alias{odour_exposure}
-\title{Landfill odour exposure (direction- and geometry-aware)}
+\title{Landfill odour exposure (direction- and geometry-aware, mh_site API)}
 \usage{
 odour_exposure(
-  hazard,
   met_data,
-  receptors,
-  drainage_axes = NULL,
+  site,
   stability = c("turner", "shear"),
-  map_c50 = 0.3
+  map_c50 = 0.3,
+  terrain_backend = c("none", "descriptors")
 )
 }
 \arguments{
-\item{hazard}{Numeric vector, the relative odour hazard from \code{\link[=odour_hazard]{odour_hazard()}},
-one value per forecast hour.}
+\item{met_data}{A data frame, one row per consecutive hourly timestep. Must
+contain at minimum: \code{wind_direction_10m}, \code{wind_speed_10m},
+\code{direct_radiation}, \code{cloud_cover}, \code{boundary_layer_height}. Columns for
+the generation modifier \code{G} (\code{pressure_msl}, \code{precipitation},
+\code{temperature_2m}, \code{relative_humidity_2m}, \code{soil_moisture_0_to_1cm},
+\code{soil_moisture_1_to_3cm}) are optional; if absent \code{G} defaults to 1.}
 
-\item{met_data}{The same data frame passed to \code{\link[=odour_hazard]{odour_hazard()}} (must contain
-\code{wind_direction_10m} plus the columns the dispersion state needs:
-\code{wind_speed_10m}, \code{direct_radiation}, \code{cloud_cover},
-\code{boundary_layer_height}). \code{nrow(met_data)} must equal \code{length(hazard)}.}
+\item{site}{An \code{\link[=mh_site]{mh_site()}} object with at least one \verb{(odour, source)} role
+and one \verb{(odour, receptor)} role.}
 
-\item{receptors}{A data frame, one row per receptor, with \code{bearing} (degrees
-from north, 0-360, landfill to receptor) and \code{distance} (m, strictly
-positive).}
-
-\item{drainage_axes}{Optional data frame enabling the terrain-aware katabatic
-drainage and morning fumigation refinement (\code{bearing_from} 0-360, \code{weight}
-positive). When \code{NULL} (default) that logic is skipped.}
-
-\item{stability}{Stability estimator passed to the shared dispersion state;
-see \code{\link[=odour_hazard]{odour_hazard()}}.}
+\item{stability}{Stability estimator: \code{"turner"} (default) or \code{"shear"}.}
 
 \item{map_c50}{Relative concentration at which the 0-100 map reaches ~63
-(\code{exposure = 100 * (1 - exp(-C_rel / map_c50))}). Provisional, calibratable
-operational knob; default 0.3.}
+(\code{100 * (1 - exp(-C_rel / map_c50))}). Default 0.3.}
+
+\item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
+(terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
 }
 \value{
-A numeric vector of length \code{length(hazard)}: the worst-case 0-100
-odour exposure across receptors for each hour (dimensionless, plain
-numeric).
+A plain numeric vector of length \code{nrow(met_data)}: the worst-case
+0-100 odour exposure across receptors for each hour.
 }
 \description{
-Maps the direction-agnostic odour hazard (\code{\link[=odour_hazard]{odour_hazard()}}) onto an
-operational consequence given the wind direction and the receptor geometry.
-Where the hazard answers \emph{how strong is the odour situation around the site},
-the exposure layer answers \emph{who is downwind and how bad is it for them}.
+Maps the atmospheric ventilation state onto an operational consequence given
+the wind direction, the source geometry, and the receptor layout described
+by an \code{\link[=mh_site]{mh_site()}} object. For each hour the relative concentrations from all
+\verb{(odour, source)} features are summed at each \verb{(odour, receptor)}, then
+mapped to a 0-100 band and reduced to the worst-case receptor.
 }
 \details{
-For each hour and receptor the full Pasquill-Gifford Gaussian-plume relative
-concentration is reconstructed from the hazard (the \code{h_mix} in the hazard's
-ventilation term cancels), giving distance decay and a stability- and
-distance-aware directional Gaussian. Forecast wind-direction uncertainty is
-added as a separate convolution term. The relative concentration is mapped to
-a 0-100 band and the worst-case across receptors is returned.
+Area sources use ISC3 initial spreads: \code{sigma_y0 = crosswind_halfwidth / 4.3} and \code{sigma_z0 = emit_height / 2.15} (both added in quadrature with the
+Briggs physical spread). Point sources have \code{sigma_y0 = sigma_z0 = 0}.
 }
 \section{Units}{
 
-The dimensional \code{met_data} columns (see \code{\link[=odour_hazard]{odour_hazard()}}) and the receptor
-\code{distance} (canonical metres) may each be supplied as a bare numeric in the
-documented unit or as a \pkg{units} object, which is converted automatically
-(a dimensionally incompatible unit is an error). Bearings (\code{receptors$bearing},
-\code{drainage_axes$bearing_from}) are in degrees and taken as-is.
+Dimensional \code{met_data} columns (see \code{\link[=odour_hazard]{odour_hazard()}}) may be supplied as
+bare numerics (documented unit) or \pkg{units} objects (converted
+automatically; mismatch errors). Bearings and angles are in degrees and
+taken as-is.
 }
 
 \references{
 Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}. NOAA.
-Schauberger, G. et al. (2002). Calculating direction-dependent separation
-distance by a dispersion model. \emph{Biosystems Engineering}, 82(1), 25--37.
-Whiteman, C.D. (2000). \emph{Mountain Meteorology}. Oxford University Press.
+US EPA (1995). \emph{User's Guide for the Industrial Source Complex (ISC3)
+Dispersion Models}.
 }
 \seealso{
-\code{\link[=odour_hazard]{odour_hazard()}} for the upstream hazard index, and
-\code{\link[=odour_risk]{odour_risk()}} for the combined wrapper.
+\code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=odour_risk]{odour_risk()}}, \code{\link[=ventilation_state]{ventilation_state()}}, \code{\link[=mh_site]{mh_site()}}
 }
