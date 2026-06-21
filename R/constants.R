@@ -98,5 +98,11 @@ ODOUR_CONSTANTS <- list(
   POOL_Q_SAT               = 3e6,    # saturation heat deficit scale (J/m²)
   POOL_KAPPA               = 0.4,    # von Karman constant
   ISC3_SIGMA_Y0_COEF       = 4.3,   # sigma_y0 = crosswind_halfwidth / 4.3
-  ISC3_SIGMA_Z0_COEF       = 2.15   # sigma_z0 = emit_extent / 2.15
+  ISC3_SIGMA_Z0_COEF       = 2.15,  # sigma_z0 = emit_extent / 2.15
+  # C3b terrain morning-pulse pathway constants
+  CONFINEMENT_1A           = 0.3,   # night confinement factor for pathway 1a
+  VENTING_1A               = 0.8,   # morning venting boost for pathway 1a
+  FUMIC_1B                 = 0.8,   # fumigation directional factor for pathway 1b
+  DELTA_FLOOR              = 20,    # minimum delta for smooth pool partition (m)
+  DELTA_FRAC               = 0.25   # delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
 )

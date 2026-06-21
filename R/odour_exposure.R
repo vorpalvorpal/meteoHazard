@@ -129,6 +129,51 @@ odour_exposure <- function(met_data, site,
   # Pre-compute downwind bearing for all hours.
   theta_down <- .downwind_bearing(wind_dir)
 
+  # ---- Helper: compute flat sigma/geom/cw for one source-receptor pair ---- #
+  # Returns a list(sigma_y_eff_t, sigma_z_eff_t, geom_base_t, cw_flat)
+  .flat_dispersion <- function(source_k, sigma_y0_t, sigma_z0, receptor_j) {
+    bd       <- .bearing_distance(sf::st_centroid(sf::st_geometry(source_k)),
+                                  receptor_j)
+    x_jk     <- bd$distance
+    theta_jk <- bd$bearing
+
+    if (is.na(x_jk) || x_jk == 0)
+      return(NULL)
+
+    sigma_y_classes <- c_y * x_jk / sqrt(1 + 0.0001 * x_jk)
+    sigma_z_classes <- c(
+      0.20  * x_jk,
+      0.12  * x_jk,
+      0.08  * x_jk / sqrt(1 + 0.0002 * x_jk),
+      0.06  * x_jk / sqrt(1 + 0.0015 * x_jk),
+      0.03  * x_jk / (1 + 0.0003 * x_jk),
+      0.016 * x_jk / (1 + 0.0003 * x_jk)
+    )
+
+    sigma_y_t     <- sigma_y_classes[s_low + 1L] +
+      frac * (sigma_y_classes[s_high + 1L] - sigma_y_classes[s_low + 1L])
+    sigma_z_t     <- sigma_z_classes[s_low + 1L] +
+      frac * (sigma_z_classes[s_high + 1L] - sigma_z_classes[s_low + 1L])
+    sigma_y_eff_t <- sqrt(sigma_y_t^2 + sigma_y0_t^2 + (x_jk * sigma_fc)^2)
+    sigma_z_eff_t <- sqrt(sigma_z_t^2 + sigma_z0^2)
+    geom_base_t   <- vs$h_mix / (sigma_y_eff_t * pmin(sigma_z_eff_t, vs$h_mix))
+
+    delta_theta   <- .angular_diff(theta_down, theta_jk)
+    y_cross       <- x_jk * sin(delta_theta * pi / 180)
+    cw            <- exp(-0.5 * (y_cross / sigma_y_eff_t)^2)
+    cw[delta_theta > 90]              <- 0
+    cw[vs$is_calm | is.na(wind_dir)] <- CALM_CROSSWIND
+
+    list(
+      x_jk         = x_jk,
+      theta_jk     = theta_jk,
+      sigma_y_eff_t = sigma_y_eff_t,
+      sigma_z_eff_t = sigma_z_eff_t,
+      geom_base_t  = geom_base_t,
+      cw_flat      = cw
+    )
+  }
+
   # ---- Accumulate summed concentration over sources ----------------------- #
   # c_sum_matrix[t, j]: sum over sources k of c_rel[t, j, k]
   c_sum_matrix <- matrix(0.0, nrow = n_t, ncol = n_r)
@@ -207,6 +252,117 @@ odour_exposure <- function(met_data, site,
 
       c_sum_matrix[, j] <- c_sum_matrix[, j] + c_rel_jk
     }
+  }
+
+  # ---- Descriptors terrain backend (C3b) ---------------------------------- #
+  if (terrain_backend == "descriptors" && !is.null(site@terrain)) {
+    terrain <- site@terrain
+
+    # Pool partition transition scale: delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
+    # When pool_top is NA, fall through to flat cw (safe below).
+    pool_top_safe <- ifelse(is.na(vs$pool_top), 0, vs$pool_top)
+    delta_t <- pmax(ODOUR_CONSTANTS$DELTA_FLOOR,
+                    ODOUR_CONSTANTS$DELTA_FRAC * pool_top_safe)
+
+    # Add the surface wind direction to vs for use as residual-wind fallback
+    vs_aug <- vs
+    vs_aug$wind_dir_surface <- wind_dir
+
+    # Terrain matrix (additive delta on top of flat c_sum_matrix)
+    c_terrain_matrix <- matrix(0.0, nrow = n_t, ncol = n_r)
+
+    for (k in seq_len(n_s)) {
+      source_k <- sources[k, ]
+      source_pt <- sf::st_centroid(sf::st_geometry(source_k))
+
+      # Sigma_y0 for this source (same computation as C3a)
+      geom_type_k <- as.character(
+        sf::st_geometry_type(source_k, by_geometry = FALSE)
+      )
+      if (grepl("POLYGON", geom_type_k, ignore.case = TRUE)) {
+        sigma_y0_t_k <- vapply(wind_dir, function(wd) {
+          if (is.na(wd)) 0.0
+          else .crosswind_halfwidth(source_k, wd) / ODOUR_CONSTANTS$ISC3_SIGMA_Y0_COEF
+        }, numeric(1))
+      } else {
+        sigma_y0_t_k <- rep(0.0, n_t)
+      }
+
+      emit_ht_k <- if ("emit_height" %in% names(source_k)) source_k$emit_height[[1]] else 0.0
+      if (is.null(emit_ht_k) || is.na(emit_ht_k)) emit_ht_k <- 0.0
+      sigma_z0_k <- emit_ht_k / ODOUR_CONSTANTS$ISC3_SIGMA_Z0_COEF
+
+      # Pool partition: depends on emit_height and pool_top (per hour)
+      pool_top_for_part <- ifelse(is.na(vs$pool_top), 0, vs$pool_top)
+      part <- .pool_partition(emit_ht_k, pool_top_for_part, delta_t)
+      f_1a <- part$f_1a
+      f_1b <- part$f_1b
+
+      # Morning release factor (additive enhancement over the baseline 1b)
+      r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
+
+      for (j in seq_len(n_r)) {
+        receptor_j <- receptors[j, ]
+        bd         <- .bearing_distance(source_pt, receptor_j)
+        x_jk       <- bd$distance
+        theta_jk   <- bd$bearing
+
+        if (is.na(x_jk) || x_jk == 0) next
+
+        # Flat sigma / geom / cw (same as C3a)
+        sigma_y_classes_jk <- c_y * x_jk / sqrt(1 + 0.0001 * x_jk)
+        sigma_z_classes_jk <- c(
+          0.20  * x_jk,
+          0.12  * x_jk,
+          0.08  * x_jk / sqrt(1 + 0.0002 * x_jk),
+          0.06  * x_jk / sqrt(1 + 0.0015 * x_jk),
+          0.03  * x_jk / (1 + 0.0003 * x_jk),
+          0.016 * x_jk / (1 + 0.0003 * x_jk)
+        )
+        sigma_y_t_jk   <- sigma_y_classes_jk[s_low + 1L] +
+          frac * (sigma_y_classes_jk[s_high + 1L] - sigma_y_classes_jk[s_low + 1L])
+        sigma_z_t_jk   <- sigma_z_classes_jk[s_low + 1L] +
+          frac * (sigma_z_classes_jk[s_high + 1L] - sigma_z_classes_jk[s_low + 1L])
+        sigma_y_eff_jk <- sqrt(sigma_y_t_jk^2 + sigma_y0_t_k^2 + (x_jk * sigma_fc)^2)
+        sigma_z_eff_jk <- sqrt(sigma_z_t_jk^2 + sigma_z0_k^2)
+        geom_base_jk   <- vs$h_mix / (sigma_y_eff_jk * pmin(sigma_z_eff_jk, vs$h_mix))
+
+        delta_theta_jk <- .angular_diff(theta_down, theta_jk)
+        y_cross_jk     <- x_jk * sin(delta_theta_jk * pi / 180)
+        cw_flat        <- exp(-0.5 * (y_cross_jk / sigma_y_eff_jk)^2)
+        cw_flat[delta_theta_jk > 90]            <- 0
+        cw_flat[vs$is_calm | is.na(wind_dir)]  <- CALM_CROSSWIND
+
+        # Pathway crosswind factors
+        cw_1a_raw <- .cw_venting(theta_jk, vs_aug, terrain)
+        cw_1b_raw <- .cw_fumigation(theta_jk, vs_aug, terrain)
+
+        # When pool_top is NA for an hour, both pathways fall back to flat cw
+        pool_na <- is.na(vs$pool_top)
+
+        cw_1a_safe <- ifelse(is.na(cw_1a_raw) | pool_na, cw_flat, cw_1a_raw)
+        # 1b: NA outside morning → 0 (no fumigation); fallback to flat when pool NA
+        cw_1b_safe <- ifelse(pool_na, cw_flat,
+                             ifelse(is.na(cw_1b_raw), 0, cw_1b_raw))
+
+        # Blended crosswind: within-pool fraction * venting + above-pool * fumigation * release
+        # The release factor r is an additive mass-scaled enhancement; scale it to a
+        # per-unit multiplicative factor relative to the baseline 1b concentration.
+        # To preserve the f_1a + f_1b = 1 budget while boosting the 1b morning pulse,
+        # we treat r as an extra multiplier on the 1b crosswind for morning hours.
+        r_scale <- ifelse(f_1b > 0, r / pmax(pool_top_for_part, 1), 0)
+        cw_blended <- f_1a * cw_1a_safe + f_1b * cw_1b_safe * (1 + r_scale)
+
+        c_rel_terrain_jk <- G * vs$PM * vs$W_rain * geom_base_jk *
+          (cw_blended - cw_flat) / hazard_ref
+
+        c_terrain_matrix[, j] <- c_terrain_matrix[, j] + c_rel_terrain_jk
+      }
+    }
+
+    c_sum_total <- c_sum_matrix + c_terrain_matrix
+    risk_matrix <- 100 * (1 - exp(-c_sum_total / map_c50))
+    return(apply(risk_matrix, 1, max))
   }
 
   # ---- Reduction: sum_k -> map -> max_j ----------------------------------- #
