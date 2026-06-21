@@ -53,9 +53,13 @@
 #'   \item{`cbl_growth`}{Convective boundary-layer growth rate (m/h); positive
 #'     during morning transition, zero otherwise.}
 #'   \item{`residual_wind`}{Named list with elements `speed_80m`, `dir_80m`,
-#'     `speed_120m`, `dir_120m`, `speed_180m`, `dir_180m`: per-hour overnight
-#'     circular-mean direction (degrees) and concurrent speed at each level.
-#'     `NA` for absent or all-daytime windows.}
+#'     `speed_120m`, `dir_120m`, `speed_180m`, `dir_180m`, `speed_10m`,
+#'     `dir_10m`: per-hour overnight circular-mean direction (degrees) and
+#'     concurrent speed at each level. The 10 m surface-wind level is a last-
+#'     resort fallback used when all upper-level columns are absent; it
+#'     represents the surface-layer wind inside the boundary layer rather than
+#'     the decoupled residual layer above. `NA` for absent or all-daytime
+#'     windows.}
 #' }
 #'
 #' @seealso [odour_hazard()], [odour_exposure()]
@@ -298,13 +302,15 @@ ventilation_state <- function(met_data, terrain = NULL,
   levels <- list(
     list(speed = "wind_speed_80m",  dir = "wind_direction_80m"),
     list(speed = "wind_speed_120m", dir = "wind_direction_120m"),
-    list(speed = "wind_speed_180m", dir = "wind_direction_180m")
+    list(speed = "wind_speed_180m", dir = "wind_direction_180m"),
+    list(speed = "wind_speed_10m",  dir = "wind_direction_10m")
   )
   out_names <- c("speed_80m", "dir_80m",
                  "speed_120m", "dir_120m",
-                 "speed_180m", "dir_180m")
+                 "speed_180m", "dir_180m",
+                 "speed_10m",  "dir_10m")
 
-  result <- vector("list", 6L)
+  result <- vector("list", 8L)
   names(result) <- out_names
 
   for (lev_i in seq_along(levels)) {

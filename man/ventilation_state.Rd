@@ -44,9 +44,13 @@ reset at next nightfall. \code{NA} when temperature and RH are unavailable.}
 \item{\code{cbl_growth}}{Convective boundary-layer growth rate (m/h); positive
 during morning transition, zero otherwise.}
 \item{\code{residual_wind}}{Named list with elements \code{speed_80m}, \code{dir_80m},
-\code{speed_120m}, \code{dir_120m}, \code{speed_180m}, \code{dir_180m}: per-hour overnight
-circular-mean direction (degrees) and concurrent speed at each level.
-\code{NA} for absent or all-daytime windows.}
+\code{speed_120m}, \code{dir_120m}, \code{speed_180m}, \code{dir_180m}, \code{speed_10m},
+\code{dir_10m}: per-hour overnight circular-mean direction (degrees) and
+concurrent speed at each level. The 10 m surface-wind level is a last-
+resort fallback used when all upper-level columns are absent; it
+represents the surface-layer wind inside the boundary layer rather than
+the decoupled residual layer above. \code{NA} for absent or all-daytime
+windows.}
 }
 }
 \description{

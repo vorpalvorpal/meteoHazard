@@ -198,6 +198,41 @@ describe(".cw_fumigation() [pathway 1b]", {
     }
   })
 
+  it("samples the level closest to the above-pool emission height", {
+    ter <- mh_terrain(drainage_bearing = 0, flow_convergence = 0.8)
+
+    # Met with divergent 80m and 180m directions
+    met <- .pmet()
+    met$wind_direction_80m  <- rep(90,  24)   # FROM east → fumigates west (270°)
+    met$wind_speed_80m      <- rep(3,   24)
+    met$wind_direction_180m <- rep(270, 24)   # FROM west → fumigates east (90°)
+    met$wind_speed_180m     <- rep(3,   24)
+
+    vs <- ventilation_state(met, terrain = ter)
+    morn_hours <- which(vs$is_day & vs$cbl_growth > 0 &
+                          !is.na(vs$pool_top) & vs$pool_top > 0)
+
+    if (length(morn_hours) > 0) {
+      # Low source (above_pool_ht ≈ 5m → closest to 80m level)
+      # 80m wind is FROM east → fumigates WEST (270°) → receptor at west (270°) gets high cw_1b
+      cw_west_low  <- .cw_fumigation(270, vs, ter, above_pool_ht = 5)
+      # High source (above_pool_ht ≈ 160m → closest to 180m level)
+      # 180m wind is FROM west → fumigates EAST (90°) → receptor at east (90°) gets high cw_1b
+      cw_east_high <- .cw_fumigation(90,  vs, ter, above_pool_ht = 160)
+
+      expect_true(any(cw_west_low[morn_hours]  > 0.3))
+      expect_true(any(cw_east_high[morn_hours] > 0.3))
+
+      # The opposite direction should be low for each
+      cw_east_low  <- .cw_fumigation(90,  vs, ter, above_pool_ht = 5)   # wrong dir for low
+      cw_west_high <- .cw_fumigation(270, vs, ter, above_pool_ht = 160) # wrong dir for high
+      expect_true(all(cw_east_low[morn_hours]  < cw_west_low[morn_hours]  + 0.05))
+      expect_true(all(cw_west_high[morn_hours] < cw_east_high[morn_hours] + 0.05))
+    } else {
+      skip("no morning hours with pool in this met scenario")
+    }
+  })
+
   it("barely raises a receptor up-drainage but crosswind to the residual wind", {
     # Drainage north (0°), residual wind FROM south (180°) → fumigation goes NORTH
     # Receptor east (90°): crosswind to both drainage and residual wind
@@ -416,6 +451,27 @@ describe("odour_exposure() terrain-backend edges", {
     expect_true(is.numeric(result))
     expect_true(all(is.finite(result)))
     expect_true(all(result >= 0 & result <= 100))
+  })
+
+  it("bypasses terrain pathways during calm hours (no stacking with calm meander)", {
+    ter  <- mh_terrain(drainage_bearing = 0, flow_convergence = 0.8)
+    site <- .make_terrain_site(terrain = ter)
+
+    # Calm met: wind_speed_10m <= U_CALM_FLOOR
+    met_calm <- .pmet(wind_speed_10m = rep(0.2, 24))
+
+    # With terrain backend = "descriptors"
+    out_calm <- odour_exposure(met_calm, site, terrain_backend = "descriptors")
+
+    # Must be valid
+    expect_true(all(is.finite(out_calm)))
+    expect_true(all(out_calm >= 0 & out_calm <= 100))
+
+    # With terrain backend = "none"
+    out_calm_flat <- odour_exposure(met_calm, site, terrain_backend = "none")
+    # Calm hours: terrain backend should NOT change the result vs flat
+    # (because calm bypasses terrain pathways, so both should give the same exposure)
+    expect_equal(out_calm, out_calm_flat, tolerance = 1e-6)
   })
 
   it("reproduces the C3a flat result with terrain_backend = 'none'", {

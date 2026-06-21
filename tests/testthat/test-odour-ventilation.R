@@ -288,13 +288,19 @@ describe("ventilation_state(): residual_wind", {
     expect_true(is.na(rw$dir_180m[1]))
   })
 
-  it("returns NA when all winds are missing", {
-    d <- vs_met(n = 4, direct_radiation = 0)
+  it("falls back to 10m surface wind when all upper-level winds are missing", {
+    # vs_met() supplies wind_speed_10m = 3 but no upper-level columns and no
+    # wind_direction_10m.  Add wind_direction_10m so the 10m fallback fires.
+    d <- vs_met(n = 4, direct_radiation = 0, wind_direction_10m = 210)
     vs <- ventilation_state(d)
     rw <- vs$residual_wind
+    # Upper-level outputs are NA (columns absent).
     expect_true(all(is.na(rw$dir_80m)))
     expect_true(all(is.na(rw$dir_120m)))
     expect_true(all(is.na(rw$dir_180m)))
+    # 10m fallback is non-NA for overnight hours (all 4 rows are night).
+    expect_true(all(!is.na(rw$dir_10m[!vs$is_day])))
+    expect_true(all(!is.na(rw$speed_10m[!vs$is_day])))
   })
 
 })

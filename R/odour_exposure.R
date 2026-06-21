@@ -334,15 +334,27 @@ odour_exposure <- function(met_data, site,
         cw_flat[vs$is_calm | is.na(wind_dir)]  <- CALM_CROSSWIND
 
         # Pathway crosswind factors
+        # above_pool_ht: representative height of above-pool emission above the
+        # pool top.  Use the median pool_top during night hours as a proxy for
+        # the split point, so the residual-wind level closest to the centroid of
+        # the above-pool emission band is selected.
+        above_pool_ht_k <- max(0, emit_ht_k -
+                                 median(pool_top_for_part, na.rm = TRUE) / 2)
+
         cw_1a_raw <- .cw_venting(theta_jk, vs_aug, terrain)
-        cw_1b_raw <- .cw_fumigation(theta_jk, vs_aug, terrain)
+        cw_1b_raw <- .cw_fumigation(theta_jk, vs_aug, terrain,
+                                    above_pool_ht = above_pool_ht_k)
 
-        # When pool_top is NA for an hour, both pathways fall back to flat cw
-        pool_na <- is.na(vs$pool_top)
+        # When pool_top is NA for an hour, both pathways fall back to flat cw.
+        # When is_calm is TRUE, terrain pathways are physically inapplicable
+        # (no preferred wind direction → no drainage confinement or directional
+        # fumigation); fall back to flat omnidirectional meander instead.
+        pool_na    <- is.na(vs$pool_top)
+        is_calm_t  <- vs$is_calm   # logical vector, length n_t
 
-        cw_1a_safe <- ifelse(is.na(cw_1a_raw) | pool_na, cw_flat, cw_1a_raw)
-        # 1b: NA outside morning → 0 (no fumigation); fallback to flat when pool NA
-        cw_1b_safe <- ifelse(pool_na, cw_flat,
+        cw_1a_safe <- ifelse(is_calm_t | is.na(cw_1a_raw) | pool_na, cw_flat, cw_1a_raw)
+        # 1b: NA outside morning → 0 (no fumigation); fallback to flat when pool NA or calm
+        cw_1b_safe <- ifelse(is_calm_t | pool_na, cw_flat,
                              ifelse(is.na(cw_1b_raw), 0, cw_1b_raw))
 
         # Blended crosswind: within-pool fraction * venting + above-pool * fumigation * release

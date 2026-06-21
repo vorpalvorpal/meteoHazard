@@ -137,9 +137,10 @@
 # when pool_top > 0.
 #
 # Fumigation travels DOWNWIND of the overnight residual layer wind.
-# Residual-wind direction fallback ladder: dir_180m → dir_120m → dir_80m
-# → surface wind direction (wind_direction_10m at this hour, if available)
-# → cw_1b = 0 (truly no information).
+# Residual-wind direction fallback ladder:
+#   dir_180m → dir_120m → dir_80m → dir_10m (overnight circular mean)
+#   → surface wind direction (instantaneous, if available in vs)
+#   → cw_1b = 0 (truly no information).
 #
 # cw_1b = FUMIC_1B * max(0, cos(angular_diff(bearing_to_receptor, downwind)))^2
 #
@@ -147,6 +148,7 @@
 # so downwind = (rw_dir + 180) %% 360.
 
 .cw_fumigation <- function(bearing_to_receptor, vs, terrain,
+                           above_pool_ht = 0,    # above-pool emission height (m)
                            FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
   n_t   <- length(vs$is_day)
   cw_1b <- rep(NA_real_, n_t)
@@ -173,30 +175,36 @@
     out
   }
 
-  dir_180m_frz <- if (!is.null(rw$dir_180m)) .freeze_fwd(rw$dir_180m)
-                  else rep(NA_real_, n_t)
-  dir_120m_frz <- if (!is.null(rw$dir_120m)) .freeze_fwd(rw$dir_120m)
-                  else rep(NA_real_, n_t)
-  dir_80m_frz  <- if (!is.null(rw$dir_80m))  .freeze_fwd(rw$dir_80m)
-                  else rep(NA_real_, n_t)
+  # Build frozen direction vectors for each available level.
+  dir_vecs <- list(
+    `80`  = if (!is.null(rw$dir_80m))  .freeze_fwd(rw$dir_80m)  else rep(NA_real_, n_t),
+    `120` = if (!is.null(rw$dir_120m)) .freeze_fwd(rw$dir_120m) else rep(NA_real_, n_t),
+    `180` = if (!is.null(rw$dir_180m)) .freeze_fwd(rw$dir_180m) else rep(NA_real_, n_t)
+  )
+  dir_10m_frz <- if (!is.null(rw$dir_10m)) .freeze_fwd(rw$dir_10m) else rep(NA_real_, n_t)
+
+  # Select the level order by closeness of level height to above_pool_ht.
+  # Levels available: 80 m, 120 m, 180 m.
+  level_heights <- c(80, 120, 180)
+  lev_order     <- order(abs(level_heights - above_pool_ht))
+  level_names   <- c("80", "120", "180")[lev_order]
 
   for (t in seq_len(n_t)) {
     if (!vs$is_day[t]) next
     if (is.na(vs$cbl_growth[t]) || vs$cbl_growth[t] <= 0) next
     if (is.na(vs$pool_top[t])   || vs$pool_top[t]   <= 0) next
 
-    # Best available residual-wind direction (top level first; frozen forward)
+    # Select the direction at the level closest to above_pool_ht; fall back
+    # through remaining levels, then 10m frozen, then instantaneous surface.
     rw_dir <- NA_real_
-    if (!is.na(dir_180m_frz[t])) {
-      rw_dir <- dir_180m_frz[t]
-    } else if (!is.na(dir_120m_frz[t])) {
-      rw_dir <- dir_120m_frz[t]
-    } else if (!is.na(dir_80m_frz[t])) {
-      rw_dir <- dir_80m_frz[t]
-    } else if (!is.na(wind_dir_surf[t])) {
-      # Fallback: surface advection direction
-      rw_dir <- wind_dir_surf[t]
-    } else {
+    for (lev_nm in level_names) {
+      dv <- dir_vecs[[lev_nm]]
+      if (!is.na(dv[t])) { rw_dir <- dv[t]; break }
+    }
+    if (is.na(rw_dir) && !is.na(dir_10m_frz[t])) rw_dir <- dir_10m_frz[t]
+    if (is.na(rw_dir) && !is.na(wind_dir_surf[t])) rw_dir <- wind_dir_surf[t]
+
+    if (is.na(rw_dir)) {
       # Truly no directional information
       cw_1b[t] <- 0
       next
