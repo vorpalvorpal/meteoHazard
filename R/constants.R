@@ -88,5 +88,13 @@ ODOUR_CONSTANTS <- list(
   PM_MAX                   = 3.0, # peak-to-mean at very stable (s = 5)
   H_MIX_FALLBACK_STABLE    = 200, # m, NA boundary-layer fallback when calm
   H_MIX_FALLBACK_UNSTABLE  = 600, # m, NA boundary-layer fallback otherwise
-  SIGMA_Y_COEF             = c(0.22, 0.16, 0.11, 0.08, 0.06, 0.04) # A-F
+  SIGMA_Y_COEF             = c(0.22, 0.16, 0.11, 0.08, 0.06, 0.04), # A-F
+  BRUNT_A                  = 0.34,   # Brunt (1932) longwave coefficient a
+  BRUNT_B                  = 0.14,   # Brunt (1932) longwave coefficient b
+  BRUNT_CLOUD_K            = 0.1,    # cloud-cover reduction factor k (calibratable)
+  VENKATRAM_COEF           = 2400,   # h_floor = 2400 * u_star^1.5 (Venkatram 1980)
+  POOL_Z0                  = 0.1,    # roughness length z0 for u* (m)
+  POOL_H_SAT               = 300,    # max cold-pool depth (m, Whiteman 1999)
+  POOL_Q_SAT               = 3e6,    # saturation heat deficit scale (J/m²)
+  POOL_KAPPA               = 0.4     # von Karman constant
 )

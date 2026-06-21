@@ -114,7 +114,7 @@ odour_exposure <- function(hazard, met_data, receptors, drainage_axes = NULL,
   checkmate::assert_number(map_c50, lower = .Machine$double.eps)
 
   # ---- Shared dispersion state and drainage/fumigation state --------------- #
-  state <- .odour_dispersion_state(met_data, stability)
+  state <- ventilation_state(met_data, terrain = NULL, stability = stability)
   n_t   <- nrow(met_data)
   n_r   <- nrow(receptors)
 

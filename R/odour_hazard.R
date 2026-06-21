@@ -114,77 +114,11 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   # below and the shared dispersion state then run on plain doubles.
   met_data <- .odour_normalise_met(met_data)
 
-  state <- .odour_dispersion_state(met_data, stability)
-  n_t   <- nrow(met_data)
-
-  # ---- G: source generation modifier (additive, labelled) ----------------- #
-  pressure    <- met_data$pressure_msl
-  precip_safe <- .na_fill(met_data$precipitation, 0)
-  temp        <- met_data$temperature_2m
-  rh_safe     <- .na_fill(met_data$relative_humidity_2m, 0)
-  sm01_safe   <- .na_fill(met_data$soil_moisture_0_to_1cm, 0)
-  sm13_safe   <- .na_fill(met_data$soil_moisture_1_to_3cm, 0)
-
-  # Barometric pumping: falling pressure increases advective gas flux.
-  dP3 <- pressure - dplyr::lag(pressure, 3)
-  dP_mod <- dplyr::case_when(
-    is.na(dP3) ~ 0.0,
-    dP3 <= -5  ~ 0.30,
-    dP3 < 0    ~ -0.06 * dP3,
-    TRUE       ~ 0.0
-  )
-
-  # Post-rain piston effect; active-rain guard MUST be the first branch
-  # (P_24 includes currently-falling rain). P_24[i] sums the 24 preceding rows
-  # via a cumulative-sum window: cs[i] - cs[max(1, i-24)].
-  cs   <- cumsum(c(0, precip_safe))
-  idx  <- seq_len(n_t)
-  P_24 <- cs[idx] - cs[pmax(1L, idx - 24L)]
-  R_mod <- dplyr::case_when(
-    precip_safe > 0.5 ~ 0.0,
-    P_24 > 15         ~ 0.20,
-    P_24 > 5          ~ 0.10,
-    TRUE              ~ 0.0
-  )
-
-  # Soil-moisture cover sealing (wettest layer is the diffusion bottleneck).
-  sm_seal <- pmax(sm01_safe, sm13_safe)
-  S_seal <- dplyr::case_when(
-    sm_seal >= 0.40 ~ -0.20,
-    sm_seal >= 0.25 ~ -0.20 * (sm_seal - 0.25) / 0.15,
-    TRUE            ~ 0.0
-  )
-
-  H_mod <- dplyr::case_when(
-    rh_safe >= 85 ~ 0.15,
-    rh_safe >= 60 ~ 0.15 * (rh_safe - 60) / 25,
-    TRUE          ~ 0.0
-  )
-
-  # Surface NMOC volatilisation (Henry's law); ceiling widened to V_MOD_MAX.
-  vmax <- ODOUR_CONSTANTS$V_MOD_MAX
-  V_mod <- dplyr::case_when(
-    is.na(temp) ~ 0.0,
-    temp <= 10  ~ 0.0,
-    temp >= 35  ~ vmax,
-    TRUE        ~ vmax * (temp - 10) / 25
-  )
-
-  G <- 1.0 + dP_mod + R_mod + S_seal + H_mod + V_mod
-
-  # ---- Peak-to-mean and scavenging overlays -------------------------------- #
-  PM <- ODOUR_CONSTANTS$PM_MIN +
-    (ODOUR_CONSTANTS$PM_MAX - ODOUR_CONSTANTS$PM_MIN) * (state$s / 5)
-
-  W_rain <- dplyr::case_when(
-    precip_safe > 4.0 ~ 0.05,
-    precip_safe > 1.0 ~ 0.15,
-    precip_safe > 0.2 ~ 0.40,
-    TRUE              ~ 1.0
-  )
+  vs <- ventilation_state(met_data, terrain = NULL, stability = stability)
+  G  <- .odour_generation(met_data)
 
   # ---- Ventilation index, normalised to the calm/stable/shallow baseline --- #
-  hazard_raw <- G * PM * W_rain / (state$u_eff * state$h_mix)
+  hazard_raw <- G * vs$PM * vs$W_rain / (vs$u_eff * vs$h_mix)
   hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
     (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
 
@@ -215,58 +149,6 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     }
   }
   met_data
-}
-
-
-# ---- Shared dispersion state ----------------------------------------------- #
-# Computes the per-hour atmospheric state used by BOTH odour_hazard() and
-# odour_exposure(): the Pasquill-Gifford stability index s in [0, 5] (A = 0,
-# F = 5), the effective wind u_eff (calm-floored), the mixing depth h_mix, and
-# the is_calm / is_day flags. `stability` selects the estimator:
-#   "turner" (default) - Pasquill-Turner from insolation/cloud + wind. Primary,
-#       because the Briggs sigma curves are tabulated by the PG class that the
-#       Turner scheme defines (self-consistent).
-#   "shear"  - legacy 10 m/80 m power-law exponent (needs wind_speed_80m).
-.odour_dispersion_state <- function(met_data, stability = c("turner", "shear")) {
-  stability <- match.arg(stability)
-
-  u10   <- met_data$wind_speed_10m
-  rad   <- met_data$direct_radiation
-  cloud <- met_data$cloud_cover
-  bl    <- met_data$boundary_layer_height
-
-  u10_safe   <- .na_fill(u10, 0)
-  rad_safe   <- .na_fill(rad, 0)
-  cloud_safe <- .na_fill(cloud, 50)
-
-  is_calm <- is.na(u10) | u10 < ODOUR_CONSTANTS$U_CALM_FLOOR
-  is_day  <- rad_safe > 10
-
-  if (stability == "turner") {
-    s_raw <- .turner_stability(u10_safe, rad_safe, cloud_safe, is_day)
-    s <- ifelse(is_calm, 4.25, s_raw)
-  } else {
-    u80 <- met_data$wind_speed_80m
-    use_calm_stab <- is_calm | is.na(u80) | u80 <= 0
-    u10_for_alpha <- pmax(u10_safe, 0.001)
-    u80_for_alpha <- ifelse(is.na(u80) | u80 <= 0, 0.001, u80)
-    alpha <- log(u80_for_alpha / u10_for_alpha) / log(8)
-    s <- ifelse(use_calm_stab, 4.25, .alpha_to_s(alpha))
-  }
-
-  u_eff <- pmax(u10_safe, ODOUR_CONSTANTS$U_CALM_FLOOR)
-
-  # A missing OR non-positive boundary-layer height falls back to a plausible
-  # depth; h_mix must stay strictly positive (it is a divisor in the hazard's
-  # ventilation term and the exposure geometry).
-  h_mix <- ifelse(
-    is.na(bl) | bl <= 0,
-    ifelse(is_calm | s >= 4, ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE,
-           ODOUR_CONSTANTS$H_MIX_FALLBACK_UNSTABLE),
-    bl
-  )
-
-  list(s = s, u_eff = u_eff, h_mix = h_mix, is_calm = is_calm, is_day = is_day)
 }
 
 
@@ -324,6 +206,17 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     alpha <= 0.40 ~ 4.0 + (alpha - 0.22) / 0.18,
     TRUE          ~ 5.0
   )
+}
+
+
+# ---- Backward-compat shim -------------------------------------------------- #
+# Tests that pre-date C2 call .odour_dispersion_state() directly. Retained as a
+# thin alias extracting the five core fields from ventilation_state().
+.odour_dispersion_state <- function(met_data, stability = c("turner", "shear")) {
+  stability <- match.arg(stability)
+  vs <- ventilation_state(met_data, terrain = NULL, stability = stability)
+  list(s = vs$s, u_eff = vs$u_eff, h_mix = vs$h_mix,
+       is_calm = vs$is_calm, is_day = vs$is_day)
 }
 
 

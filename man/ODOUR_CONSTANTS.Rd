@@ -5,7 +5,7 @@
 \alias{ODOUR_CONSTANTS}
 \title{Constants for the odour hazard and exposure model}
 \format{
-An object of class \code{list} of length 8.
+An object of class \code{list} of length 16.
 }
 \usage{
 ODOUR_CONSTANTS
