@@ -69,17 +69,20 @@
 # >= 0; symmetric under wind_dir +/- 180; degenerate point geometry → 0.
 
 .crosswind_halfwidth <- function(polygon, wind_dir) {
-  coords <- sf::st_coordinates(polygon)
-
-  # Crosswind direction is perpendicular to the wind (rotated 90 deg CW).
-  # Wind direction is degrees from north, clockwise.
-  # Wind unit vector (downwind): (sin(wind_rad), cos(wind_rad)) in (E, N)
-  # Crosswind unit vector (90 deg CW of downwind): (cos(wind_rad), -sin(wind_rad))
+  coords   <- sf::st_coordinates(polygon)
   wind_rad <- wind_dir * pi / 180
 
-  # Project each vertex onto the crosswind unit vector
-  cw_projections <- coords[, "X"] * cos(wind_rad) - coords[, "Y"] * sin(wind_rad)
-
-  extent <- diff(range(cw_projections))
-  extent / 2
+  # Crosswind unit vector (90 deg CW of downwind): (cos(wr), -sin(wr)) in (E, N).
+  # Project each vertex: p[v] = X[v]*cos(wr) - Y[v]*sin(wr).
+  if (length(wind_rad) == 1L) {
+    # Scalar path — single direction; simple vector operation.
+    proj <- coords[, "X"] * cos(wind_rad) - coords[, "Y"] * sin(wind_rad)
+    diff(range(proj)) / 2
+  } else {
+    # Vector path — one direction per hour; extract coordinates only once.
+    # proj_mat[v, t] = X[v]*cos(wr[t]) - Y[v]*sin(wr[t])
+    proj_mat <- outer(coords[, "X"], cos(wind_rad)) -
+                outer(coords[, "Y"], sin(wind_rad))
+    (apply(proj_mat, 2L, max) - apply(proj_mat, 2L, min)) / 2
+  }
 }

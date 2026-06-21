@@ -126,14 +126,15 @@ pool_top_vec <- vs_168$pool_top
 emit_height  <- 10
 
 bm_partition <- bench::mark(
-  `pool_partition_168h` = vapply(
-    pool_top_vec,
-    function(pt) {
-      if (is.na(pt)) return(c(f_1a = 1, f_1b = 0))
-      meteoHazard:::.pool_partition(emit_height = emit_height, pool_top = pt)
-    },
-    numeric(2)
-  ),
+  # .pool_partition() is already vectorised over hours; call it once for all 168 h.
+  `pool_partition_168h` = {
+    pt_safe <- ifelse(is.na(pool_top_vec), 0, pool_top_vec)
+    meteoHazard:::.pool_partition(
+      emit_extent = rep(emit_height, length(pt_safe)),
+      pool_top    = pt_safe,
+      delta       = rep(20, length(pt_safe))
+    )
+  },
   iterations = 20,
   check = FALSE
 )

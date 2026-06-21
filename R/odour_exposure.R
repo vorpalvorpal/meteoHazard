@@ -189,10 +189,11 @@ odour_exposure <- function(met_data, site,
       sf::st_geometry_type(source_k, by_geometry = FALSE)
     )
     if (grepl("POLYGON", geom_type_k, ignore.case = TRUE)) {
-      sigma_y0_t <- vapply(wind_dir, function(wd) {
-        if (is.na(wd)) 0.0
-        else .crosswind_halfwidth(source_k, wd) / ODOUR_CONSTANTS$ISC3_SIGMA_Y0_COEF
-      }, numeric(1))
+      # Vectorised: extract polygon coordinates once, project for all hours.
+      wd_safe    <- ifelse(is.na(wind_dir), 0.0, wind_dir)
+      sigma_y0_t <- .crosswind_halfwidth(source_k, wd_safe) /
+                      ODOUR_CONSTANTS$ISC3_SIGMA_Y0_COEF
+      sigma_y0_t[is.na(wind_dir)] <- 0.0
     } else {
       sigma_y0_t <- rep(0.0, n_t)
     }
@@ -202,12 +203,19 @@ odour_exposure <- function(met_data, site,
     if (is.null(emit_ht) || is.na(emit_ht)) emit_ht <- 0.0
     sigma_z0 <- emit_ht / ODOUR_CONSTANTS$ISC3_SIGMA_Z0_COEF
 
-    for (j in seq_len(n_r)) {
-      receptor_j <- receptors[j, ]
+    # Pre-compute bearing and distance from this source to every receptor in one
+    # pass (avoids n_r separate sf coordinate extractions in the inner loop).
+    src_xy     <- sf::st_coordinates(source_pt)
+    rec_coords <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(receptors)))
+    dE_all     <- rec_coords[, "X"] - src_xy[1L, "X"]
+    dN_all     <- rec_coords[, "Y"] - src_xy[1L, "Y"]
+    dist_all   <- sqrt(dE_all^2 + dN_all^2)
+    brng_all   <- (atan2(dE_all, dN_all) * 180 / pi) %% 360
+    brng_all[dist_all == 0] <- NA_real_
 
-      bd     <- .bearing_distance(source_pt, receptor_j)
-      x_jk   <- bd$distance
-      theta_jk <- bd$bearing
+    for (j in seq_len(n_r)) {
+      x_jk    <- dist_all[j]
+      theta_jk <- brng_all[j]
 
       # Skip coincident source/receptor: contribute 0 (avoid division by zero).
       if (is.na(x_jk) || x_jk == 0) next
@@ -280,10 +288,10 @@ odour_exposure <- function(met_data, site,
         sf::st_geometry_type(source_k, by_geometry = FALSE)
       )
       if (grepl("POLYGON", geom_type_k, ignore.case = TRUE)) {
-        sigma_y0_t_k <- vapply(wind_dir, function(wd) {
-          if (is.na(wd)) 0.0
-          else .crosswind_halfwidth(source_k, wd) / ODOUR_CONSTANTS$ISC3_SIGMA_Y0_COEF
-        }, numeric(1))
+        wd_safe      <- ifelse(is.na(wind_dir), 0.0, wind_dir)
+        sigma_y0_t_k <- .crosswind_halfwidth(source_k, wd_safe) /
+                          ODOUR_CONSTANTS$ISC3_SIGMA_Y0_COEF
+        sigma_y0_t_k[is.na(wind_dir)] <- 0.0
       } else {
         sigma_y0_t_k <- rep(0.0, n_t)
       }
@@ -301,11 +309,25 @@ odour_exposure <- function(met_data, site,
       # Morning release factor (additive enhancement over the baseline 1b)
       r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
 
+      # Pre-compute fumigation prep once per source: freeze-forward direction
+      # vectors + level-priority order (receptor-independent, expensive if done
+      # inside the receptor loop).
+      above_pool_ht_k <- max(0, emit_ht_k -
+                               median(pool_top_for_part, na.rm = TRUE) / 2)
+      fumic_prep_k <- .cw_fumigation_prep(vs_aug, above_pool_ht = above_pool_ht_k)
+
+      # Pre-compute bearing/distance from this source to every receptor.
+      src_xy_k     <- sf::st_coordinates(source_pt)
+      rec_coords_k <- sf::st_coordinates(sf::st_centroid(sf::st_geometry(receptors)))
+      dE_k         <- rec_coords_k[, "X"] - src_xy_k[1L, "X"]
+      dN_k         <- rec_coords_k[, "Y"] - src_xy_k[1L, "Y"]
+      dist_k       <- sqrt(dE_k^2 + dN_k^2)
+      brng_k       <- (atan2(dE_k, dN_k) * 180 / pi) %% 360
+      brng_k[dist_k == 0] <- NA_real_
+
       for (j in seq_len(n_r)) {
-        receptor_j <- receptors[j, ]
-        bd         <- .bearing_distance(source_pt, receptor_j)
-        x_jk       <- bd$distance
-        theta_jk   <- bd$bearing
+        x_jk    <- dist_k[j]
+        theta_jk <- brng_k[j]
 
         if (is.na(x_jk) || x_jk == 0) next
 
@@ -334,16 +356,9 @@ odour_exposure <- function(met_data, site,
         cw_flat[vs$is_calm | is.na(wind_dir)]  <- CALM_CROSSWIND
 
         # Pathway crosswind factors
-        # above_pool_ht: representative height of above-pool emission above the
-        # pool top.  Use the median pool_top during night hours as a proxy for
-        # the split point, so the residual-wind level closest to the centroid of
-        # the above-pool emission band is selected.
-        above_pool_ht_k <- max(0, emit_ht_k -
-                                 median(pool_top_for_part, na.rm = TRUE) / 2)
-
         cw_1a_raw <- .cw_venting(theta_jk, vs_aug, terrain)
         cw_1b_raw <- .cw_fumigation(theta_jk, vs_aug, terrain,
-                                    above_pool_ht = above_pool_ht_k)
+                                    prep = fumic_prep_k)
 
         # When pool_top is NA for an hour, both pathways fall back to flat cw.
         # When is_calm is TRUE, terrain pathways are physically inapplicable

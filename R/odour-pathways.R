@@ -101,28 +101,20 @@
 
   is_channelled <- !is.na(drain_bearing) && flow_conv >= 0.5
 
-  for (t in seq_len(n_t)) {
-    if (!vs$is_day[t]) {
-      # Night: confinement
-      if (is_channelled) {
-        diff_deg  <- .angular_diff(bearing_to_receptor, drain_bearing)
-        alignment <- max(0, cos(diff_deg * pi / 180))
-        cw_1a[t] <- CONFINEMENT_1A * (1 - 0.9 * alignment)
-      } else {
-        cw_1a[t] <- CONFINEMENT_1A
-      }
-    } else if (!is.na(vs$cbl_growth[t]) && vs$cbl_growth[t] > 0) {
-      # Morning transition: anabatic venting
-      if (is_channelled) {
-        diff_deg  <- .angular_diff(bearing_to_receptor, drain_bearing)
-        alignment <- max(0, cos(diff_deg * pi / 180))
-        cw_1a[t] <- VENTING_1A * alignment
-      } else {
-        cw_1a[t] <- VENTING_1A
-      }
-    }
-    # else daytime without cbl_growth > 0: NA (flat Gaussian used by caller)
+  # Time-invariant hour masks (alignment scalar doesn't depend on t).
+  is_night   <- !vs$is_day
+  is_morning <- vs$is_day & !is.na(vs$cbl_growth) & vs$cbl_growth > 0
+
+  if (is_channelled) {
+    diff_deg  <- .angular_diff(bearing_to_receptor, drain_bearing)
+    alignment <- max(0, cos(diff_deg * pi / 180))
+    cw_1a[is_night]   <- CONFINEMENT_1A * (1 - 0.9 * alignment)
+    cw_1a[is_morning] <- VENTING_1A * alignment
+  } else {
+    cw_1a[is_night]   <- CONFINEMENT_1A
+    cw_1a[is_morning] <- VENTING_1A
   }
+  # Daytime hours with no cbl_growth > 0 remain NA (caller uses flat Gaussian).
 
   cw_1a
 }
@@ -147,21 +139,22 @@
 # The residual_wind direction is meteorological convention (blows FROM),
 # so downwind = (rw_dir + 180) %% 360.
 
-.cw_fumigation <- function(bearing_to_receptor, vs, terrain,
-                           above_pool_ht = 0,    # above-pool emission height (m)
-                           FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
-  n_t   <- length(vs$is_day)
-  cw_1b <- rep(NA_real_, n_t)
+# ---------------------------------------------------------------------------
+# .cw_fumigation_prep(vs, above_pool_ht)
+# ---------------------------------------------------------------------------
+# Expensive setup for .cw_fumigation(): forward-fill residual-wind directions
+# and select the level priority order. This part does NOT depend on the
+# receptor bearing, so it should be called ONCE per source (not per receptor).
+# Pass the returned prep list to .cw_fumigation() via the `prep` argument.
 
-  rw <- vs$residual_wind
-
-  # Surface wind direction (10 m), used as ultimate fallback if available in vs.
-  # Callers can set vs$wind_dir_surface (e.g. odour_exposure() passes met wind_dir).
+.cw_fumigation_prep <- function(vs, above_pool_ht = 0) {
+  n_t <- length(vs$is_day)
+  rw  <- vs$residual_wind
   wind_dir_surf <- if (!is.null(vs$wind_dir_surface)) vs$wind_dir_surface
                    else rep(NA_real_, n_t)
 
-  # Pre-freeze residual-wind directions into daytime (carry last nighttime
-  # direction forward so morning fumigation can access the overnight wind).
+  # Forward-fill non-NA values into subsequent daytime hours.
+  # Nighttime NAs remain NA (residual wind is only meaningful overnight).
   .freeze_fwd <- function(dir_vec) {
     out  <- dir_vec
     last <- NA_real_
@@ -169,13 +162,12 @@
       if (!is.na(dir_vec[i])) {
         last <- dir_vec[i]
       } else if (vs$is_day[i]) {
-        out[i] <- last   # carry overnight value into morning
+        out[i] <- last
       }
     }
     out
   }
 
-  # Build frozen direction vectors for each available level.
   dir_vecs <- list(
     `80`  = if (!is.null(rw$dir_80m))  .freeze_fwd(rw$dir_80m)  else rep(NA_real_, n_t),
     `120` = if (!is.null(rw$dir_120m)) .freeze_fwd(rw$dir_120m) else rep(NA_real_, n_t),
@@ -183,40 +175,46 @@
   )
   dir_10m_frz <- if (!is.null(rw$dir_10m)) .freeze_fwd(rw$dir_10m) else rep(NA_real_, n_t)
 
-  # Select the level order by closeness of level height to above_pool_ht.
-  # Levels available: 80 m, 120 m, 180 m.
   level_heights <- c(80, 120, 180)
   lev_order     <- order(abs(level_heights - above_pool_ht))
   level_names   <- c("80", "120", "180")[lev_order]
 
-  for (t in seq_len(n_t)) {
-    if (!vs$is_day[t]) next
-    if (is.na(vs$cbl_growth[t]) || vs$cbl_growth[t] <= 0) next
-    if (is.na(vs$pool_top[t])   || vs$pool_top[t]   <= 0) next
+  list(dir_vecs = dir_vecs, dir_10m_frz = dir_10m_frz,
+       wind_dir_surf = wind_dir_surf, level_names = level_names)
+}
 
-    # Select the direction at the level closest to above_pool_ht; fall back
-    # through remaining levels, then 10m frozen, then instantaneous surface.
-    rw_dir <- NA_real_
-    for (lev_nm in level_names) {
-      dv <- dir_vecs[[lev_nm]]
-      if (!is.na(dv[t])) { rw_dir <- dv[t]; break }
-    }
-    if (is.na(rw_dir) && !is.na(dir_10m_frz[t])) rw_dir <- dir_10m_frz[t]
-    if (is.na(rw_dir) && !is.na(wind_dir_surf[t])) rw_dir <- wind_dir_surf[t]
 
-    if (is.na(rw_dir)) {
-      # Truly no directional information
-      cw_1b[t] <- 0
-      next
-    }
+.cw_fumigation <- function(bearing_to_receptor, vs, terrain,
+                           above_pool_ht = 0,    # above-pool emission height (m)
+                           prep     = NULL,       # pre-computed from .cw_fumigation_prep()
+                           FUMIC_1B = ODOUR_CONSTANTS$FUMIC_1B) {
+  n_t <- length(vs$is_day)
 
-    # Fumigation goes downwind (rw_dir is blows-FROM convention)
-    downwind_dir <- (rw_dir + 180) %% 360
-    diff_deg     <- .angular_diff(bearing_to_receptor, downwind_dir)
-    cw_1b[t]    <- FUMIC_1B * max(0, cos(diff_deg * pi / 180))^2
+  # Run the expensive prep only when the caller has not pre-computed it.
+  if (is.null(prep)) prep <- .cw_fumigation_prep(vs, above_pool_ht)
+
+  # Active hours: morning transition with a pool present.
+  is_active <- vs$is_day &
+               !is.na(vs$cbl_growth) & vs$cbl_growth > 0 &
+               !is.na(vs$pool_top)   & vs$pool_top   > 0
+
+  # Coalesce direction across levels (priority order) then fallbacks.
+  rw_dir_vec <- rep(NA_real_, n_t)
+  for (lev_nm in prep$level_names) {
+    fill <- is.na(rw_dir_vec)
+    rw_dir_vec[fill] <- prep$dir_vecs[[lev_nm]][fill]
   }
+  fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$dir_10m_frz[fill]
+  fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$wind_dir_surf[fill]
 
-  cw_1b
+  # Vectorised cosine for all active hours at once.
+  downwind_dir <- (rw_dir_vec + 180) %% 360
+  diff_deg     <- .angular_diff(bearing_to_receptor, downwind_dir)
+  cw_val       <- FUMIC_1B * pmax(0, cos(diff_deg * pi / 180))^2
+
+  ifelse(is_active & !is.na(rw_dir_vec), cw_val,
+  ifelse(is_active,                        0,
+         NA_real_))
 }
 
 

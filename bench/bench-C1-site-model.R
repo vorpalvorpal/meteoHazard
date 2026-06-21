@@ -134,11 +134,14 @@ print(bm_construction[, c("expression", "min", "median", "mem_alloc", "n_itr")])
 message("Benchmarking: .crosswind_halfwidth() over 1000 wind directions")
 
 bm_crosswind <- bench::mark(
-  `crosswind_1000dirs` = vapply(
+  # Scalar path: called once per direction (old pattern, still works for single callers).
+  `crosswind_scalar_x1000` = vapply(
     wind_dirs_1000,
     function(wd) meteoHazard:::.crosswind_halfwidth(square_poly, wd),
     numeric(1)
   ),
+  # Vectorised path: all 1000 directions in one call (used by odour_exposure()).
+  `crosswind_vector_x1000` = meteoHazard:::.crosswind_halfwidth(square_poly, wind_dirs_1000),
   iterations = 20,
   check = FALSE
 )
