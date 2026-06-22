@@ -4,7 +4,13 @@
 \alias{ventilation_state}
 \title{Atmospheric ventilation state for the odour dispersion model}
 \usage{
-ventilation_state(met_data, terrain = NULL, stability = c("turner", "shear"))
+ventilation_state(
+  met_data,
+  terrain = NULL,
+  stability = c("turner", "shear"),
+  shelter = FALSE,
+  shelter_h_mix = FALSE
+)
 }
 \arguments{
 \item{met_data}{A data frame, one row per consecutive hour. Required columns:
@@ -23,6 +29,16 @@ When non-\code{NULL}, \code{terrain@valley_depth} caps the cold-pool depth and
 
 \item{stability}{Stability estimator: \code{"turner"} (default) or \code{"shear"}.
 \code{"shear"} requires \code{wind_speed_80m}.}
+
+\item{shelter}{Logical (default \code{FALSE}). When \code{TRUE} and \code{terrain} has a
+finite \code{shelter_index}, reduces \code{u_eff} using the M3 valley-sheltering
+transfer model. \strong{Off by default until calibrated} (see #8). \code{FALSE}
+gives bit-identical output to the pre-C6 baseline.}
+
+\item{shelter_h_mix}{Logical (default \code{FALSE}). When \code{TRUE} (and
+\code{shelter = TRUE}), also scales \code{h_mix} by \code{(1 - reduction_effective)}.
+Undocumented interaction with the forecast \code{boundary_layer_height}
+(potential double-count); leave \code{FALSE} until reconciled.}
 }
 \value{
 A named list, all vectors of length \code{nrow(met_data)}:
@@ -59,6 +75,24 @@ Computes the per-hour atmospheric state used by \code{\link[=odour_hazard]{odour
 (\code{pool_top}), convective boundary-layer growth rate (\code{cbl_growth}), and
 overnight residual winds at 80 m / 120 m / 180 m AGL.
 }
+\section{Terrain-modifier contract}{
+
+When multiple terrain mechanisms are active simultaneously, the following
+precedence applies: \strong{M1 drainage confinement} (C3b) supersedes \strong{M3
+valley sheltering} on any hour when \code{drainage_active} is \code{TRUE}
+(\code{is_channelled & !is_day & pool_top > 0}). The suppression strength is
+controlled by \code{ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP} (default 1.0 =
+full mutual exclusion). \strong{M2 receptor impaction} is orthogonal (a vertical
+geometry term, not a wind-field modifier) and never participates in
+precedence. A future external wind field (C7) will supersede all native
+terms.
+
+The M3 hazard/exposure re-entanglement caveat: enabling \code{shelter = TRUE}
+makes \code{ventilation_state()} depend on a terrain descriptor, so the
+ventilation state is no longer purely meteorological. This is inherent to
+M3; keep \code{shelter = FALSE} in all meteorological-analysis contexts.
+}
+
 \references{
 Brunt, D. (1932). Notes on radiation in the atmosphere. \emph{Quarterly
 Journal of the Royal Meteorological Society}, 58(247), 389--420.

@@ -33,6 +33,14 @@
 #'   `terrain@taf` amplifies the Brunt cooling rate before accumulation.
 #' @param stability Stability estimator: `"turner"` (default) or `"shear"`.
 #'   `"shear"` requires `wind_speed_80m`.
+#' @param shelter Logical (default `FALSE`). When `TRUE` and `terrain` has a
+#'   finite `shelter_index`, reduces `u_eff` using the M3 valley-sheltering
+#'   transfer model. **Off by default until calibrated** (see #8). `FALSE`
+#'   gives bit-identical output to the pre-C6 baseline.
+#' @param shelter_h_mix Logical (default `FALSE`). When `TRUE` (and
+#'   `shelter = TRUE`), also scales `h_mix` by `(1 - reduction_effective)`.
+#'   Undocumented interaction with the forecast `boundary_layer_height`
+#'   (potential double-count); leave `FALSE` until reconciled.
 #'
 #' @return A named list, all vectors of length `nrow(met_data)`:
 #' \describe{
@@ -71,6 +79,22 @@
 #' Venkatram, A. (1980). Estimating the Monin-Obukhov length in the stable
 #'   boundary layer for dispersion calculations. \emph{Boundary-Layer
 #'   Meteorology}, 19, 481--485.
+#'
+#' @section Terrain-modifier contract:
+#' When multiple terrain mechanisms are active simultaneously, the following
+#' precedence applies: **M1 drainage confinement** (C3b) supersedes **M3
+#' valley sheltering** on any hour when `drainage_active` is `TRUE`
+#' (`is_channelled & !is_day & pool_top > 0`). The suppression strength is
+#' controlled by `ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP` (default 1.0 =
+#' full mutual exclusion). **M2 receptor impaction** is orthogonal (a vertical
+#' geometry term, not a wind-field modifier) and never participates in
+#' precedence. A future external wind field (C7) will supersede all native
+#' terms.
+#'
+#' The M3 hazard/exposure re-entanglement caveat: enabling `shelter = TRUE`
+#' makes `ventilation_state()` depend on a terrain descriptor, so the
+#' ventilation state is no longer purely meteorological. This is inherent to
+#' M3; keep `shelter = FALSE` in all meteorological-analysis contexts.
 #'
 #' @export
 ventilation_state <- function(met_data, terrain = NULL,

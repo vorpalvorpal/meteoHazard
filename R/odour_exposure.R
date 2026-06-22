@@ -40,10 +40,17 @@
 #' @param terrain_backend `"none"` (flat Gaussian, C3a) or `"descriptors"`
 #'   (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).
 #' @param impaction Logical (default `FALSE`). When `TRUE`, applies the M2
-#'   receptor-impaction factor `f_vert` (a stability-blended vertical-Gaussian
-#'   term) to each (source, receptor) pair. Requires receptor `elevation` and
-#'   optionally `hill_height_scale` columns on the site features. When `FALSE`
-#'   (default) the output is bit-identical to the pre-M2 result.
+#'   receptor-impaction term: a stability-blended vertical-Gaussian factor
+#'   `f_vert` that accounts for receptors elevated above the effective source
+#'   height. Requires an `elevation` column on receptor features and an
+#'   `emit_height` column on source features (both on the same AGL datum);
+#'   a missing or `NA` elevation for a receptor makes that receptor
+#'   unaffected. **Off by default.** Low priority for landfill sites where
+#'   most receptors sit below the source; a heuristic *inspired by* AERMOD
+#'   (Cimorelli et al. 2005), not equivalent to it.
+#' @param shelter Logical. Passed to [ventilation_state()]; see that function
+#'   for the M3 valley-sheltering documentation and caveats.
+#' @param shelter_h_mix Logical. Passed to [ventilation_state()].
 #'
 #' @return A plain numeric vector of length `nrow(met_data)`: the worst-case
 #'   0-100 odour exposure across receptors for each hour.

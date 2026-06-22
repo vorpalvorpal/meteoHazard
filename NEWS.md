@@ -1,3 +1,37 @@
+# meteoHazard 0.3.0
+
+## Phase 2 — DEM terrain helper (C5, issue #19)
+
+* New setup-time function `mh_terrain_from_dem()` derives all C1 `mh_terrain`
+  descriptors automatically from a DEM using data-driven analysis scales.
+  Requires `whitebox` + the WhiteboxTools binary (`whitebox::install_whitebox()`)
+  and `terra`. Never on the run path.
+* Analysis scales are recorded in `terrain@meta` (`relief_radius`,
+  `valley_dev_scale`, `shelter_fetch_L`, `drainage_catchment_radius`).
+* `valley_depth` uses multi-scale DEV delineation — **no flow-accumulation
+  channel threshold** — matching the plan's §7 threshold-free requirement.
+* Caller overrides compose: any descriptor may be pre-set to skip its DEM
+  derivation; `meta` flags it as `"user_supplied"`.
+* New `Suggests`: `whitebox`, `terra`, `elevatr`, `withr`.
+
+## Phase 3 — Receptor impaction (M2) + valley sheltering (M3) (C6, issue #20)
+
+* `ventilation_state()` gains `shelter = FALSE` and `shelter_h_mix = FALSE`.
+  When `shelter = TRUE`, a wind-speed-regime-resolved valley-sheltering
+  reduction is applied to `u_eff` using `terrain@shelter_index`. **Off by
+  default until calibrated** (calibration → #8).
+* `odour_exposure()` and `odour_risk()` gain `impaction = FALSE`. When
+  `TRUE`, the M2 receptor-impaction term adds a stability-blended
+  vertical-Gaussian factor for receptors elevated above the source. A
+  heuristic *inspired by* AERMOD (Cimorelli et al. 2005); explicitly not
+  equivalent. **Off by default.**
+* **Terrain-modifier precedence:** M1 drainage confinement (C3b) and M3
+  valley sheltering are mutually exclusive on drainage-active hours
+  (`DRAINAGE_SHELTER_OVERLAP = 1.0`). The no-stack contract is regression-
+  guarded by a behaviour spec in `test-odour-pathways.R`.
+* All new coefficients are named constants in `ODOUR_CONSTANTS` (provenance-
+  commented; flagged uncalibrated → #8). No inline literals.
+
 # meteoHazard 0.2.0
 
 ## Performance

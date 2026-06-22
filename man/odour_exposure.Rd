@@ -9,7 +9,10 @@ odour_exposure(
   site,
   stability = c("turner", "shear"),
   map_c50 = 0.3,
-  terrain_backend = c("none", "descriptors")
+  terrain_backend = c("none", "descriptors"),
+  impaction = FALSE,
+  shelter = FALSE,
+  shelter_h_mix = FALSE
 )
 }
 \arguments{
@@ -30,6 +33,21 @@ and one \verb{(odour, receptor)} role.}
 
 \item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
 (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
+
+\item{impaction}{Logical (default \code{FALSE}). When \code{TRUE}, applies the M2
+receptor-impaction term: a stability-blended vertical-Gaussian factor
+\code{f_vert} that accounts for receptors elevated above the effective source
+height. Requires an \code{elevation} column on receptor features and an
+\code{emit_height} column on source features (both on the same AGL datum);
+a missing or \code{NA} elevation for a receptor makes that receptor
+unaffected. \strong{Off by default.} Low priority for landfill sites where
+most receptors sit below the source; a heuristic \emph{inspired by} AERMOD
+(Cimorelli et al. 2005), not equivalent to it.}
+
+\item{shelter}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}; see that function
+for the M3 valley-sheltering documentation and caveats.}
+
+\item{shelter_h_mix}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}.}
 }
 \value{
 A plain numeric vector of length \code{nrow(met_data)}: the worst-case

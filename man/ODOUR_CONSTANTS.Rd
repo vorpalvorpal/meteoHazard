@@ -5,7 +5,7 @@
 \alias{ODOUR_CONSTANTS}
 \title{Constants for the odour hazard and exposure model}
 \format{
-An object of class \code{list} of length 23.
+An object of class \code{list} of length 33.
 }
 \usage{
 ODOUR_CONSTANTS
@@ -40,6 +40,26 @@ shallow nocturnal boundary layer) and 600 (neutral/unstable).}
 \item{SIGMA_Y_COEF}{Briggs (1973) rural lateral-dispersion leading
 coefficients for Pasquill-Gifford classes A-F (indices 1-6), used as
 \code{sigma_y = c_y * x / sqrt(1 + 0.0001 * x)}.}
+\item{SHELTER_OPEN_REF}{Sky-view openness angle (degrees) for flat/open
+terrain with no sheltering effect, 85. Above this value \code{s_f = 0}.}
+\item{SHELTER_ENCLOSED_REF}{Sky-view openness angle (degrees) for strongly
+enclosed terrain at full shelter effect, 50. Below this value \code{s_f = 1}.}
+\item{SHELTER_U_FULL}{Wind speed (m/s) at or below which the shelter
+regime weight \code{w_r = 1} (full effect), 1.5.}
+\item{SHELTER_U_FLUSH}{Wind speed (m/s) at or above which \code{w_r = 0}
+(shelter flushed out by wind), 6.0.}
+\item{SHELTER_MAX_REDUCTION}{Maximum fractional reduction in \code{u_eff} from
+valley sheltering, 0.7. Uncalibrated screening default.}
+\item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
+drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
+full suppression of M3 on hours where M1 drainage is active.}
+\item{IMPACTION_S_NEUTRAL}{Pasquill-Gifford class index (0–5) for neutral
+stability (class D), 3. Used in M2 receptor impaction.}
+\item{IMPACTION_S_STABLE}{PG class index for very stable conditions
+(class F), 5. Used in M2 receptor impaction.}
+\item{IMPACTION_STRENGTH}{Maximum collapse fraction applied to elevated
+receptors under very stable conditions, 0.8. Uncalibrated screening
+default.}
 }
 }
 \keyword{internal}
