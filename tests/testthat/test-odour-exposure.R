@@ -372,3 +372,318 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     expect_equal(out, 0)
   })
 })
+
+
+# ---------------------------------------------------------------------------
+# M2 — receptor impaction (C6, issue #20)
+# ---------------------------------------------------------------------------
+#
+# Physics: an elevated receptor (Δz > 0) is pulled toward the plume centreline
+# as stability increases; f_vert = exp(-0.5*(Δz_eff/sigma_z_eff)^2) blends
+# toward 1 under stable conditions. f_vert ≤ 1 always.
+#
+# Δz   = receptor_elevation (from features$elevation) −
+#         source_emit_height (from features$emit_height for sources).
+# phi_s = clamp((s - IMPACTION_S_NEUTRAL) /
+#               (IMPACTION_S_STABLE - IMPACTION_S_NEUTRAL), 0, 1)
+#         IMPACTION_S_NEUTRAL = 3, IMPACTION_S_STABLE = 5
+# around_frac = ifelse(is.na(hill_height_scale), 0, hill_height_scale)
+# collapse    = IMPACTION_STRENGTH * pmax(phi_s, around_frac)  [= 0.8 * ...]
+# Δz_eff      = Δz * (1 - collapse)
+# f_vert      = exp(-0.5 * (Δz_eff / sigma_z_eff)^2)
+# ---------------------------------------------------------------------------
+
+# Helper: build a site with elevation columns on features.
+# emit_height on the source feature drives ISC3 sigma_z0 AND M2 Δz denominator.
+# elevation on the receptor drives M2 Δz numerator.
+.make_impaction_site <- function(src_emit_height = 10,
+                                  rec_elevation   = 0,
+                                  rec_distance    = 500,
+                                  hill_height_scale = NA_real_) {
+  origin_x <- 335000; origin_y <- 6250000
+  rec_x    <- origin_x
+  rec_y    <- origin_y + rec_distance  # receptor due north
+
+  hhs_col <- rep(hill_height_scale, 2)  # source + receptor row
+
+  feats <- sf::st_sf(
+    id              = c("src", "rec"),
+    emit_height     = c(src_emit_height, NA_real_),  # on features, not roles
+    elevation       = c(0,               rec_elevation),
+    hill_height_scale = hhs_col,
+    geometry        = sf::st_sfc(
+      sf::st_point(c(origin_x, origin_y)),
+      sf::st_point(c(rec_x,    rec_y)),
+      crs = 32755
+    )
+  )
+  roles <- data.frame(
+    feature_id = c("src", "rec"),
+    hazard     = "odour",
+    role       = c("source", "receptor"),
+    stringsAsFactors = FALSE
+  )
+  mh_site(feats, roles, epsg = 32755L)
+}
+
+# Met producing neutral stability: overcast, moderate wind (Turner class D, s≈3).
+.met_neutral <- function(n = 1) {
+  .make_odour_met(n = n,
+    wind_direction_10m    = 180,   # blowing from south → downwind = north
+    wind_speed_10m        = 3,
+    direct_radiation      = 0,
+    cloud_cover           = 100,   # fully overcast → Turner class D ≈ neutral
+    boundary_layer_height = 600
+  )
+}
+
+# Met producing very stable conditions: calm/slow wind, clear cold night.
+.met_stable <- function(n = 1) {
+  .make_odour_met(n = n,
+    wind_direction_10m    = 180,
+    wind_speed_10m        = 1.0,   # slow: PG class E–F when direct_rad = 0
+    direct_radiation      = 0,
+    cloud_cover           = 0,     # clear night → stable
+    boundary_layer_height = 150,
+    temperature_2m        = 5,
+    relative_humidity_2m  = 40
+  )
+}
+
+
+describe("odour_exposure(): M2 receptor impaction (impaction = TRUE)", {
+
+  # -- Default-off is identity -----------------------------------------------
+
+  it("impaction = FALSE is bit-identical to the current output (regression)", {
+    # The default must not change the existing golden oracle.
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 500)
+    d    <- .make_odour_met()
+    expect_equal(
+      odour_exposure(d, site, impaction = FALSE),
+      odour_exposure(d, site),                    # default
+      tolerance = 0
+    )
+  })
+
+  it("impaction = FALSE with elevation columns is bit-identical to current (regression)", {
+    # Adding elevation to features must not change behaviour when impaction = FALSE.
+    site_elev <- .make_impaction_site(src_emit_height = 10, rec_elevation = 40,
+                                      rec_distance    = 500)
+    site_flat <- .make_odour_site(rec_bearing = 0, rec_distance = 500)
+    d <- .met_neutral()
+    expect_equal(
+      odour_exposure(d, site_elev, impaction = FALSE),
+      odour_exposure(d, site_flat, impaction = FALSE),
+      tolerance = 1e-9
+    )
+  })
+
+  it("impaction = TRUE with Δz = 0 is bit-identical to impaction = FALSE", {
+    # f_vert = exp(-0.5 * (0 / sigma_z)^2) = 1 → no change.
+    site <- .make_impaction_site(src_emit_height = 10, rec_elevation = 10,
+                                  rec_distance    = 500)  # rec_elevation = emit_height → Δz = 0
+    d <- .met_neutral()
+    expect_equal(
+      odour_exposure(d, site, impaction = TRUE),
+      odour_exposure(d, site, impaction = FALSE),
+      tolerance = 1e-9
+    )
+  })
+
+
+  # -- Bounded by centreline (f_vert ≤ 1) ------------------------------------
+
+  it("exposure with impaction = TRUE is ≤ exposure with impaction = FALSE for elevated receptor", {
+    # f_vert ≤ 1 always → M2 never inflates exposure above the flat-terrain value.
+    site_elevated <- .make_impaction_site(src_emit_height = 5, rec_elevation = 50,
+                                           rec_distance    = 500)
+    d <- .met_neutral()
+    exp_on  <- odour_exposure(d, site_elevated, impaction = TRUE)
+    exp_off <- odour_exposure(d, site_elevated, impaction = FALSE)
+    expect_lte(exp_on, exp_off + 1e-9)
+  })
+
+  it("f_vert ≤ 1 holds for every hour over a 48-hour sweep", {
+    # Property-based: generate 48 hours of varied met; the impaction=TRUE
+    # result must never exceed impaction=FALSE.
+    withr::local_seed(42L)
+    n_hours <- 48
+    d_sweep <- .make_odour_met(
+      n                  = n_hours,
+      wind_direction_10m = rep(180, n_hours),
+      wind_speed_10m     = runif(n_hours, 0.5, 8),
+      cloud_cover        = runif(n_hours, 0, 100),
+      direct_radiation   = c(rep(0, 24), runif(24, 0, 600)),
+      boundary_layer_height = runif(n_hours, 150, 1500)
+    )
+    site <- .make_impaction_site(src_emit_height = 8, rec_elevation = 40)
+    exp_on  <- odour_exposure(d_sweep, site, impaction = TRUE)
+    exp_off <- odour_exposure(d_sweep, site, impaction = FALSE)
+    expect_true(all(exp_on <= exp_off + 1e-9),
+                label = "f_vert ≤ 1 violated: impaction=TRUE exceeds impaction=FALSE")
+  })
+
+
+  # -- Stability effect on elevated receptor ---------------------------------
+
+  it("impaction ratio (on/off) is higher under stable than neutral for elevated receptor", {
+    # Elevated receptor (Δz > 0): as stability increases, collapse increases,
+    # Δz_eff decreases, f_vert increases toward 1. So the on/off ratio rises.
+    # Test: ratio[stable] > ratio[neutral].
+    site <- .make_impaction_site(src_emit_height = 5, rec_elevation = 50,
+                                  rec_distance    = 500)
+
+    d_neutral <- .met_neutral()
+    d_stable  <- .met_stable()
+
+    exp_on_neutral  <- odour_exposure(d_neutral, site, impaction = TRUE)
+    exp_off_neutral <- odour_exposure(d_neutral, site, impaction = FALSE)
+    exp_on_stable   <- odour_exposure(d_stable,  site, impaction = TRUE)
+    exp_off_stable  <- odour_exposure(d_stable,  site, impaction = FALSE)
+
+    ratio_neutral <- exp_on_neutral  / pmax(exp_off_neutral,  .Machine$double.eps)
+    ratio_stable  <- exp_on_stable   / pmax(exp_off_stable,   .Machine$double.eps)
+
+    # Stable ratio should be closer to 1 (less attenuation) than neutral ratio.
+    expect_gt(ratio_stable, ratio_neutral)
+  })
+
+  it("exposure at elevated receptor is non-decreasing in stability when impaction = TRUE", {
+    # 6 hours with monotonically increasing stability (neutral → very stable)
+    # and a receptor above the source: impaction=TRUE exposure should be
+    # non-decreasing as stability rises (collapse increases → Δz_eff falls → f_vert↑).
+    #
+    # Achieve increasing stability by increasing cloud cover and decreasing wind.
+    # Use the same wind direction and receptor geometry.
+    site <- .make_impaction_site(src_emit_height = 5, rec_elevation = 60,
+                                  rec_distance    = 400)
+    n_h  <- 6
+    # Overcast + very windy → neutral (D), clear + calm → stable (F)
+    d_ramp <- .make_odour_met(
+      n = n_h,
+      wind_direction_10m    = rep(180, n_h),
+      wind_speed_10m        = c(5, 4, 3, 2, 1.5, 1),      # decreasing
+      cloud_cover           = c(100, 80, 60, 40, 20, 0),  # clearing
+      direct_radiation      = rep(0, n_h),                 # night throughout
+      boundary_layer_height = c(600, 500, 400, 300, 200, 150)
+    )
+    exp_on <- odour_exposure(d_ramp, site, impaction = TRUE)
+    # Each hour should have ≥ the previous (or very close, allowing rounding).
+    expect_true(all(diff(exp_on) >= -0.5),   # 0.5 unit tolerance on 0-100 scale
+                label = "exposure should be non-decreasing as stability rises")
+  })
+
+
+  # -- Below-source receptor (Δz < 0) ----------------------------------------
+
+  it("below-source receptor (Δz < 0) at neutral stability has lower exposure than flat", {
+    # Neutral: collapse = 0, Δz_eff = Δz < 0.
+    # f_vert = exp(-0.5 * (Δz/sigma_z)^2) < 1 → lower exposure.
+    site_below <- .make_impaction_site(src_emit_height = 30, rec_elevation = 5,
+                                        rec_distance    = 500)  # rec below emit height
+    d <- .met_neutral()
+    exp_on  <- odour_exposure(d, site_below, impaction = TRUE)
+    exp_off <- odour_exposure(d, site_below, impaction = FALSE)
+    expect_lt(exp_on, exp_off)  # attenuation for below-source receptor
+  })
+
+
+  # -- hill_height_scale column -----------------------------------------------
+
+  it("hill_height_scale = 1 pulls elevated receptor toward centreline even at neutral stability", {
+    # With hill_height_scale = 1 (full blocking):
+    #   around_frac = 1, collapse = 0.8 * max(phi_s=0, 1) = 0.8
+    #   Δz_eff = Δz * 0.2 (much smaller than with no hhs)
+    # So exposure with hhs=1 > exposure with hhs=NA at neutral stability.
+    d       <- .met_neutral()
+    site_hhs <- .make_impaction_site(src_emit_height = 5, rec_elevation = 50,
+                                      rec_distance    = 500, hill_height_scale = 1.0)
+    site_nohhs <- .make_impaction_site(src_emit_height = 5, rec_elevation = 50,
+                                        rec_distance   = 500, hill_height_scale = NA_real_)
+    exp_hhs   <- odour_exposure(d, site_hhs,   impaction = TRUE)
+    exp_nohhs <- odour_exposure(d, site_nohhs, impaction = TRUE)
+    expect_gt(exp_hhs, exp_nohhs)
+  })
+
+  it("absent hill_height_scale column (no column on features) → pure stability blend", {
+    # When no hill_height_scale column exists, around_frac = 0 for all receptors.
+    # Result should equal a site with hill_height_scale = NA (same behaviour).
+    site_no_col <- .make_odour_site(rec_bearing = 0, rec_distance = 500)
+    # Manually add elevation to the no-hhs site's features via column addition:
+    feats <- site_no_col@features
+    feats$emit_height <- ifelse(feats$id == "src", 5, NA_real_)
+    feats$elevation   <- ifelse(feats$id == "rec", 50, 0)
+    roles_df <- site_no_col@roles
+    site_manual <- mh_site(feats, roles_df, epsg = 32755L)
+
+    site_na_hhs <- .make_impaction_site(src_emit_height = 5, rec_elevation = 50,
+                                         rec_distance   = 500, hill_height_scale = NA_real_)
+    d <- .met_neutral()
+    expect_equal(
+      odour_exposure(d, site_manual, impaction = TRUE),
+      odour_exposure(d, site_na_hhs, impaction = TRUE),
+      tolerance = 1e-9
+    )
+  })
+
+
+  # -- NA elevation receptor --------------------------------------------------
+
+  it("a receptor with NA elevation is unaffected by impaction = TRUE", {
+    # NA elevation → Δz = 0 → f_vert = 1 → that receptor's column is unchanged.
+    # Build a two-receptor site: one with elevation, one without (NA).
+    origin_x <- 335000; origin_y <- 6250000
+    feats <- sf::st_sf(
+      id          = c("src", "rec_elev", "rec_na"),
+      emit_height = c(5, NA_real_, NA_real_),
+      elevation   = c(0, 50,      NA_real_),
+      geometry    = sf::st_sfc(
+        sf::st_point(c(origin_x,         origin_y)),
+        sf::st_point(c(origin_x,         origin_y + 500)),
+        sf::st_point(c(origin_x + 300,   origin_y + 400)),
+        crs = 32755
+      )
+    )
+    roles <- data.frame(
+      feature_id = c("src", "rec_elev", "rec_na"),
+      hazard     = "odour",
+      role       = c("source", "receptor", "receptor"),
+      stringsAsFactors = FALSE
+    )
+    site_two_rec <- mh_site(feats, roles, epsg = 32755L)
+
+    # Build a matching site where rec_na is the only receptor (for reference).
+    feats_na_only <- feats[feats$id %in% c("src", "rec_na"), ]
+    roles_na_only <- roles[roles$feature_id %in% c("src", "rec_na"), ]
+    site_na_only  <- mh_site(feats_na_only, roles_na_only, epsg = 32755L)
+
+    d <- .met_neutral()
+
+    # The two-receptor site (impaction=TRUE) should give the same worst-case
+    # exposure for the NA receptor hour as the NA-only site (impaction=FALSE),
+    # assuming the elevated receptor dominates in the two-receptor case.
+    # More directly: the NA receptor's contribution is f_vert = 1, unchanged.
+    # We verify the NA-only exposure matches impaction=FALSE (Δz = 0 identity).
+    exp_na_on  <- odour_exposure(d, site_na_only, impaction = TRUE)
+    exp_na_off <- odour_exposure(d, site_na_only, impaction = FALSE)
+    expect_equal(exp_na_on, exp_na_off, tolerance = 1e-9)
+  })
+
+
+  # -- Validation ------------------------------------------------------------
+
+  it("raises meteoHazard_input_error for non-logical impaction argument", {
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
+    d    <- .make_odour_met()
+    expect_error(
+      odour_exposure(d, site, impaction = 1L),
+      class = "meteoHazard_input_error"
+    )
+    expect_error(
+      odour_exposure(d, site, impaction = "yes"),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+})
