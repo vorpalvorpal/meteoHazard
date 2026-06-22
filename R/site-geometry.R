@@ -86,3 +86,29 @@
     (apply(proj_mat, 2L, max) - apply(proj_mat, 2L, min)) / 2
   }
 }
+
+# ---------------------------------------------------------------------------
+# .receptor_delta_z(source_k, receptors, emit_ht)
+# ---------------------------------------------------------------------------
+# Returns a numeric vector of length n_r: Δz[j] = receptor_elevation[j] - emit_ht.
+# NA elevation → Δz = 0 (receptor unaffected by M2). emit_ht is the source's
+# emit_height (already extracted and defaulted to 0).
+
+.receptor_delta_z <- function(source_k, receptors, emit_ht) {
+  if (!("elevation" %in% names(receptors))) return(rep(0.0, nrow(receptors)))
+  recv_elev <- receptors$elevation
+  recv_elev <- ifelse(is.na(recv_elev), emit_ht, recv_elev)
+  recv_elev - emit_ht
+}
+
+# ---------------------------------------------------------------------------
+# .receptor_hill_height_scale(receptors)
+# ---------------------------------------------------------------------------
+# Returns a numeric vector of length n_r: hill_height_scale[j] ∈ [0,1].
+# If the column is absent or NA → 0 (pure stability blend).
+
+.receptor_hill_height_scale <- function(receptors) {
+  if (!("hill_height_scale" %in% names(receptors))) return(rep(0.0, nrow(receptors)))
+  h <- receptors$hill_height_scale
+  ifelse(is.na(h), 0.0, h)
+}

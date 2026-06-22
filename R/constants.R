@@ -78,6 +78,26 @@ TWL_CONSTANTS <- list(
 #'   \item{SIGMA_Y_COEF}{Briggs (1973) rural lateral-dispersion leading
 #'     coefficients for Pasquill-Gifford classes A-F (indices 1-6), used as
 #'     `sigma_y = c_y * x / sqrt(1 + 0.0001 * x)`.}
+#'   \item{SHELTER_OPEN_REF}{Sky-view openness angle (degrees) for flat/open
+#'     terrain with no sheltering effect, 85. Above this value `s_f = 0`.}
+#'   \item{SHELTER_ENCLOSED_REF}{Sky-view openness angle (degrees) for strongly
+#'     enclosed terrain at full shelter effect, 50. Below this value `s_f = 1`.}
+#'   \item{SHELTER_U_FULL}{Wind speed (m/s) at or below which the shelter
+#'     regime weight `w_r = 1` (full effect), 1.5.}
+#'   \item{SHELTER_U_FLUSH}{Wind speed (m/s) at or above which `w_r = 0`
+#'     (shelter flushed out by wind), 6.0.}
+#'   \item{SHELTER_MAX_REDUCTION}{Maximum fractional reduction in `u_eff` from
+#'     valley sheltering, 0.7. Uncalibrated screening default.}
+#'   \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
+#'     drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
+#'     full suppression of M3 on hours where M1 drainage is active.}
+#'   \item{IMPACTION_S_NEUTRAL}{Pasquill-Gifford class index (0–5) for neutral
+#'     stability (class D), 3. Used in M2 receptor impaction.}
+#'   \item{IMPACTION_S_STABLE}{PG class index for very stable conditions
+#'     (class F), 5. Used in M2 receptor impaction.}
+#'   \item{IMPACTION_STRENGTH}{Maximum collapse fraction applied to elevated
+#'     receptors under very stable conditions, 0.8. Uncalibrated screening
+#'     default.}
 #' }
 #' @keywords internal
 ODOUR_CONSTANTS <- list(
@@ -104,5 +124,18 @@ ODOUR_CONSTANTS <- list(
   VENTING_1A               = 0.8,   # morning venting boost for pathway 1a
   FUMIC_1B                 = 0.8,   # fumigation directional factor for pathway 1b
   DELTA_FLOOR              = 20,    # minimum delta for smooth pool partition (m)
-  DELTA_FRAC               = 0.25   # delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
+  DELTA_FRAC               = 0.25,  # delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
+  # C6 M3 valley sheltering (uncalibrated screening defaults; calibration → #8)
+  SHELTER_OPEN_REF          = 85,   # deg openness: flat/open (no shelter)
+  SHELTER_ENCLOSED_REF      = 50,   # deg openness: strongly enclosed
+  SHELTER_U_FULL            = 1.5,  # m/s: at/below this, full regime weight
+  SHELTER_U_FLUSH           = 6.0,  # m/s: at/above this, shelter flushed to 0
+  SHELTER_MAX_REDUCTION     = 0.7,  # maximum fractional u_eff reduction
+  DRAINAGE_SHELTER_OVERLAP  = 1.0,  # 1 = full mutual exclusion with M1 drainage
+  # C6 M2 receptor impaction (uncalibrated screening defaults; calibration → #8)
+  IMPACTION_S_NEUTRAL   = 3,   # PG class index for neutral (class D)
+  IMPACTION_S_STABLE    = 5,   # PG class index for very stable (class F)
+  IMPACTION_STRENGTH    = 0.8, # max collapse fraction for elevated receptor
+  IMPACTION_SZ_FLOOR    = 27   # m, minimum effective sigma_z for M2 (prevents
+                               # vanishing f_vert before collapse can act)
 )

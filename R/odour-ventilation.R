@@ -74,7 +74,9 @@
 #'
 #' @export
 ventilation_state <- function(met_data, terrain = NULL,
-                              stability = c("turner", "shear")) {
+                              stability = c("turner", "shear"),
+                              shelter      = FALSE,
+                              shelter_h_mix = FALSE) {
   stability <- match.arg(stability)
 
   # ---- Validation ---------------------------------------------------------- #
@@ -100,6 +102,13 @@ ventilation_state <- function(met_data, terrain = NULL,
   }
 
   met_data <- .odour_normalise_met(met_data)
+
+  if (!is.logical(shelter) || length(shelter) != 1L || is.na(shelter))
+    cli::cli_abort("{.arg shelter} must be logical (TRUE or FALSE).",
+                   class = "meteoHazard_input_error")
+  if (!is.logical(shelter_h_mix) || length(shelter_h_mix) != 1L || is.na(shelter_h_mix))
+    cli::cli_abort("{.arg shelter_h_mix} must be logical (TRUE or FALSE).",
+                   class = "meteoHazard_input_error")
 
   # ---- Core dispersion state (replaces .odour_dispersion_state) ------------ #
   u10   <- met_data$wind_speed_10m
@@ -159,6 +168,14 @@ ventilation_state <- function(met_data, terrain = NULL,
 
   # ---- Residual winds ------------------------------------------------------ #
   residual_wind <- .residual_wind(met_data, is_day)
+
+  # ---- M3 valley sheltering ------------------------------------------------ #
+  if (isTRUE(shelter)) {
+    sheltered <- .valley_shelter(u_eff, h_mix, u10_safe, is_day, pool_top,
+                                 terrain, shelter_h_mix)
+    u_eff <- sheltered$u_eff
+    h_mix <- sheltered$h_mix
+  }
 
   list(
     u_eff         = u_eff,
@@ -429,4 +446,60 @@ ventilation_state <- function(met_data, terrain = NULL,
   )
 
   1.0 + dP_mod + R_mod + S_seal + H_mod + V_mod
+}
+
+
+# ---- M3 valley sheltering transfer model ---------------------------------- #
+# Modifies u_eff (and optionally h_mix) based on terrain shelter_index.
+# All args are length-n_t vectors or scalars. Returns list(u_eff, h_mix).
+#
+# Transfer model (all constants from ODOUR_CONSTANTS; uncalibrated → #8):
+#   s_f = clamp((SHELTER_OPEN_REF - shelter_index) /
+#               (SHELTER_OPEN_REF - SHELTER_ENCLOSED_REF), 0, 1)
+#   w_r = clamp((SHELTER_U_FLUSH - u10) /
+#               (SHELTER_U_FLUSH - SHELTER_U_FULL), 0, 1)
+#   reduction = SHELTER_MAX_REDUCTION * s_f * w_r
+#
+# Precedence: on drainage-active hours (channelled + night + pool > 0),
+# reduction is suppressed by DRAINAGE_SHELTER_OVERLAP (default 1 = full).
+#   drainage_active = is_channelled & !is_day & !is.na(pool_top) & pool_top > 0
+#   reduction_effective = reduction * (1 - DRAINAGE_SHELTER_OVERLAP * drainage_active)
+#   u_eff_sheltered = max(u_eff * (1 - reduction_effective), U_CALM_FLOOR)
+.valley_shelter <- function(u_eff, h_mix, u10, is_day, pool_top, terrain, shelter_h_mix) {
+  K <- ODOUR_CONSTANTS
+
+  # No-op when terrain is NULL or shelter_index is NA.
+  si <- if (!is.null(terrain) && !is.na(terrain@shelter_index)) terrain@shelter_index else NA_real_
+  if (is.na(si)) return(list(u_eff = u_eff, h_mix = h_mix))
+
+  # Shelter strength (from openness angle).
+  s_f <- pmax(0, pmin(1, (K$SHELTER_OPEN_REF - si) /
+                          (K$SHELTER_OPEN_REF - K$SHELTER_ENCLOSED_REF)))
+
+  # Wind-regime taper (clamp to [0,1]).
+  w_r <- pmax(0, pmin(1, (K$SHELTER_U_FLUSH - u10) /
+                          (K$SHELTER_U_FLUSH - K$SHELTER_U_FULL)))
+
+  # Base reduction.
+  reduction <- K$SHELTER_MAX_REDUCTION * s_f * w_r
+
+  # Drainage-confinement precedence: suppress shelter on drainage-active hours.
+  is_channelled <- !is.null(terrain) &&
+    !is.na(terrain@flow_convergence) &&
+    !is.na(terrain@drainage_bearing) &&
+    terrain@flow_convergence >= 0.5
+  drainage_active <- is_channelled &
+    !is_day &
+    !is.na(pool_top) &
+    pool_top > 0
+  reduction_effective <- reduction * (1 - K$DRAINAGE_SHELTER_OVERLAP * as.numeric(drainage_active))
+
+  u_eff_new <- pmax(u_eff * (1 - reduction_effective), K$U_CALM_FLOOR)
+  h_mix_new <- if (isTRUE(shelter_h_mix)) {
+    pmax(h_mix * (1 - reduction_effective), 1)
+  } else {
+    h_mix
+  }
+
+  list(u_eff = u_eff_new, h_mix = h_mix_new)
 }
