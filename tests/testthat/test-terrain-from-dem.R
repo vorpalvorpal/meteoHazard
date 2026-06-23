@@ -566,17 +566,34 @@ describe("mh_terrain_from_dem() — CRS reprojection", {
     # When the DEM is in WGS84 (EPSG:4326) and epsg = 32755, the function
     # should reproject internally. Descriptors should match those from a DEM
     # already in EPSG:32755, within 10% (reprojection resampling tolerance).
+    #
+    # NOTE: this test builds its own DEM at a valid EPSG:32755 coordinate
+    # (near Sydney, ~335000 E / 6240000 N) rather than using .src_centre() /
+    # .dem_gaussian_hill(), because the (0, 0) UTM origin is 10 000 km south
+    # of the equator (invalid) and the round-trip WGS84 projection there
+    # introduces a ~125 m systematic shift that is not a code bug.
     .wbt_skip()
-    src            <- .src_centre()
-    dem_metric     <- .dem_gaussian_hill(H = 80, sigma = 200)
+    cx <- 335000L; cy <- 6240000L          # valid zone-55S coordinate, near Sydney
+    src <- sf::st_sf(
+      id       = "src",
+      geometry = sf::st_sfc(sf::st_point(c(cx, cy)), crs = 32755L)
+    )
+    dem_metric <- terra::rast(
+      nrows = 64L, ncols = 64L,
+      xmin  = cx - 1000L, xmax = cx + 1000L,
+      ymin  = cy - 1000L, ymax = cy + 1000L,
+      crs   = "EPSG:32755"
+    )
+    xy <- terra::xyFromCell(dem_metric, seq_len(terra::ncell(dem_metric)))
+    terra::values(dem_metric) <-
+      80 * exp(-((xy[, "x"] - cx)^2 + (xy[, "y"] - cy)^2) / (2 * 200^2))
     dem_geographic <- terra::project(dem_metric, "EPSG:4326")
 
     ter_metric     <- mh_terrain_from_dem(dem_metric,     source = src, epsg = 32755L)
     ter_geographic <- mh_terrain_from_dem(dem_geographic, source = src, epsg = 32755L)
 
-    # EPSG:32755 origin (0,0) is 500 km west of the zone central meridian;
-    # round-trip reprojection introduces up to ~20% distortion at that position.
-    expect_equal(ter_geographic@relief, ter_metric@relief, tolerance = 0.25)
+    # Bilinear resampling through a valid UTM location should agree within 10%.
+    expect_equal(ter_geographic@relief, ter_metric@relief, tolerance = 0.10)
   })
 
 })
