@@ -455,8 +455,20 @@ describe("mh_terrain_from_dem() — shelter_index", {
                                       source = .src_centre(), epsg = 32755L)
     ter_plain <- mh_terrain_from_dem(.dem_flat(),
                                       source = .src_centre(), epsg = 32755L)
-    if (!is.na(ter_basin@shelter_index) && !is.na(ter_plain@shelter_index))
-      expect_lt(ter_basin@shelter_index, ter_plain@shelter_index)
+    expect_false(is.na(ter_basin@shelter_index),
+                 label = "basin shelter_index must not be NA")
+    expect_false(is.na(ter_plain@shelter_index),
+                 label = "plain shelter_index must not be NA")
+    expect_lt(ter_basin@shelter_index, ter_plain@shelter_index)
+  })
+
+  it("flat DEM gives shelter_index near 90 degrees (absolute oracle)", {
+    .wbt_skip()
+    ter <- mh_terrain_from_dem(.dem_flat(), source = .src_centre(), epsg = 32755L)
+    expect_false(is.na(ter@shelter_index))
+    # Flat terrain: all horizon angles are 0, openness = 90 - 0 = 90 degrees.
+    # Allow 2-degree tolerance for DEM discretisation and boundary effects.
+    expect_equal(ter@shelter_index, 90, tolerance = 2)
   })
 
   it("records shelter_fetch_L in meta", {

@@ -14,6 +14,14 @@
       "value": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 99.1363805, 100, 100, 100, 100, 100]
     }
 
+# odour_exposure() golden output (regression oracle for the refactor) / matches the pinned descriptors+shelter (M3) output on the same grid
+
+    {
+      "type": "double",
+      "attributes": {},
+      "value": [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 94.2217881, 100, 100, 100, 100, 100]
+    }
+
 # odour_exposure() golden output (regression oracle for the refactor) / matches the pinned flat output for a single polygon source over swept wind
 
     {

@@ -614,24 +614,19 @@ describe("ventilation_state(): M3 valley sheltering (shelter = TRUE)", {
       !is.na(vs_no_shelter$pool_top) &
       vs_no_shelter$pool_top > 0
 
+    # Fixture must exercise at least one drainage_active hour — guards the guard.
+    expect_true(any(drainage_active),
+                label = "fixture must produce at least one drainage_active hour")
+
     # On drainage_active hours, shelter must NOT reduce u_eff.
-    if (any(drainage_active)) {
-      expect_equal(
-        vs_with_shelter$u_eff[drainage_active],
-        vs_no_shelter$u_eff[drainage_active],
-        tolerance = 1e-9,
-        label = "u_eff on drainage_active hours must equal no-shelter u_eff"
-      )
-    }
-    # On non-drainage hours with wind in the shelter-active regime, shelter fires.
-    non_drain_night <- !vs_no_shelter$is_day & !drainage_active
-    if (any(non_drain_night)) {
-      expect_true(
-        all(vs_with_shelter$u_eff[non_drain_night] <=
-            vs_no_shelter$u_eff[non_drain_night] + 1e-9),
-        label = "u_eff on non-drainage night hours must not exceed no-shelter u_eff"
-      )
-    }
+    expect_equal(
+      vs_with_shelter$u_eff[drainage_active],
+      vs_no_shelter$u_eff[drainage_active],
+      tolerance = 1e-9,
+      label = "u_eff on drainage_active hours must equal no-shelter u_eff"
+    )
+    # M3 on unconstrained (non-drainage) nights is covered by the monotonicity and
+    # analytic-formula tests above.
   })
 
 })

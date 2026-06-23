@@ -364,6 +364,9 @@ mh_terrain_from_dem <- function(dem,
   )
 
   ptr_r   <- terra::rast(pointer_path)
+  # Single-cell read at the source: approximation. A more defensible estimator
+  # would weight by upstream accumulation across the catchment, but the single-
+  # cell D-inf pointer is adequate for a screening tool.
   dir_val <- terra::extract(ptr_r, terra::vect(src_pt))[[1, 2]]   # D-inf flow direction, radians
 
   # Convert D-inf bearing (radians, from east CCW) to met bearing (from north CW).
