@@ -1,6 +1,6 @@
 # bench-C6-terrain-mechanisms.R
 # ===========================================================================
-# Phase 3 (C6) benchmarks: M2 impaction and M3 shelter on/off.
+# Phase 3 (C6) benchmarks: M3 valley sheltering on/off.
 # Run with: source("bench/bench-C6-terrain-mechanisms.R")
 # Requires the bench package: install.packages("bench")
 # ===========================================================================
@@ -41,7 +41,6 @@ make_site <- function(n_rec = 10) {
   feats <- sf::st_sf(
     id          = c("src", paste0("r", seq_len(n_rec))),
     emit_height = c(5, rep(NA_real_, n_rec)),
-    elevation   = c(0, rep(30, n_rec)),
     geometry    = sf::st_sfc(
       c(list(sf::st_point(c(origin_x, origin_y))), rec_pts),
       crs = 32755
@@ -80,18 +79,3 @@ bench::mark(
   shelter_on_168  = ventilation_state(make_met(168), terrain = ter_valley, shelter = TRUE),
   iterations = 20, check = FALSE
 ) |> print()
-
-# ---------------------------------------------------------------------------
-# M2 impaction benchmarks
-# ---------------------------------------------------------------------------
-
-cat("\n--- M2 odour_exposure() impaction on/off ---\n")
-bench::mark(
-  imp_off_10r  = odour_exposure(d_168, site_10,  impaction = FALSE),
-  imp_on_10r   = odour_exposure(d_168, site_10,  impaction = TRUE),
-  imp_off_100r = odour_exposure(d_168, site_100, impaction = FALSE),
-  imp_on_100r  = odour_exposure(d_168, site_100, impaction = TRUE),
-  iterations = 20, check = FALSE
-) |> print()
-
-cat("\nImpaction overhead should be < 1.3x for 100 receptors.\n")

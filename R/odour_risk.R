@@ -23,7 +23,6 @@ odour_risk <- function(met_data, site,
                        terrain_backend = c("none", "descriptors"),
                        shelter      = FALSE,
                        shelter_h_mix = FALSE,
-                       impaction    = FALSE,
                        datetime = NULL) {
   stability <- match.arg(stability)
   .assert_hourly(datetime)
@@ -32,6 +31,5 @@ odour_risk <- function(met_data, site,
                  map_c50         = map_c50,
                  terrain_backend = terrain_backend,
                  shelter         = shelter,
-                 shelter_h_mix   = shelter_h_mix,
-                 impaction       = impaction)
+                 shelter_h_mix   = shelter_h_mix)
 }

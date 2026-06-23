@@ -91,13 +91,6 @@ TWL_CONSTANTS <- list(
 #'   \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
 #'     drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
 #'     full suppression of M3 on hours where M1 drainage is active.}
-#'   \item{IMPACTION_S_NEUTRAL}{Pasquill-Gifford class index (0–5) for neutral
-#'     stability (class D), 3. Used in M2 receptor impaction.}
-#'   \item{IMPACTION_S_STABLE}{PG class index for very stable conditions
-#'     (class F), 5. Used in M2 receptor impaction.}
-#'   \item{IMPACTION_STRENGTH}{Maximum collapse fraction applied to elevated
-#'     receptors under very stable conditions, 0.8. Uncalibrated screening
-#'     default.}
 #' }
 #' @keywords internal
 ODOUR_CONSTANTS <- list(
@@ -131,11 +124,5 @@ ODOUR_CONSTANTS <- list(
   SHELTER_U_FULL            = 1.5,  # m/s: at/below this, full regime weight
   SHELTER_U_FLUSH           = 6.0,  # m/s: at/above this, shelter flushed to 0
   SHELTER_MAX_REDUCTION     = 0.7,  # maximum fractional u_eff reduction
-  DRAINAGE_SHELTER_OVERLAP  = 1.0,  # 1 = full mutual exclusion with M1 drainage
-  # C6 M2 receptor impaction (uncalibrated screening defaults; calibration → #8)
-  IMPACTION_S_NEUTRAL   = 3,   # PG class index for neutral (class D)
-  IMPACTION_S_STABLE    = 5,   # PG class index for very stable (class F)
-  IMPACTION_STRENGTH    = 0.8, # max collapse fraction for elevated receptor
-  IMPACTION_SZ_FLOOR    = 27   # m, minimum effective sigma_z for M2 (prevents
-                               # vanishing f_vert before collapse can act)
+  DRAINAGE_SHELTER_OVERLAP  = 1.0   # 1 = full mutual exclusion with M1 drainage
 )

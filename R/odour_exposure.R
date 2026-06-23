@@ -39,15 +39,6 @@
 #'   (`100 * (1 - exp(-C_rel / map_c50))`). Default 0.3.
 #' @param terrain_backend `"none"` (flat Gaussian, C3a) or `"descriptors"`
 #'   (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).
-#' @param impaction Logical (default `FALSE`). When `TRUE`, applies the M2
-#'   receptor-impaction term: a stability-blended vertical-Gaussian factor
-#'   `f_vert` that accounts for receptors elevated above the effective source
-#'   height. Requires an `elevation` column on receptor features and an
-#'   `emit_height` column on source features (both on the same AGL datum);
-#'   a missing or `NA` elevation for a receptor makes that receptor
-#'   unaffected. **Off by default.** Low priority for landfill sites where
-#'   most receptors sit below the source; a heuristic *inspired by* AERMOD
-#'   (Cimorelli et al. 2005), not equivalent to it.
 #' @param shelter Logical. Passed to [ventilation_state()]; see that function
 #'   for the M3 valley-sheltering documentation and caveats.
 #' @param shelter_h_mix Logical. Passed to [ventilation_state()].
@@ -72,7 +63,6 @@ odour_exposure <- function(met_data, site,
                            stability = c("turner", "shear"),
                            map_c50 = 0.3,
                            terrain_backend = c("none", "descriptors"),
-                           impaction = FALSE,
                            shelter = FALSE,
                            shelter_h_mix = FALSE) {
   stability       <- match.arg(stability)
@@ -95,9 +85,6 @@ odour_exposure <- function(met_data, site,
     )
   }
   checkmate::assert_number(map_c50, lower = .Machine$double.eps)
-  if (!is.logical(impaction) || length(impaction) != 1L || is.na(impaction))
-    cli::cli_abort("{.arg impaction} must be logical (TRUE or FALSE).",
-                   class = "meteoHazard_input_error")
 
   # ---- Extract sources and receptors ------------------------------------- #
   sources   <- .role_features(site, "odour", "source")
@@ -234,36 +221,6 @@ odour_exposure <- function(met_data, site,
     sigma_z_eff <- sqrt(sigma_z_t^2 + sigma_z0^2)
     geom_base   <- vs$h_mix / (sigma_y_eff * pmin(sigma_z_eff, vs$h_mix))
 
-    # ---- M2 receptor impaction (f_vert, n_t x n_r) ----------------------- #
-    if (isTRUE(impaction)) {
-      K <- ODOUR_CONSTANTS
-      # Δz per receptor (length n_r): receptor elevation minus source emit height.
-      delta_z   <- .receptor_delta_z(source_k, receptors, emit_ht)
-      # hill_height_scale per receptor (length n_r).
-      h_c       <- .receptor_hill_height_scale(receptors)
-      # Stability-collapse factor per hour (length n_t).
-      phi_s     <- pmax(0, pmin(1, (vs$s - K$IMPACTION_S_NEUTRAL) /
-                                    (K$IMPACTION_S_STABLE - K$IMPACTION_S_NEUTRAL)))
-      # around_frac (length n_r), broadcast to n_t x n_r.
-      around_frac <- matrix(h_c, n_t, n_r, byrow = TRUE)
-      phi_s_mat   <- matrix(phi_s, n_t, n_r)
-      collapse    <- K$IMPACTION_STRENGTH * pmax(phi_s_mat, around_frac)
-      dim(collapse) <- c(n_t, n_r)
-      # Effective separation (n_t x n_r).
-      delta_z_mat <- matrix(delta_z, n_t, n_r, byrow = TRUE)
-      delta_z_eff <- delta_z_mat * (1 - collapse)
-      # Sigma_z floor: prevent vanishing f_vert in highly stable conditions where
-      # sigma_z_eff shrinks below the physical resolution of the screening model.
-      # IMPACTION_SZ_FLOOR is a calibratable lower bound on the effective vertical
-      # spread used in the impaction term (does not affect geom_base sigma_z).
-      sigma_z_imp <- pmax(sigma_z_eff, K$IMPACTION_SZ_FLOOR)
-      dim(sigma_z_imp) <- c(n_t, n_r)
-      f_vert      <- exp(-0.5 * (delta_z_eff / sigma_z_imp)^2)
-      dim(f_vert) <- c(n_t, n_r)
-    } else {
-      f_vert <- 1.0   # scalar 1; broadcasts over geom_base matrix
-    }
-
     delta_theta <- .angular_diff(matrix(theta_down, n_t, n_r),
                                  matrix(brng, n_t, n_r, byrow = TRUE))
     cw_flat     <- exp(-0.5 * (Xmat * sin(delta_theta * pi / 180) / sigma_y_eff)^2)
@@ -271,7 +228,7 @@ odour_exposure <- function(met_data, site,
     cw_flat[vs$is_calm | is.na(wind_dir), ] <- CALM_CROSSWIND
 
     # Flat relative concentration; coincident receptors contribute 0.
-    c_rel_flat <- ghw * geom_base * f_vert * cw_flat / hazard_ref
+    c_rel_flat <- ghw * geom_base * cw_flat / hazard_ref
     c_rel_flat[, dead] <- 0
     c_sum_matrix <- c_sum_matrix + c_rel_flat
 
@@ -302,7 +259,7 @@ odour_exposure <- function(met_data, site,
       # Blended crosswind (f_1a, f_1b, r_scale are per-hour, broadcast down cols).
       cw_blended <- f_1a * cw_1a + f_1b * cw_1b * (1 + r_scale)
 
-      c_rel_terrain <- ghw * geom_base * f_vert * (cw_blended - cw_flat) / hazard_ref
+      c_rel_terrain <- ghw * geom_base * (cw_blended - cw_flat) / hazard_ref
       c_rel_terrain[, dead] <- 0
       c_terrain_matrix <- c_terrain_matrix + c_rel_terrain
     }

@@ -190,8 +190,7 @@ describe("mh_terrain_from_dem() — return value contract", {
     expect_true(S7::S7_inherits(out$terrain, mh_terrain))
     expect_true(is.data.frame(out$receptor_fields))
     expect_true("feature_id"        %in% names(out$receptor_fields))
-    expect_true("rel_elevation"     %in% names(out$receptor_fields))
-    expect_true("hill_height_scale" %in% names(out$receptor_fields))
+    expect_true("rel_elevation" %in% names(out$receptor_fields))
     expect_setequal(out$receptor_fields$feature_id, recs$id)
   })
 
@@ -639,20 +638,6 @@ describe("mh_terrain_from_dem() — per-receptor fields", {
                                 epsg = 32755L)
     # src at y=500: z = 80*500/1000 = 40m; rec at y=0: z = 0. rel = 0 - 40 = -40 < 0.
     expect_lt(out$receptor_fields$rel_elevation[1], 0)
-  })
-
-  it("hill_height_scale is in [0, 1] for all receptors", {
-    .wbt_skip()
-    src  <- .src_centre()
-    recs <- rbind(
-      .rec_offset( 300,  0, "r1"),
-      .rec_offset(   0, 400, "r2"),
-      .rec_offset(-200, 200, "r3")
-    )
-    dem <- .dem_gaussian_hill()
-    out <- mh_terrain_from_dem(dem, source = src, receptors = recs, epsg = 32755L)
-    hhs <- out$receptor_fields$hill_height_scale
-    expect_true(all(hhs >= 0 & hhs <= 1, na.rm = TRUE))
   })
 
   it("receptor data frame is keyed to receptor feature id", {

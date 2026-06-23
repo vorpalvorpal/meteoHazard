@@ -18,8 +18,8 @@
 #' @param source An `sf` object containing the source location(s). Used to
 #'   determine the descriptor reference point.
 #' @param receptors An `sf` object of receptor points, or `NULL` (default).
-#'   When supplied, per-receptor `rel_elevation` and `hill_height_scale` are
-#'   derived and returned as `$receptor_fields`.
+#'   When supplied, per-receptor `rel_elevation` is derived and returned as
+#'   `$receptor_fields`.
 #' @param epsg Integer. EPSG code for the projected metric CRS used for all
 #'   geometry. Must be a projected (non-geographic) CRS.
 #' @param conditioning Breach/fill conditioning applied to the DEM before flow
@@ -45,7 +45,7 @@
 #'   scale for each derived descriptor plus `dem_resolution` and `dem_source`.
 #'   When `receptors` is an `sf` object: a named list with
 #'   `$terrain` (the `mh_terrain`) and `$receptor_fields` (a data frame with
-#'   columns `feature_id`, `rel_elevation`, `hill_height_scale`).
+#'   columns `feature_id`, `rel_elevation`).
 #'
 #' @section Setup-time only:
 #' This function runs WhiteboxTools flow-routing and openness calculations that
@@ -490,38 +490,17 @@ mh_terrain_from_dem <- function(dem,
 }
 
 
-# .derive_receptor_fields(): rel_elevation and hill_height_scale per receptor.
-# This is C5 Stage 3; included here so the return-value-contract tests pass
-# when the binary is present.
+# .derive_receptor_fields(): rel_elevation per receptor (elevation relative to
+# source). hill_height_scale was an M2 input; M2 is removed — see issue #24.
 .derive_receptor_fields <- function(dem_r, src_pt, receptors, epsg, source_relief) {
-  rec_reproj  <- sf::st_transform(receptors, crs = sf::st_crs(as.integer(epsg)))
-  rec_elev    <- terra::extract(dem_r, terra::vect(rec_reproj))[[2]]
-  src_elev    <- terra::extract(dem_r, terra::vect(src_pt))[[1, 2]]
-
-  rel_elevation <- rec_elev - src_elev
-
-  # hill_height_scale: max ridge height along transect / source relief.
-  n_r <- nrow(rec_reproj)
-  hhs <- numeric(n_r)
-  src_coords <- sf::st_coordinates(src_pt)
-  relief_ref <- if (is.na(source_relief) || source_relief <= 0) 1 else source_relief
-
-  for (j in seq_len(n_r)) {
-    rec_coords <- sf::st_coordinates(rec_reproj[j, ])
-    transect   <- sf::st_sfc(sf::st_linestring(rbind(src_coords, rec_coords)),
-                              crs = sf::st_crs(as.integer(epsg)))
-    # Sample DEM along transect.
-    pts   <- terra::extract(dem_r, terra::vect(transect), method = "simple")
-    elev_along <- pts[[2]]
-    max_ridge  <- max(elev_along, na.rm = TRUE)
-    hhs[j]     <- pmax(0, pmin(1, (max_ridge - src_elev) / relief_ref))
-  }
+  rec_reproj <- sf::st_transform(receptors, crs = sf::st_crs(as.integer(epsg)))
+  rec_elev   <- terra::extract(dem_r, terra::vect(rec_reproj))[[2]]
+  src_elev   <- terra::extract(dem_r, terra::vect(src_pt))[[1, 2]]
+  n_r        <- nrow(rec_reproj)
 
   data.frame(
-    feature_id        = if ("id" %in% names(receptors)) receptors$id
-                        else seq_len(n_r),
-    rel_elevation     = rel_elevation,
-    hill_height_scale = hhs,
-    stringsAsFactors  = FALSE
+    feature_id    = if ("id" %in% names(receptors)) receptors$id else seq_len(n_r),
+    rel_elevation = rec_elev - src_elev,
+    stringsAsFactors = FALSE
   )
 }
