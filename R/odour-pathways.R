@@ -225,19 +225,20 @@
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$dir_10m_frz[fill]
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$wind_dir_surf[fill]
 
-  # Outer cosine: downwind per hour (down columns) vs bearing per receptor.
-  downwind_dir <- (rw_dir_vec + 180) %% 360
-  diff_deg <- .angular_diff(matrix(bearings,     n_t, n_r, byrow = TRUE),
-                            matrix(downwind_dir, n_t, n_r))
-  cw_val   <- FUMIC_1B * pmax(0, cos(diff_deg * pi / 180))^2
-  dim(cw_val) <- c(n_t, n_r)   # pmax() drops the matrix dim; restore it
-
-  cw         <- matrix(NA_real_, n_t, n_r)
-  known      <- !is.na(rw_dir_vec)               # len n_t
+  known      <- !is.na(rw_dir_vec)
   rows_known <- is_active & known
   rows_zero  <- is_active & !known
-  if (any(rows_known)) cw[rows_known, ] <- cw_val[rows_known, ]
-  if (any(rows_zero))  cw[rows_zero, ]  <- 0
+
+  # Build the cosine matrix only for active rows to avoid allocating full n_t
+  # temporary matrices when most hours are not morning-transition.
+  cw <- matrix(NA_real_, n_t, n_r)
+  if (any(rows_known)) {
+    dw_sub   <- ((rw_dir_vec[rows_known] + 180) %% 360)
+    diff_sub <- .angular_diff(matrix(bearings, sum(rows_known), n_r, byrow = TRUE),
+                              matrix(dw_sub,   sum(rows_known), n_r))
+    cw[rows_known, ] <- FUMIC_1B * pmax(0, cos(diff_sub * pi / 180))^2
+  }
+  if (any(rows_zero)) cw[rows_zero, ] <- 0
   cw
 }
 

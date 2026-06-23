@@ -290,20 +290,17 @@ odour_exposure <- function(met_data, site,
       cw_1b <- .cw_fumigation_matrix(brng, vs_aug, terrain,
                                      prep = fumic_prep)               # n_t x n_r
 
-      # cw_1a_safe: fall back to flat cw when calm, pool NA, or pathway NA.
-      cond_a <- matrix(is_calm_t | pool_na, n_t, n_r) | is.na(cw_1a)
-      cw_1a_safe <- cw_1a
-      cw_1a_safe[cond_a] <- cw_flat[cond_a]
-
-      # cw_1b_safe: NA → 0 (no fumigation outside morning), then flat when calm
-      # or pool NA.
-      cw_1b_safe <- cw_1b
-      cw_1b_safe[is.na(cw_1b_safe)] <- 0
+      # Patch cw_1a in place: calm/NA-pool rows → flat, then any remaining NAs.
       rows_fb <- is_calm_t | pool_na
-      cw_1b_safe[rows_fb, ] <- cw_flat[rows_fb, ]
+      cw_1a[rows_fb, ] <- cw_flat[rows_fb, ]
+      cw_1a[is.na(cw_1a)] <- cw_flat[is.na(cw_1a)]
+
+      # Patch cw_1b in place: NA → 0 outside morning, then flat when calm/NA-pool.
+      cw_1b[is.na(cw_1b)] <- 0
+      cw_1b[rows_fb, ] <- cw_flat[rows_fb, ]
 
       # Blended crosswind (f_1a, f_1b, r_scale are per-hour, broadcast down cols).
-      cw_blended <- f_1a * cw_1a_safe + f_1b * cw_1b_safe * (1 + r_scale)
+      cw_blended <- f_1a * cw_1a + f_1b * cw_1b * (1 + r_scale)
 
       c_rel_terrain <- ghw * geom_base * f_vert * (cw_blended - cw_flat) / hazard_ref
       c_rel_terrain[, dead] <- 0
