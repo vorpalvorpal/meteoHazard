@@ -82,10 +82,8 @@ precedence applies: \strong{M1 drainage confinement} (C3b) supersedes \strong{M3
 valley sheltering} on any hour when \code{drainage_active} is \code{TRUE}
 (\code{is_channelled & !is_day & pool_top > 0}). The suppression strength is
 controlled by \code{ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP} (default 1.0 =
-full mutual exclusion). \strong{M2 receptor impaction} is orthogonal (a vertical
-geometry term, not a wind-field modifier) and never participates in
-precedence. A future external wind field (C7) will supersede all native
-terms.
+full mutual exclusion). A future external wind field (C7) will supersede all
+native terms.
 
 The M3 hazard/exposure re-entanglement caveat: enabling \code{shelter = TRUE}
 makes \code{ventilation_state()} depend on a terrain descriptor, so the

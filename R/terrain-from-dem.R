@@ -243,8 +243,7 @@ mh_terrain_from_dem <- function(dem,
   # ---- 6. Per-receptor fields (Stage 3; stub if receptors = NULL) ---------- #
   if (is.null(receptors)) return(terrain)
 
-  rec_fields <- .derive_receptor_fields(dem_r, src_pt, receptors, epsg,
-                                         terrain@relief)
+  rec_fields <- .derive_receptor_fields(dem_r, src_pt, receptors, epsg)
   list(terrain = terrain, receptor_fields = rec_fields)
 }
 
@@ -493,9 +492,8 @@ mh_terrain_from_dem <- function(dem,
 }
 
 
-# .derive_receptor_fields(): rel_elevation per receptor (elevation relative to
-# source). hill_height_scale was an M2 input; M2 is removed — see issue #24.
-.derive_receptor_fields <- function(dem_r, src_pt, receptors, epsg, source_relief) {
+# .derive_receptor_fields(): rel_elevation per receptor (elevation relative to source).
+.derive_receptor_fields <- function(dem_r, src_pt, receptors, epsg) {
   rec_reproj <- sf::st_transform(receptors, crs = sf::st_crs(as.integer(epsg)))
   rec_elev   <- terra::extract(dem_r, terra::vect(rec_reproj))[[2]]
   src_elev   <- terra::extract(dem_r, terra::vect(src_pt))[[1, 2]]

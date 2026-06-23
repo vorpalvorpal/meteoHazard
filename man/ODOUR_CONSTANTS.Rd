@@ -5,7 +5,7 @@
 \alias{ODOUR_CONSTANTS}
 \title{Constants for the odour hazard and exposure model}
 \format{
-An object of class \code{list} of length 33.
+An object of class \code{list} of length 29.
 }
 \usage{
 ODOUR_CONSTANTS
@@ -53,13 +53,6 @@ valley sheltering, 0.7. Uncalibrated screening default.}
 \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
 drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
 full suppression of M3 on hours where M1 drainage is active.}
-\item{IMPACTION_S_NEUTRAL}{Pasquill-Gifford class index (0–5) for neutral
-stability (class D), 3. Used in M2 receptor impaction.}
-\item{IMPACTION_S_STABLE}{PG class index for very stable conditions
-(class F), 5. Used in M2 receptor impaction.}
-\item{IMPACTION_STRENGTH}{Maximum collapse fraction applied to elevated
-receptors under very stable conditions, 0.8. Uncalibrated screening
-default.}
 }
 }
 \keyword{internal}

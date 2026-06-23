@@ -22,14 +22,17 @@ an \code{sf} bounding box (triggers an \code{elevatr} download at setup time).}
 determine the descriptor reference point.}
 
 \item{receptors}{An \code{sf} object of receptor points, or \code{NULL} (default).
-When supplied, per-receptor \code{rel_elevation} and \code{hill_height_scale} are
-derived and returned as \verb{$receptor_fields}.}
+When supplied, per-receptor \code{rel_elevation} is derived and returned as
+\verb{$receptor_fields}.}
 
 \item{epsg}{Integer. EPSG code for the projected metric CRS used for all
 geometry. Must be a projected (non-geographic) CRS.}
 
 \item{conditioning}{Breach/fill conditioning applied to the DEM before flow
-routing: \code{"breach"} (default, least-cost breach), \code{"fill"}, or \code{"none"}.}
+routing: \code{"breach"} (default — tries \code{wbt_breach_depressions}, then
+\code{wbt_fill_depressions_wang_and_liu} as fallback, then the raw DEM),
+\code{"fill"} (runs \code{wbt_fill_depressions_wang_and_liu} directly), or
+\code{"none"}. The method actually applied is recorded in \verb{@meta$conditioning}.}
 
 \item{shelter_fetch_m}{Numeric. Lookup radius in metres for the topographic
 openness (shelter_index) calculation. \code{NULL} (default) derives a
@@ -44,7 +47,7 @@ every applicable scalar descriptor and \verb{@meta} recording the analysis
 scale for each derived descriptor plus \code{dem_resolution} and \code{dem_source}.
 When \code{receptors} is an \code{sf} object: a named list with
 \verb{$terrain} (the \code{mh_terrain}) and \verb{$receptor_fields} (a data frame with
-columns \code{feature_id}, \code{rel_elevation}, \code{hill_height_scale}).
+columns \code{feature_id}, \code{rel_elevation}).
 }
 \description{
 A setup-time helper that derives the C1 \code{mh_terrain} descriptors from a

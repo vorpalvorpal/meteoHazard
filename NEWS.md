@@ -14,17 +14,12 @@
   derivation; `meta` flags it as `"user_supplied"`.
 * New `Suggests`: `whitebox`, `terra`, `elevatr`, `withr`.
 
-## Phase 3 — Receptor impaction (M2) + valley sheltering (M3) (C6, issue #20)
+## Phase 3 — Valley sheltering (M3) (C6, issue #20)
 
 * `ventilation_state()` gains `shelter = FALSE` and `shelter_h_mix = FALSE`.
   When `shelter = TRUE`, a wind-speed-regime-resolved valley-sheltering
   reduction is applied to `u_eff` using `terrain@shelter_index`. **Off by
   default until calibrated** (calibration → #8).
-* `odour_exposure()` and `odour_risk()` gain `impaction = FALSE`. When
-  `TRUE`, the M2 receptor-impaction term adds a stability-blended
-  vertical-Gaussian factor for receptors elevated above the source. A
-  heuristic *inspired by* AERMOD (Cimorelli et al. 2005); explicitly not
-  equivalent. **Off by default.**
 * **Terrain-modifier precedence:** M1 drainage confinement (C3b) and M3
   valley sheltering are mutually exclusive on drainage-active hours
   (`DRAINAGE_SHELTER_OVERLAP = 1.0`). The no-stack contract is regression-
