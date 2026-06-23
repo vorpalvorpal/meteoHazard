@@ -137,21 +137,3 @@
   list(min_scale = cell_size, max_scale = max_scale)
 }
 
-
-# ---------------------------------------------------------------------------
-# .wbt_run(fn_name, args, workdir = NULL)
-# ---------------------------------------------------------------------------
-# Thin wrapper around a whitebox tool call. All input/output paths are
-# absolute paths under workdir. If workdir is NULL, uses withr::local_tempdir()
-# (cleaned up on function exit in the caller's environment). Returns the
-# output path invisibly.
-#
-# fn_name: the whitebox function name as a string, e.g. "wbt_max_elevation_deviation"
-# args: named list of additional args passed via do.call
-.wbt_run <- function(fn_name, args, workdir = NULL) {
-  if (is.null(workdir)) {
-    workdir <- withr::local_tempdir(clean = TRUE)
-  }
-  fn <- get(fn_name, envir = asNamespace("whitebox"), inherits = FALSE)
-  do.call(fn, args)
-}

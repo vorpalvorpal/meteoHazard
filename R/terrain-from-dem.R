@@ -23,7 +23,10 @@
 #' @param epsg Integer. EPSG code for the projected metric CRS used for all
 #'   geometry. Must be a projected (non-geographic) CRS.
 #' @param conditioning Breach/fill conditioning applied to the DEM before flow
-#'   routing: `"breach"` (default, least-cost breach), `"fill"`, or `"none"`.
+#'   routing: `"breach"` (default — tries `wbt_breach_depressions`, then
+#'   `wbt_fill_depressions_wang_and_liu` as fallback, then the raw DEM),
+#'   `"fill"` (runs `wbt_fill_depressions_wang_and_liu` directly), or
+#'   `"none"`. The method actually applied is recorded in `@meta$conditioning`.
 #' @param shelter_fetch_m Numeric. Lookup radius in metres for the topographic
 #'   openness (shelter_index) calculation. `NULL` (default) derives a
 #'   physically-motivated default from the DEM scan range.
@@ -117,33 +120,48 @@ mh_terrain_from_dem <- function(dem,
   terra::writeRaster(dem_r, dem_path, overwrite = TRUE)
 
   # ---- 4. DEM conditioning (breach/fill for flow routing) ------------------ #
+  # Track the method actually applied so it can be recorded in meta.
   cond_path <- file.path(workdir, "dem_cond.tif")
+  cond_used <- "raw"   # fallback when all WBT calls fail
+
   if (conditioning == "breach") {
-    # wbt_breach_depressions_least_cost can panic on certain DEM topologies
-    # (open valleys with many unresolvable pits). Fall back to fill silently.
-    tryCatch(
-      whitebox::wbt_breach_depressions_least_cost(
-        dem = dem_path, output = cond_path,
-        dist = as.integer(ceiling(scan_range$max_scale / dem_res_m / 4)),
-        min_dist = TRUE, fill = TRUE
-      ),
-      error = function(e) NULL
-    )
-    if (!file.exists(cond_path)) {
-      whitebox::wbt_fill_depressions(dem = dem_path, output = cond_path, fix_flats = TRUE)
+    tryCatch({
+      whitebox::wbt_breach_depressions(
+        dem = dem_path, output = cond_path, fill_pits = TRUE
+      )
+      if (file.exists(cond_path)) cond_used <- "breach"
+    }, error = function(e) NULL)
+
+    if (cond_used == "raw") {
+      tryCatch({
+        whitebox::wbt_fill_depressions_wang_and_liu(
+          dem = dem_path, output = cond_path
+        )
+        if (file.exists(cond_path)) cond_used <- "fill"
+      }, error = function(e) NULL)
     }
+
+    if (cond_used == "raw") cond_path <- dem_path
+
   } else if (conditioning == "fill") {
-    whitebox::wbt_fill_depressions(
-      dem = dem_path, output = cond_path, fix_flats = TRUE
-    )
+    tryCatch({
+      whitebox::wbt_fill_depressions_wang_and_liu(
+        dem = dem_path, output = cond_path
+      )
+      if (file.exists(cond_path)) cond_used <- "fill"
+    }, error = function(e) NULL)
+    if (cond_used == "raw") cond_path <- dem_path
+
   } else {
     cond_path <- dem_path
+    cond_used <- "none"
   }
 
   # ---- 5. Derive scalar descriptors ---------------------------------------- #
   meta <- list(
     dem_resolution = dem_res_m,
-    dem_source     = dem_source_s
+    dem_source     = dem_source_s,
+    conditioning   = cond_used
   )
 
   # Apply overrides: if the caller supplied a descriptor, skip derivation.
@@ -187,7 +205,7 @@ mh_terrain_from_dem <- function(dem,
 
   basin_capacity <- if ("basin_capacity" %in% override_applied)
                       as.double(overrides$basin_capacity)
-                    else .derive_basin_capacity(dem_r, cond_path, src_pt, dem_res_m, workdir)
+                    else .derive_basin_capacity(dem_r, src_pt, workdir)
 
   taf_val <- if ("taf" %in% override_applied) as.double(overrides$taf)
              else .derive_taf(valley_depth, dem_r, src_pt, dem_res_m)
@@ -372,31 +390,38 @@ mh_terrain_from_dem <- function(dem,
 }
 
 
-# .derive_basin_capacity(): volume of the depression containing the source.
-# wbt_fill_depressions and wbt_depth_in_sink both panic on closed depressions
-# in the installed WBT version. Pure-terra approach: pour_point = minimum
-# boundary elevation; volume = sum(pour_point - elev) * cell_area for all
-# cells below pour_point. Returns 0 when the source is not in a depression
-# (e.g., hilltop, open valley, flat plain).
-.derive_basin_capacity <- function(dem_r, cond_path, src_pt, dem_res_m, workdir) {
-  r_vals     <- as.numeric(terra::values(dem_r, na.rm = FALSE))
-  nr         <- nrow(dem_r)
-  nc         <- ncol(dem_r)
+# .derive_basin_capacity(): volume of the depression enclosing the source.
+# Fills the original DEM with wbt_fill_depressions_wang_and_liu (pour-point
+# exact), computes depth = fill - dem, then uses terra::patches() to localise
+# to the source's connected depression. Returns 0 when the source sits on a
+# hillslope, open valley, or flat plain (depth at source < 0.01 m).
+.derive_basin_capacity <- function(dem_r, src_pt, workdir) {
+  dem_path  <- file.path(workdir, "dem.tif")
+  fill_path <- file.path(workdir, "fill_bc.tif")
 
-  bnd_idx <- unique(c(
-    seq_len(nc),                           # top row
-    seq(nc, nr * nc, by = nc),             # right column
-    seq(1L,  nr * nc, by = nc),            # left column
-    seq(nc * (nr - 1L) + 1L, nr * nc)     # bottom row
-  ))
-  pour_point <- min(r_vals[bnd_idx], na.rm = TRUE)
+  ok <- tryCatch({
+    whitebox::wbt_fill_depressions_wang_and_liu(dem = dem_path, output = fill_path)
+    file.exists(fill_path)
+  }, error = function(e) FALSE)
+  if (!ok) return(0)
 
-  src_elev <- terra::extract(dem_r, terra::vect(src_pt))[[1, 2]]
-  if (is.na(src_elev) || src_elev >= pour_point) return(0)
+  fill_r <- terra::rast(fill_path)
+  dem_disk <- terra::rast(dem_path)   # same projection/extent as fill
+  depth  <- fill_r - dem_disk
 
-  cell_area  <- prod(terra::res(dem_r))
-  depth_vals <- pmax(0, pour_point - r_vals)
-  sum(depth_vals, na.rm = TRUE) * cell_area
+  src_depth <- terra::extract(depth, terra::vect(src_pt))[[1, 2]]
+  if (is.na(src_depth) || src_depth < 0.01) return(0)
+
+  # Label connected depression patches; find which one contains the source.
+  dep_mask <- depth > 0.01
+  patches  <- terra::patches(dep_mask, directions = 8L, zeroAsNA = TRUE)
+  src_patch_id <- terra::extract(patches, terra::vect(src_pt))[[1, 2]]
+  if (is.na(src_patch_id)) return(0)
+
+  patch_mask <- terra::values(patches) == src_patch_id
+  patch_mask[is.na(patch_mask)] <- FALSE
+  cell_area <- prod(terra::res(dem_r))
+  sum(terra::values(depth)[patch_mask], na.rm = TRUE) * cell_area
 }
 
 
@@ -406,16 +431,16 @@ mh_terrain_from_dem <- function(dem,
 .derive_taf <- function(valley_depth, dem_r, src_pt, dem_res_m) {
   if (is.na(valley_depth) || valley_depth <= 0) return(1.0)
   # Simple Steinacker TAF: ratio of volume above flat vs volume above valley floor.
-  # Use h_mix_fallback_stable as the reference mixing depth.
-  h_ref <- 200  # ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE
+  h_ref <- ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE
   taf   <- (h_ref + valley_depth) / h_ref
   pmax(1.0, taf)
 }
 
 
 # .derive_shelter(): positive topographic openness via horizon-scan (terra).
-# wbt_openness requires a paid license; this implementation is mathematically
-# equivalent: Yokoyama et al. (2002), 16-azimuth mean of maximum horizon angles.
+# `wbt_openness` is a paid WBT Pro extension tool; this function provides a
+# free reimplementation of the same method: Yokoyama et al. (2002),
+# 16-azimuth mean of maximum horizon angles.
 # Returns list(shelter_index, shelter_fetch_L).
 .derive_shelter <- function(dem_r, src_pt, scan_range, shelter_fetch_m, workdir) {
   L <- if (is.null(shelter_fetch_m)) scan_range$max_scale / 4 else shelter_fetch_m
