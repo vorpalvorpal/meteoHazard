@@ -295,13 +295,17 @@ describe("mh_terrain_from_dem() — drainage_bearing descriptor", {
 
 describe("mh_terrain_from_dem() — flow_convergence descriptor", {
 
-  it("flow_convergence is higher at a converging hollow than at a diverging spur", {
-    # Physics: water flows toward a hollow (concave planform → higher accumulation
-    # + positive plan curvature) and away from a spur (convex → lower accumulation
-    # + negative plan curvature).
+  it("flow_convergence is higher at a converging valley than at a diverging spur", {
+    # Physics: water flows toward a valley floor (many upstream cells accumulate
+    # there) and away from a hill peak (no upstream cells, accumulation = 1).
+    #
+    # .dem_converging_hollow() is a CLOSED depression: fill conditioning sets the
+    # entire bowl to a flat plateau at rim elevation, destroying convergent flow.
+    # .dem_v_valley() is an open form — the floor drains to the DEM boundary —
+    # so conditioning leaves its convergent structure intact.
     .wbt_skip()
     src       <- .src_centre()
-    dem_conv  <- .dem_converging_hollow(H = 50, sigma = 300)
+    dem_conv  <- .dem_v_valley(D = 80)
     dem_spur  <- .dem_diverging_spur(H = 50, sigma = 300)
     ter_conv  <- mh_terrain_from_dem(dem_conv, source = src, epsg = 32755L)
     ter_spur  <- mh_terrain_from_dem(dem_spur, source = src, epsg = 32755L)
