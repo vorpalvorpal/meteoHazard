@@ -124,5 +124,7 @@ ODOUR_CONSTANTS <- list(
   SHELTER_U_FULL            = 1.5,  # m/s: at/below this, full regime weight
   SHELTER_U_FLUSH           = 6.0,  # m/s: at/above this, shelter flushed to 0
   SHELTER_MAX_REDUCTION     = 0.7,  # maximum fractional u_eff reduction
-  DRAINAGE_SHELTER_OVERLAP  = 1.0   # 1 = full mutual exclusion with M1 drainage
+  DRAINAGE_SHELTER_OVERLAP  = 1.0,  # 1 = full mutual exclusion with M1 drainage
+  # C9 — reference distance for the exposure normaliser (Briggs class-F worst case)
+  X_REF_EXPOSURE            = 250   # m
 )

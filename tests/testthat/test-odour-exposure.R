@@ -345,10 +345,11 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
       direct_radiation      = c(0, 600)   # night then day
     )
     ex <- odour_exposure(d, site, terrain_backend = "none")
-    # The morning hour should NOT spike relative to the night hour
-    # (no drainage-pool release).  Accept a tolerance of 20% (slight
-    # difference can arise because PM and stability depend on radiation).
-    expect_lt(abs(ex[2] - ex[1]) / pmax(ex[1], 0.001), 0.5)
+    # Without terrain_backend, there is no drainage-pool release.
+    # The morning (day) hour may be LOWER than the night hour (wider plume,
+    # lower PM at unstable class A vs stable class E), but must not EXCEED
+    # the night by more than 20% (no artificial upward spike from pool release).
+    expect_lte(ex[2], ex[1] * 1.2)
   })
 
   # 17. Coincident source and receptor → skipped (contributes 0)
@@ -370,5 +371,99 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     d    <- .make_odour_met()
     out  <- odour_exposure(d, site)
     expect_equal(out, 0)
+  })
+})
+
+
+# ---------------------------------------------------------------------------
+# C9 — wind dilution (1/u_eff advective term) and M3 end-to-end
+# ---------------------------------------------------------------------------
+
+# Site with terrain for M3 shelter tests (no drainage → M1 never fires).
+.make_sheltered_site <- function(rec_bearing = 0, rec_distance = 5000,
+                                  shelter_index = 50) {
+  ox  <- 335000; oy <- 6250000
+  rec_x <- ox + rec_distance * sin(rec_bearing * pi / 180)
+  rec_y <- oy + rec_distance * cos(rec_bearing * pi / 180)
+  feats <- sf::st_sf(
+    id       = c("src", "rec"),
+    geometry = sf::st_sfc(sf::st_point(c(ox, oy)),
+                           sf::st_point(c(rec_x, rec_y)), crs = 32755)
+  )
+  roles <- data.frame(feature_id = c("src", "rec"), hazard = "odour",
+                       role = c("source", "receptor"), stringsAsFactors = FALSE)
+  mh_site(feats, roles,
+          terrain = mh_terrain(shelter_index = shelter_index),
+          epsg = 32755L)
+}
+
+describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
+
+  it("exposure is strictly lower at higher wind speed (stability fixed via shear ratio)", {
+    # u80/u10 = 2 in both rows → same alpha = log(2)/log(8) ≈ 0.33 → same PG class.
+    # Only u_eff differs: 2 vs 4 m/s → c_rel ∝ 1/u_eff → e2 > e4.
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 5000)
+    met2 <- .make_odour_met(wind_speed_10m = 2, wind_speed_80m = 4,
+                             wind_direction_10m = 180, boundary_layer_height = 500)
+    met4 <- .make_odour_met(wind_speed_10m = 4, wind_speed_80m = 8,
+                             wind_direction_10m = 180, boundary_layer_height = 500)
+    e2 <- odour_exposure(met2, site, stability = "shear")
+    e4 <- odour_exposure(met4, site, stability = "shear")
+    expect_gt(e2, e4)
+  })
+
+  it("exposure ratio ≈ u_eff ratio (2:1) at large distance in the linear map regime", {
+    # At 5 km, c_rel << map_c50 → linear regime → ratio ≈ u_eff4/u_eff2 = 4/2 = 2.
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 5000)
+    met2 <- .make_odour_met(wind_speed_10m = 2, wind_speed_80m = 4,
+                             wind_direction_10m = 180, boundary_layer_height = 500)
+    met4 <- .make_odour_met(wind_speed_10m = 4, wind_speed_80m = 8,
+                             wind_direction_10m = 180, boundary_layer_height = 500)
+    e2 <- odour_exposure(met2, site, stability = "shear")
+    e4 <- odour_exposure(met4, site, stability = "shear")
+    expect_equal(e2 / e4, 2, tolerance = 0.15)
+  })
+
+  it("odour_hazard and odour_risk respond with the same ratio to a pure u_eff change", {
+    # Both layers share .odour_hazard_raw() → same ventilation core → same ratio.
+    # Use stability = "shear" with constant u80/u10 = 2 so stability class is
+    # identical for both rows — only u_eff changes.  Large distance stays in
+    # the linear map regime.
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 5000)
+    d2 <- .make_odour_met(wind_speed_10m = 2, wind_speed_80m = 4,
+                           wind_direction_10m = 180, boundary_layer_height = 500)
+    d6 <- .make_odour_met(wind_speed_10m = 6, wind_speed_80m = 12,
+                           wind_direction_10m = 180, boundary_layer_height = 500)
+    hz_ratio  <- odour_hazard(d2, stability = "shear") / odour_hazard(d6, stability = "shear")
+    exp_ratio <- odour_risk(d2, site, stability = "shear") /
+                 odour_risk(d6, site, stability = "shear")
+    expect_equal(exp_ratio, hz_ratio, tolerance = 0.10)
+  })
+})
+
+describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", {
+
+  it("shelter = TRUE raises exposure on a sheltered, low-wind, non-drainage night", {
+    # shelter_index=50 (max enclosure), no flow_convergence (M1 inactive).
+    # u10=1.5 (=SHELTER_U_FULL) → u_eff_on=0.5, u_eff_off=1.5.
+    # c_rel ∝ 1/u_eff → r_on > r_off.
+    site <- .make_sheltered_site(rec_bearing = 0, rec_distance = 5000)
+    d    <- .make_odour_met(wind_speed_10m = 1.5, wind_direction_10m = 180,
+                             direct_radiation = 0, cloud_cover = 5,
+                             boundary_layer_height = 150)
+    r_off <- odour_exposure(d, site, shelter = FALSE)
+    r_on  <- odour_exposure(d, site, shelter = TRUE)
+    expect_gt(r_on, r_off)
+  })
+
+  it("shelter exposure ratio ≈ u_eff ratio (3:1) in the linear map regime", {
+    # u_eff_off = 1.5, u_eff_on = max(1.5*(1-0.7), 0.5) = 0.5 → ratio = 1.5/0.5 = 3.
+    site <- .make_sheltered_site(rec_bearing = 0, rec_distance = 5000)
+    d    <- .make_odour_met(wind_speed_10m = 1.5, wind_direction_10m = 180,
+                             direct_radiation = 0, cloud_cover = 5,
+                             boundary_layer_height = 150)
+    r_off <- odour_exposure(d, site, shelter = FALSE)
+    r_on  <- odour_exposure(d, site, shelter = TRUE)
+    expect_equal(r_on / r_off, 3, tolerance = 0.15)
   })
 })

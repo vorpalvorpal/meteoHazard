@@ -1,5 +1,28 @@
 # meteoHazard 0.3.0
 
+## C9 — Shared hazard core: wind dilution active in odour_exposure() (issue #25)
+
+* **Bug fix:** `odour_exposure()` previously normalised relative concentration
+  against a constant `H_ref = PM_MAX / (U_CALM_FLOOR * H_MIX_FALLBACK_STABLE)`,
+  meaning `u_eff` did not appear in the exposure formula and M3 valley
+  sheltering had no effect on `odour_risk()` outputs.
+* New internal helper `.odour_hazard_raw(G, vs)` — the ventilation flux
+  `G * PM * W_rain / (u_eff * h_mix)` — is now the single source of truth
+  shared by `odour_hazard()` and `odour_exposure()`.
+* The exposure normaliser is now geometry-based: `PM_MAX / (U_CALM_FLOOR *
+  sigma_y_ref * sigma_z_ref)` at `X_REF_EXPOSURE = 250 m`, Briggs class F,
+  so the reference denominator matches the `1 / (u_eff * sigma_y * sigma_z)`
+  form used in the per-hour concentration.
+* `odour_hazard()` gains `terrain`, `shelter`, and `shelter_h_mix` parameters,
+  wiring M3 valley sheltering directly into the ventilation index.
+* **Consequence:** exposure and risk outputs are lower at short distances (
+  < ~1 km, neutral–unstable conditions) where the old constant normaliser
+  under-estimated dilution; ratios across hours and sites are now physically
+  consistent with the `1/u_eff` advective term.
+* Pre-existing bug in the terrain backend fixed: morning-release `r_scale`
+  was not suppressed for calm/pool-NA hours, producing a spurious spike for
+  calm mornings. Now zeroed via `r_scale_eff`.
+
 ## Phase 2 — DEM terrain helper (C5, issue #19)
 
 * New setup-time function `mh_terrain_from_dem()` derives all C1 `mh_terrain`

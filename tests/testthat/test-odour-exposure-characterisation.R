@@ -125,12 +125,12 @@ describe("odour_exposure() golden output (regression oracle for the refactor)", 
   })
 
   it("matches the pinned descriptors+shelter (M3) output on the same grid", {
-    # shelter=TRUE alone only changes u_eff (which odour_exposure does not read).
-    # shelter_h_mix=TRUE also reduces h_mix, entering geom_base and changing exposure.
+    # After C9, shelter = TRUE feeds u_eff from .odour_hazard_raw() into the
+    # exposure normaliser, so shelter alone is sufficient to change exposure.
     site <- .char_site(with_terrain = TRUE)
     out  <- odour_exposure(.char_met(), site,
                            terrain_backend = "descriptors",
-                           shelter = TRUE, shelter_h_mix = TRUE)
+                           shelter = TRUE)
     expect_length(out, 24)
     expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
   })

@@ -91,9 +91,20 @@
 #'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
 #'   [odour_risk()] for the combined convenience wrapper.
+#' @param terrain An [mh_terrain()] object, or `NULL` (default). When supplied,
+#'   `shelter` and `shelter_h_mix` may modify the effective wind speed and
+#'   mixing depth via M3 valley sheltering before the ventilation index is
+#'   computed. Ignored when `shelter = FALSE`.
+#' @param shelter Logical (default `FALSE`). If `TRUE` and `terrain` is
+#'   non-`NULL` with a finite `shelter_index`, apply M3 valley sheltering
+#'   to reduce the effective wind speed.
+#' @param shelter_h_mix Logical (default `FALSE`). If `TRUE`, also reduce the
+#'   mixing depth via M3 shelter.
 #' @export
 odour_hazard <- function(met_data, stability = c("turner", "shear"),
-                         datetime = NULL) {
+                         datetime = NULL,
+                         terrain = NULL,
+                         shelter = FALSE, shelter_h_mix = FALSE) {
   stability <- match.arg(stability)
   .assert_hourly(datetime)
 
@@ -109,20 +120,24 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
                         info = "See {.code ?odour_hazard} for the required Open-Meteo columns.")
   .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
-  # Normalise dimensional columns to canonical-unit plain doubles (bare assumed
-  # in unit; units objects converted; mismatch errors). The case_when gate logic
-  # below and the shared dispersion state then run on plain doubles.
   met_data <- .odour_normalise_met(met_data)
 
-  vs <- ventilation_state(met_data, terrain = NULL, stability = stability)
+  vs <- ventilation_state(met_data, terrain = terrain, stability = stability,
+                          shelter = shelter, shelter_h_mix = shelter_h_mix)
   G  <- .odour_generation(met_data)
 
-  # ---- Ventilation index, normalised to the calm/stable/shallow baseline --- #
-  hazard_raw <- G * vs$PM * vs$W_rain / (vs$u_eff * vs$h_mix)
   hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
     (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
 
-  hazard_raw / hazard_ref
+  .odour_hazard_raw(G, vs) / hazard_ref
+}
+
+
+# Raw ventilation flux: G * PM * W_rain / (u_eff * h_mix).
+# Single source of truth consumed by odour_hazard() and odour_exposure() alike,
+# ensuring both layers share an identical numerator.
+.odour_hazard_raw <- function(G, vs) {
+  G * vs$PM * vs$W_rain / (vs$u_eff * vs$h_mix)
 }
 
 

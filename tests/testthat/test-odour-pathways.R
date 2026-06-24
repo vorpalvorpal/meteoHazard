@@ -588,40 +588,53 @@ describe("Terrain-modifier precedence: M3 shelter does not stack with M1 drainag
                                         terrain_backend = "descriptors",
                                         shelter = TRUE)
 
-    if (any(drainage_active)) {
-      expect_equal(
-        exp_with_shelter[drainage_active],
-        exp_no_shelter[drainage_active],
-        tolerance = 1e-9,
-        label = "shelter must not change exposure on drainage_active hours"
-      )
-    }
+    # Fixture must produce at least one drainage_active hour.
+    expect_true(any(drainage_active),
+                label = "fixture must produce at least one drainage_active hour")
+
+    expect_equal(
+      exp_with_shelter[drainage_active],
+      exp_no_shelter[drainage_active],
+      tolerance = 1e-9,
+      label = "shelter must not change exposure on drainage_active hours"
+    )
   })
 
-  it("shelter does fire on non-drainage hours (reducing u_eff → higher hazard)", {
-    # On non-drainage night hours (pool_top = 0 or NA, or channelled but daytime),
-    # the shelter is not suppressed and typically lowers u_eff → higher exposure.
-    #
-    # Use a daytime hour (not drainage_active even with pool), and compare
-    # exposure with/without shelter.
+  it("shelter fires on non-drainage hours: raises exposure by at least 5%", {
+    # Daytime hour → is_day=TRUE → drainage_active = FALSE (M1 suppression off).
+    # shelter_index=50, u10=1.5 (=SHELTER_U_FULL): u_eff drops 1.5→0.5 (×3).
+    # After C9 (shared hazard core): c_rel ∝ 1/u_eff → exposure rises ≥5%.
+    # Receptor 2000 m north (wind from 180°) avoids saturation at 100%.
     d_day <- .pmet(
       n = 1,
-      wind_direction_10m    = 30,
+      wind_direction_10m    = 180,
       wind_speed_10m        = 1.5,
-      direct_radiation      = 400,   # day → drainage_active = FALSE
+      direct_radiation      = 400,   # daytime → drainage_active = FALSE
       cloud_cover           = 0,
       boundary_layer_height = 1200
     )
-    ter  <- .prec_terrain()
-    site <- .prec_site(ter)
+    ter <- .prec_terrain()
+    # Bespoke site: receptor 2000 m due north of source (downwind under 180° wind).
+    origin_x <- 335000; origin_y <- 6250000
+    site_far <- mh_site(
+      sf::st_sf(id = c("src", "rec"),
+                geometry = sf::st_sfc(
+                  sf::st_point(c(origin_x, origin_y)),
+                  sf::st_point(c(origin_x, origin_y + 2000)), crs = 32755)),
+      data.frame(feature_id = c("src", "rec"), hazard = "odour",
+                 role = c("source", "receptor"), stringsAsFactors = FALSE),
+      terrain = ter, epsg = 32755L
+    )
 
-    exp_no_shlt   <- odour_exposure(d_day, site, terrain_backend = "none", shelter = FALSE)
-    exp_with_shlt <- odour_exposure(d_day, site, terrain_backend = "none", shelter = TRUE)
+    exp_no_shlt   <- odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = FALSE)
+    exp_with_shlt <- odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = TRUE)
 
-    # On a daytime hour (not drainage_active): shelter lowers u_eff →
-    # hazard factor goes up → exposure goes up (or is equal if u_eff was already
-    # floored). It must not DECREASE.
-    expect_gte(exp_with_shlt, exp_no_shlt - 1e-6)
+    # exp_no_shlt must be < 100 (receptor is far enough to avoid saturation).
+    expect_lt(exp_no_shlt, 100)
+    # M3 fires: lower u_eff → higher c_rel → higher exposure. Require at least 5%.
+    expect_gt(exp_with_shlt, exp_no_shlt * 1.05)
   })
 
 })

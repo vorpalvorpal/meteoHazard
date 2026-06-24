@@ -39,8 +39,10 @@
 #'   (`100 * (1 - exp(-C_rel / map_c50))`). Default 0.3.
 #' @param terrain_backend `"none"` (flat Gaussian, C3a) or `"descriptors"`
 #'   (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).
-#' @param shelter Logical. Passed to [ventilation_state()]; see that function
-#'   for the M3 valley-sheltering documentation and caveats.
+#' @param shelter Logical. Passed to [ventilation_state()]; when `TRUE`, M3
+#'   valley sheltering reduces `u_eff`, which enters the exposure numerator via
+#'   the shared `.odour_hazard_raw()` core — the effect propagates end-to-end
+#'   through `odour_risk()` after the C9 fix.
 #' @param shelter_h_mix Logical. Passed to [ventilation_state()].
 #'
 #' @return A plain numeric vector of length `nrow(met_data)`: the worst-case
@@ -120,8 +122,14 @@ odour_exposure <- function(met_data, site,
   n_r      <- nrow(receptors)
   wind_dir <- met_data$wind_direction_10m
 
-  hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
-    (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
+  # Geometry-based reference (Briggs class-F at X_REF_EXPOSURE, calm floor).
+  # Matches the .odour_hazard_raw() / (u_eff * sigma_y_eff * sigma_z_eff) form.
+  X_ref       <- ODOUR_CONSTANTS$X_REF_EXPOSURE
+  c_y6        <- ODOUR_CONSTANTS$SIGMA_Y_COEF[6]  # class F
+  sigma_y_ref <- c_y6 * X_ref / sqrt(1 + 1e-4 * X_ref)
+  sigma_z_ref <- 0.016 * X_ref / (1 + 3e-4 * X_ref)
+  hazard_ref  <- ODOUR_CONSTANTS$PM_MAX /
+    (ODOUR_CONSTANTS$U_CALM_FLOOR * sigma_y_ref * sigma_z_ref)
 
   sigma_fc <- ODOUR_CONSTANTS$SIGMA_FC_DEG * pi / 180
   c_y      <- ODOUR_CONSTANTS$SIGMA_Y_COEF
@@ -155,10 +163,10 @@ odour_exposure <- function(met_data, site,
     r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
   }
 
-  # Per-hour generation/ventilation scalar (length n_t), broadcast down columns.
-  # Kept separate from hazard_ref so the final division order matches the
-  # original per-receptor arithmetic exactly (G*PM*W_rain*geom*cw / hazard_ref).
-  ghw <- G * vs$PM * vs$W_rain
+  # Per-hour ventilation flux (length n_t), shared with odour_hazard().
+  # hz = G*PM*W_rain/(u_eff*h_mix); multiplied by geom_base the h_mix cancels,
+  # giving G*PM*W_rain/(u_eff*sigma_y_eff*min(sigma_z_eff,h_mix)).
+  hz <- .odour_hazard_raw(G, vs)
 
   # ---- Accumulate summed concentration over sources ----------------------- #
   # All per-(hour, receptor) quantities are held as (n_t x n_r) matrices so the
@@ -228,7 +236,7 @@ odour_exposure <- function(met_data, site,
     cw_flat[vs$is_calm | is.na(wind_dir), ] <- CALM_CROSSWIND
 
     # Flat relative concentration; coincident receptors contribute 0.
-    c_rel_flat <- ghw * geom_base * cw_flat / hazard_ref
+    c_rel_flat <- hz * geom_base * cw_flat / hazard_ref
     c_rel_flat[, dead] <- 0
     c_sum_matrix <- c_sum_matrix + c_rel_flat
 
@@ -256,10 +264,14 @@ odour_exposure <- function(met_data, site,
       cw_1b[is.na(cw_1b)] <- 0
       cw_1b[rows_fb, ] <- cw_flat[rows_fb, ]
 
-      # Blended crosswind (f_1a, f_1b, r_scale are per-hour, broadcast down cols).
-      cw_blended <- f_1a * cw_1a + f_1b * cw_1b * (1 + r_scale)
+      # Morning-release scale is a terrain (pool) effect; suppress for calm/NA-pool
+      # hours so the terrain backend stays equal to flat when cw_1a/1b = cw_flat.
+      r_scale_eff <- ifelse(rows_fb, 0, r_scale)
 
-      c_rel_terrain <- ghw * geom_base * (cw_blended - cw_flat) / hazard_ref
+      # Blended crosswind (f_1a, f_1b, r_scale_eff are per-hour, broadcast down cols).
+      cw_blended <- f_1a * cw_1a + f_1b * cw_1b * (1 + r_scale_eff)
+
+      c_rel_terrain <- hz * geom_base * (cw_blended - cw_flat) / hazard_ref
       c_rel_terrain[, dead] <- 0
       c_terrain_matrix <- c_terrain_matrix + c_rel_terrain
     }
