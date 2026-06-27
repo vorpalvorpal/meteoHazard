@@ -45,7 +45,7 @@
 #'   scale for each derived descriptor plus `dem_resolution` and `dem_source`.
 #'   When `receptors` is an `sf` object: a named list with
 #'   `$terrain` (the `mh_terrain`) and `$receptor_fields` (a data frame with
-#'   columns `feature_id`, `rel_elevation`).
+#'   columns `feature_id`, `rel_elevation`, `aspect`).
 #'
 #' @section Setup-time only:
 #' This function runs WhiteboxTools flow-routing and openness calculations that
@@ -498,10 +498,13 @@ mh_terrain_from_dem <- function(dem,
   rec_elev   <- terra::extract(dem_r, terra::vect(rec_reproj))[[2]]
   src_elev   <- terra::extract(dem_r, terra::vect(src_pt))[[1, 2]]
   n_r        <- nrow(rec_reproj)
+  aspect_r   <- terra::terrain(dem_r, v = "aspect", unit = "degrees")
+  rec_asp    <- terra::extract(aspect_r, terra::vect(rec_reproj))[[2]]
 
   data.frame(
     feature_id    = if ("id" %in% names(receptors)) receptors$id else seq_len(n_r),
     rel_elevation = rec_elev - src_elev,
+    aspect        = rec_asp,
     stringsAsFactors = FALSE
   )
 }
