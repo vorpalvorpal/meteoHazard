@@ -155,8 +155,7 @@ odour_exposure <- function(met_data, site,
 
   # Terrain-backend setup (loop-invariant). The descriptors path adds a
   # per-source terrain delta reusing the shared flat dispersion matrices.
-  descriptors   <- terrain_backend == "descriptors" && !is.null(site@terrain)
-  rim_reach_mat <- NULL   # C8: populated inside descriptors block when rim_venting=TRUE
+  descriptors <- terrain_backend == "descriptors" && !is.null(site@terrain)
   if (descriptors) {
     terrain           <- site@terrain
     pool_top_for_part <- ifelse(is.na(vs$pool_top), 0, vs$pool_top)
@@ -168,13 +167,6 @@ odour_exposure <- function(met_data, site,
     is_calm_t <- vs$is_calm           # length n_t
     # Morning release is source-independent (depends only on the pool history).
     r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
-    # C8 reach gate: compute loop-invariant receptor height vector and reach matrix.
-    z_j <- if ("rel_elevation" %in% names(receptors))
-              pmax(0, receptors$rel_elevation)
-            else rep(0.0, n_r)
-    rim_reach_mat <- if (rim_venting && any(z_j > 0))
-      .rim_reach(z_j, vs_aug)
-    else NULL
   }
 
   # Per-hour ventilation flux (length n_t), shared with odour_hazard().
@@ -218,18 +210,6 @@ odour_exposure <- function(met_data, site,
     dead   <- !is.finite(x) | x == 0   # coincident receptors → 0 contribution
     brng[dead] <- NA_real_
 
-    # C8 per-receptor upslope alignment: cos(angle from receptor toward this source
-    # vs the downslope aspect at each receptor). 1.0 radial fallback when no aspect.
-    align_j <- if (!is.null(rim_reach_mat) &&
-                   "aspect" %in% names(receptors) &&
-                   !all(is.na(receptors$aspect))) {
-      brng_rec_src <- (atan2(src_xy[1L, "X"] - rec_coords[, "X"],
-                             src_xy[1L, "Y"] - rec_coords[, "Y"]) * 180 / pi) %% 360
-      pmax(0, cos(.angular_diff(brng_rec_src, receptors$aspect) * pi / 180))
-    } else {
-      NULL
-    }
-
     # ---- Shared flat dispersion as (n_t x n_r) matrices ------------------- #
     # Briggs class spreads as (6 x n_r): one column per receptor distance.
     SY6 <- c_y %o% (x / sqrt(1 + 0.0001 * x))                 # sigma_y, 6 x n_r
@@ -268,6 +248,18 @@ odour_exposure <- function(met_data, site,
 
     # ---- Descriptors terrain delta (reuses geom_base / cw_flat) ----------- #
     if (descriptors) {
+      # D1 z_j priority ladder (per-source: elevation rung uses source ground level).
+      src_elev_k      <- if ("elevation" %in% names(source_k)) source_k$elevation[[1L]] else NA_real_
+      z_j_k           <- .receptor_z_j(receptors, src_elev_k)
+      rim_reach_mat_k <- if (rim_venting && any(z_j_k > 0)) .rim_reach(z_j_k, vs_aug) else NULL
+      # D5 per-receptor upslope alignment (aspect from stored features — no DEM call).
+      asp_k     <- .receptor_aspect(receptors)
+      align_j_k <- if (!is.null(rim_reach_mat_k) && !all(is.na(asp_k))) {
+        brng_rec_src <- (atan2(src_xy[1L, "X"] - rec_coords[, "X"],
+                               src_xy[1L, "Y"] - rec_coords[, "Y"]) * 180 / pi) %% 360
+        pmax(0, cos(.angular_diff(brng_rec_src, asp_k) * pi / 180))
+      } else NULL
+
       part <- .pool_partition(emit_ht, pool_top_for_part, delta_t)
       f_1a <- part$f_1a
       f_1b <- part$f_1b
@@ -278,8 +270,8 @@ odour_exposure <- function(met_data, site,
       fumic_prep <- .cw_fumigation_prep(vs_aug, above_pool_ht = above_pool_ht)
 
       cw_1a <- .cw_venting_matrix(brng, vs_aug, terrain,
-                                  rim_reach_mat = rim_reach_mat,
-                                  align_j       = align_j)            # n_t x n_r
+                                  rim_reach_mat = rim_reach_mat_k,
+                                  align_j       = align_j_k)          # n_t x n_r
       cw_1b <- .cw_fumigation_matrix(brng, vs_aug, terrain,
                                      prep = fumic_prep)               # n_t x n_r
 

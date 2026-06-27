@@ -1,5 +1,31 @@
 # meteoHazard 0.3.0
 
+## C8 — Upslope rim-venting to elevated rim receptors (issue #24)
+
+* New `rim_venting = FALSE` parameter on `odour_exposure()` and `odour_risk()`.
+  When `TRUE` with `terrain_backend = "descriptors"`, the morning pathway-1a
+  crosswind factor is gated by a **vertical reach function**: the pulse reaches a
+  receptor at height `z_j` only once the morning vented layer
+  `h_vent = pool_top + RIM_LIFT_COEF * cbl_cumsum` has risen above it.
+* Per-receptor **upslope alignment** (`align_j = max(0, cos(brng_rec_src − aspect_j))`)
+  further scales the 1a term; receptors whose downslope aspect faces away from the
+  source contribute zero regardless of pool depth.
+* **Default-off and uncalibrated.** `rim_venting = FALSE` produces bit-identical
+  output to pre-C8. Constants `RIM_LIFT_COEF = 0.2` and `RIM_DELTA = 25` are
+  screening defaults flagged for calibration in #8.
+* Receptor height `z_j` follows a D1 priority ladder:
+  `receptors$elevation − source_elevation` → `receptors$rel_elevation` (C5
+  setup-time DEM) → 0 (no-op). All receptors with `z_j = 0` bypass the gate.
+* `mh_terrain_from_dem()` now returns a per-receptor `aspect` column (downslope
+  direction, degrees) in `$receptor_fields`, consumed by C8 on the run path.
+* **Run-path safety contract:** `odour_exposure()` never calls `terra::terrain()`
+  or `terra::extract()`; the aspect and relative elevation columns are read from
+  stored receptor features (setup-time C5 output). A §5 regression test locks
+  this boundary.
+* Replaces the removed M2 receptor impaction (#20): M2 had the wrong sign for
+  basin geometry; C8 encodes the correct pathway (morning anabatic venting after
+  overnight cold-pool accumulation).
+
 ## C9 — Shared hazard core: wind dilution active in odour_exposure() (issue #25)
 
 * **Bug fix:** `odour_exposure()` previously normalised relative concentration

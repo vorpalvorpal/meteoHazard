@@ -662,4 +662,21 @@ describe("odour_exposure(): rim-venting behaviour (C8)", {
     expect_true(all(is.finite(r)), label = "no NaN/Inf under calm + reach≈1")
     expect_true(all(r >= 0 & r <= 100))
   })
+
+  it("makes no GIS/DEM call on the run path (aspect read from stored features)", {
+    # §5 contract: the run path only reads stored feature columns; it must never
+    # call terra::terrain() or terra::extract() — those belong in setup-time C5.
+    # Requires terra to be loadable so local_mocked_bindings can intercept it.
+    skip_if_not_installed("terra")
+    site <- .make_rim_site(rel_elevation = 60, aspect = 240)
+    d    <- .make_rim_met()
+    testthat::local_mocked_bindings(
+      terrain = function(...) stop("run path called terra::terrain()"),
+      extract = function(...) stop("run path called terra::extract()"),
+      .package = "terra"
+    )
+    expect_no_error(
+      odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
+    )
+  })
 })
