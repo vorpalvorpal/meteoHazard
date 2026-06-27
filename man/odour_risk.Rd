@@ -12,7 +12,8 @@ odour_risk(
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
   shelter_h_mix = FALSE,
-  datetime = NULL
+  datetime = NULL,
+  rim_venting = FALSE
 )
 }
 \arguments{
@@ -43,6 +44,9 @@ through \code{odour_risk()} after the C9 fix.}
 
 \item{datetime}{Optional \code{POSIXct} vector for the consecutive-hourly spacing
 check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
+
+\item{rim_venting}{Logical. Passed to \code{\link[=odour_exposure]{odour_exposure()}}; activates C8
+upslope rim-venting when \code{TRUE}. Default \code{FALSE}.}
 }
 \value{
 A numeric vector of length \code{nrow(met_data)}: the worst-case 0-100

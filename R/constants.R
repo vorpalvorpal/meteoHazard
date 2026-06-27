@@ -91,6 +91,13 @@ TWL_CONSTANTS <- list(
 #'   \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
 #'     drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
 #'     full suppression of M3 on hours where M1 drainage is active.}
+#'   \item{RIM_LIFT_COEF}{Coefficient (dimensionless) scaling cumulative CBL growth
+#'     into the morning vented-layer depth: \code{h_vent = pool_top + RIM_LIFT_COEF *
+#'     cbl_cumsum}. Uncalibrated screening default 0.2; calibration deferred to
+#'     issue #8.}
+#'   \item{RIM_DELTA}{Logistic half-width (m) for the vertical reach gate: controls
+#'     sharpness of the transition from 0 to 1 as \code{h_vent} crosses the receptor
+#'     height \code{z_j}. Uncalibrated screening default 25 m; calibration → #8.}
 #' }
 #' @keywords internal
 ODOUR_CONSTANTS <- list(
@@ -126,5 +133,8 @@ ODOUR_CONSTANTS <- list(
   SHELTER_MAX_REDUCTION     = 0.7,  # maximum fractional u_eff reduction
   DRAINAGE_SHELTER_OVERLAP  = 1.0,  # 1 = full mutual exclusion with M1 drainage
   # C9 — reference distance for the exposure normaliser (Briggs class-F worst case)
-  X_REF_EXPOSURE            = 250   # m
+  X_REF_EXPOSURE            = 250,  # m
+  # C8 upslope rim-venting constants (uncalibrated screening defaults; calibration → #8)
+  RIM_LIFT_COEF             = 0.2,  # α: pool_top + α·cbl_cumsum = h_vent (m/m)
+  RIM_DELTA                 = 25    # δ: logistic reach sharpness (m)
 )

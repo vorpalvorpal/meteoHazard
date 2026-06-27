@@ -44,6 +44,11 @@
 #'   the shared `.odour_hazard_raw()` core — the effect propagates end-to-end
 #'   through `odour_risk()` after the C9 fix.
 #' @param shelter_h_mix Logical. Passed to [ventilation_state()].
+#' @param rim_venting Logical. When `TRUE` and `terrain_backend = "descriptors"`,
+#'   activates C8 upslope rim-venting: the morning pathway 1a crosswind factor is
+#'   gated by a vertical reach function and scaled by per-receptor upslope
+#'   alignment. Has no effect when all receptor `rel_elevation` values are zero or
+#'   absent. Default `FALSE` (C8 not yet calibrated; see issue #8).
 #'
 #' @return A plain numeric vector of length `nrow(met_data)`: the worst-case
 #'   0-100 odour exposure across receptors for each hour.
@@ -66,7 +71,8 @@ odour_exposure <- function(met_data, site,
                            map_c50 = 0.3,
                            terrain_backend = c("none", "descriptors"),
                            shelter = FALSE,
-                           shelter_h_mix = FALSE) {
+                           shelter_h_mix = FALSE,
+                           rim_venting = FALSE) {
   stability       <- match.arg(stability)
   terrain_backend <- match.arg(terrain_backend)
 
@@ -149,7 +155,8 @@ odour_exposure <- function(met_data, site,
 
   # Terrain-backend setup (loop-invariant). The descriptors path adds a
   # per-source terrain delta reusing the shared flat dispersion matrices.
-  descriptors <- terrain_backend == "descriptors" && !is.null(site@terrain)
+  descriptors   <- terrain_backend == "descriptors" && !is.null(site@terrain)
+  rim_reach_mat <- NULL   # C8: populated inside descriptors block when rim_venting=TRUE
   if (descriptors) {
     terrain           <- site@terrain
     pool_top_for_part <- ifelse(is.na(vs$pool_top), 0, vs$pool_top)
@@ -161,6 +168,13 @@ odour_exposure <- function(met_data, site,
     is_calm_t <- vs$is_calm           # length n_t
     # Morning release is source-independent (depends only on the pool history).
     r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
+    # C8 reach gate: compute loop-invariant receptor height vector and reach matrix.
+    z_j <- if ("rel_elevation" %in% names(receptors))
+              pmax(0, receptors$rel_elevation)
+            else rep(0.0, n_r)
+    rim_reach_mat <- if (rim_venting && any(z_j > 0))
+      .rim_reach(z_j, vs_aug)
+    else NULL
   }
 
   # Per-hour ventilation flux (length n_t), shared with odour_hazard().
@@ -203,6 +217,18 @@ odour_exposure <- function(met_data, site,
     brng   <- (atan2(dE, dN) * 180 / pi) %% 360
     dead   <- !is.finite(x) | x == 0   # coincident receptors → 0 contribution
     brng[dead] <- NA_real_
+
+    # C8 per-receptor upslope alignment: cos(angle from receptor toward this source
+    # vs the downslope aspect at each receptor). 1.0 radial fallback when no aspect.
+    align_j <- if (!is.null(rim_reach_mat) &&
+                   "aspect" %in% names(receptors) &&
+                   !all(is.na(receptors$aspect))) {
+      brng_rec_src <- (atan2(src_xy[1L, "X"] - rec_coords[, "X"],
+                             src_xy[1L, "Y"] - rec_coords[, "Y"]) * 180 / pi) %% 360
+      pmax(0, cos(.angular_diff(brng_rec_src, receptors$aspect) * pi / 180))
+    } else {
+      NULL
+    }
 
     # ---- Shared flat dispersion as (n_t x n_r) matrices ------------------- #
     # Briggs class spreads as (6 x n_r): one column per receptor distance.
@@ -251,7 +277,9 @@ odour_exposure <- function(met_data, site,
                              stats::median(pool_top_for_part, na.rm = TRUE) / 2)
       fumic_prep <- .cw_fumigation_prep(vs_aug, above_pool_ht = above_pool_ht)
 
-      cw_1a <- .cw_venting_matrix(brng, vs_aug, terrain)              # n_t x n_r
+      cw_1a <- .cw_venting_matrix(brng, vs_aug, terrain,
+                                  rim_reach_mat = rim_reach_mat,
+                                  align_j       = align_j)            # n_t x n_r
       cw_1b <- .cw_fumigation_matrix(brng, vs_aug, terrain,
                                      prep = fumic_prep)               # n_t x n_r
 

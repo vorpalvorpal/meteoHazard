@@ -11,6 +11,8 @@
 #' @inheritParams odour_exposure
 #' @param datetime Optional `POSIXct` vector for the consecutive-hourly spacing
 #'   check; see [odour_hazard()].
+#' @param rim_venting Logical. Passed to [odour_exposure()]; activates C8
+#'   upslope rim-venting when `TRUE`. Default `FALSE`.
 #'
 #' @return A numeric vector of length `nrow(met_data)`: the worst-case 0-100
 #'   odour exposure across receptors for each hour.
@@ -23,7 +25,8 @@ odour_risk <- function(met_data, site,
                        terrain_backend = c("none", "descriptors"),
                        shelter      = FALSE,
                        shelter_h_mix = FALSE,
-                       datetime = NULL) {
+                       datetime = NULL,
+                       rim_venting = FALSE) {
   stability <- match.arg(stability)
   .assert_hourly(datetime)
   odour_exposure(met_data, site,
@@ -31,5 +34,6 @@ odour_risk <- function(met_data, site,
                  map_c50         = map_c50,
                  terrain_backend = terrain_backend,
                  shelter         = shelter,
-                 shelter_h_mix   = shelter_h_mix)
+                 shelter_h_mix   = shelter_h_mix,
+                 rim_venting     = rim_venting)
 }

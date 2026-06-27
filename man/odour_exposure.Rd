@@ -11,7 +11,8 @@ odour_exposure(
   map_c50 = 0.3,
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
-  shelter_h_mix = FALSE
+  shelter_h_mix = FALSE,
+  rim_venting = FALSE
 )
 }
 \arguments{
@@ -39,6 +40,12 @@ the shared \code{.odour_hazard_raw()} core — the effect propagates end-to-end
 through \code{odour_risk()} after the C9 fix.}
 
 \item{shelter_h_mix}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}.}
+
+\item{rim_venting}{Logical. When \code{TRUE} and \code{terrain_backend = "descriptors"},
+activates C8 upslope rim-venting: the morning pathway 1a crosswind factor is
+gated by a vertical reach function and scaled by per-receptor upslope
+alignment. Has no effect when all receptor \code{rel_elevation} values are zero or
+absent. Default \code{FALSE} (C8 not yet calibrated; see issue #8).}
 }
 \value{
 A plain numeric vector of length \code{nrow(met_data)}: the worst-case

@@ -47,7 +47,7 @@ every applicable scalar descriptor and \verb{@meta} recording the analysis
 scale for each derived descriptor plus \code{dem_resolution} and \code{dem_source}.
 When \code{receptors} is an \code{sf} object: a named list with
 \verb{$terrain} (the \code{mh_terrain}) and \verb{$receptor_fields} (a data frame with
-columns \code{feature_id}, \code{rel_elevation}).
+columns \code{feature_id}, \code{rel_elevation}, \code{aspect}).
 }
 \description{
 A setup-time helper that derives the C1 \code{mh_terrain} descriptors from a

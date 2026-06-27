@@ -5,7 +5,7 @@
 \alias{ODOUR_CONSTANTS}
 \title{Constants for the odour hazard and exposure model}
 \format{
-An object of class \code{list} of length 30.
+An object of class \code{list} of length 32.
 }
 \usage{
 ODOUR_CONSTANTS
@@ -53,6 +53,13 @@ valley sheltering, 0.7. Uncalibrated screening default.}
 \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
 drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
 full suppression of M3 on hours where M1 drainage is active.}
+\item{RIM_LIFT_COEF}{Coefficient (dimensionless) scaling cumulative CBL growth
+into the morning vented-layer depth: \code{h_vent = pool_top + RIM_LIFT_COEF *
+    cbl_cumsum}. Uncalibrated screening default 0.2; calibration deferred to
+issue #8.}
+\item{RIM_DELTA}{Logistic half-width (m) for the vertical reach gate: controls
+sharpness of the transition from 0 to 1 as \code{h_vent} crosses the receptor
+height \code{z_j}. Uncalibrated screening default 25 m; calibration → #8.}
 }
 }
 \keyword{internal}
