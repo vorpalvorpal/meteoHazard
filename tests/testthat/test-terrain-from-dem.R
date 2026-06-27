@@ -661,6 +661,36 @@ describe("mh_terrain_from_dem() — per-receptor fields", {
     expect_setequal(out$receptor_fields$feature_id, c("alpha", "beta"))
   })
 
+  # C8: per-receptor downslope aspect (Stage 1 of the rim-venting plan, issue #24).
+  # Written before implementation (TDD) — fails until .derive_receptor_fields()
+  # returns an 'aspect' column.
+
+  it("receptor_fields contains a numeric 'aspect' column in [0, 360)", {
+    .wbt_skip()
+    src <- .src_centre()
+    rec <- .rec_offset(0, 300)
+    dem <- .dem_v_valley(D = 80)
+    out <- mh_terrain_from_dem(dem, source = src, receptors = rec, epsg = 32755L)
+    expect_true("aspect" %in% names(out$receptor_fields),
+                label = "'aspect' column missing from receptor_fields")
+    expect_type(out$receptor_fields$aspect, "double")
+    non_na <- out$receptor_fields$aspect[!is.na(out$receptor_fields$aspect)]
+    expect_true(all(non_na >= 0 & non_na < 360),
+                label = "aspect must be in [0, 360)")
+  })
+
+  it("receptor aspect on a uniformly east-tilted DEM is ≈ 90° (downslope faces east)", {
+    # .dem_tilted_east(): z = slope * (extent/2 - x); elevation decreases east.
+    # Downslope direction = east ⇒ aspect ≈ 90° everywhere on the raster.
+    .wbt_skip()
+    src <- .src_centre()
+    rec <- .rec_offset(400, 0)    # 400 m east of origin (on the slope)
+    dem <- .dem_tilted_east()
+    out <- mh_terrain_from_dem(dem, source = src, receptors = rec, epsg = 32755L)
+    expect_equal(out$receptor_fields$aspect[1], 90, tolerance = 5,
+                 label = "aspect ≈ 90° (east) on east-tilted DEM")
+  })
+
 })
 
 

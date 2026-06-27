@@ -467,3 +467,199 @@ describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", 
     expect_equal(r_on / r_off, 3, tolerance = 0.15)
   })
 })
+
+
+# ---------------------------------------------------------------------------
+# C8 — Upslope rim-venting: odour_exposure() integration specs
+# ---------------------------------------------------------------------------
+# Written BEFORE implementation (TDD).  These fail until odour_exposure() gains
+# a `rim_venting` parameter and the gate is wired through the 1a venting term.
+# ---------------------------------------------------------------------------
+
+# Site builder: receptor with explicit rel_elevation and downslope aspect.
+.make_rim_site <- function(rec_bearing     = 0,
+                            rec_distance    = 1000,
+                            rel_elevation   = 80,
+                            aspect          = NA_real_,
+                            drainage_bearing = 0,
+                            flow_convergence = 0.8) {
+  ox <- 335000; oy <- 6250000
+  rec_x <- ox + rec_distance * sin(rec_bearing * pi / 180)
+  rec_y <- oy + rec_distance * cos(rec_bearing * pi / 180)
+  feats <- sf::st_sf(
+    id            = c("src", "rec"),
+    rel_elevation = c(NA_real_, rel_elevation),
+    aspect        = c(NA_real_, aspect),
+    geometry      = sf::st_sfc(sf::st_point(c(ox, oy)),
+                                sf::st_point(c(rec_x, rec_y)), crs = 32755)
+  )
+  roles <- data.frame(
+    feature_id = c("src", "rec"), hazard = "odour",
+    role = c("source", "receptor"), stringsAsFactors = FALSE
+  )
+  ter <- mh_terrain(
+    drainage_bearing = drainage_bearing,
+    flow_convergence = flow_convergence,
+    valley_depth     = 80,
+    taf              = 1.5
+  )
+  mh_site(feats, roles, terrain = ter, epsg = 32755L)
+}
+
+# Met: n_night cold clear nights building a deep pool, then n_day morning hours.
+.make_rim_met <- function(n_night              = 12,
+                           n_day               = 3,
+                           wind_direction_night = 0,
+                           wind_direction_day   = 180) {
+  n   <- n_night + n_day
+  blh <- c(rep(150, n_night), 400, 800, 1500)[seq_len(n)]
+  data.frame(
+    wind_direction_10m     = c(rep(wind_direction_night, n_night),
+                                rep(wind_direction_day,   n_day)),
+    wind_speed_10m         = rep(1.5, n),
+    direct_radiation       = c(rep(0,   n_night), rep(400, n_day)),
+    cloud_cover            = c(rep(0,   n_night), rep(20,  n_day)),
+    boundary_layer_height  = blh,
+    temperature_2m         = rep(5,    n),
+    pressure_msl           = rep(1013, n),
+    precipitation          = rep(0,    n),
+    relative_humidity_2m   = rep(60,   n),
+    soil_moisture_0_to_1cm = rep(0.1,  n),
+    soil_moisture_1_to_3cm = rep(0.1,  n)
+  )
+}
+
+
+describe("odour_exposure(): rim_venting default-off identity (C8)", {
+
+  it("rim_venting = FALSE reproduces the pre-C8 output bit-exactly", {
+    # The new parameter must be a strict no-op when FALSE.
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
+    d    <- .make_odour_met()
+    baseline <- odour_exposure(d, site)
+    flagged  <- odour_exposure(d, site, rim_venting = FALSE)
+    expect_equal(flagged, baseline, tolerance = .Machine$double.eps)
+  })
+
+  it("rim_venting = TRUE with no elevation/rel_elevation column is a no-op", {
+    # z_j defaults to 0 → reach = 1 everywhere → bit-identical to FALSE.
+    # MUST use terrain_backend = "descriptors" with actual terrain so the descriptors
+    # path fires and the z_j=0 fallback is exercised (not just bypassed by terrain=NULL).
+    ter <- mh_terrain(drainage_bearing = 0, flow_convergence = 0.8,
+                       valley_depth = 60, taf = 1.5)
+    ox  <- 335000; oy <- 6250000
+    # No rel_elevation or elevation column on the receptor.
+    feats_no_elev <- sf::st_sf(
+      id       = c("src", "rec"),
+      geometry = sf::st_sfc(sf::st_point(c(ox, oy)),
+                             sf::st_point(c(ox, oy + 1000L)), crs = 32755)
+    )
+    roles <- data.frame(feature_id = c("src", "rec"), hazard = "odour",
+                         role = c("source", "receptor"), stringsAsFactors = FALSE)
+    site <- mh_site(feats_no_elev, roles, terrain = ter, epsg = 32755L)
+    d    <- .make_rim_met()
+    off  <- odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = FALSE)
+    on   <- odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
+    expect_equal(off, on, tolerance = .Machine$double.eps)
+  })
+})
+
+
+describe("odour_exposure(): rim-venting behaviour (C8)", {
+
+  it("aligned-slope rim receptor is more exposed on morning hours after deep pool", {
+    # Receptor at bearing 60° (ENE) from source; drainage_bearing = 0° (north).
+    # Current alignment from drainage = cos(60°) = 0.5.
+    # With C8: aspect_j = 240° (downslope toward source at bearing 60+180 = 240°);
+    # brng_rec→src = 240°; align_j = cos(0°) = 1 > 0.5.
+    # Deep pool (12 cold nights): reach → 1 at morning.
+    # ⇒ morning-hour exposure with rim_venting=TRUE > rim_venting=FALSE.
+    site_on  <- .make_rim_site(rec_bearing = 60, rec_distance = 2000,
+                                rel_elevation = 60, aspect = 240,
+                                drainage_bearing = 0, flow_convergence = 0.8)
+    site_off <- .make_rim_site(rec_bearing = 60, rec_distance = 2000,
+                                rel_elevation = 60, aspect = 240,
+                                drainage_bearing = 0, flow_convergence = 0.8)
+    d <- .make_rim_met(wind_direction_day = 240)  # wind from SW → downwind ENE
+    r_off <- odour_exposure(d, site_off,
+                             terrain_backend = "descriptors", rim_venting = FALSE)
+    r_on  <- odour_exposure(d, site_on,
+                             terrain_backend = "descriptors", rim_venting = TRUE)
+    morning_hours <- (nrow(d) - 2L):nrow(d)
+    expect_gt(max(r_on[morning_hours]), max(r_off[morning_hours]),
+              label = "morning exposure rises when align_j > alignment and reach ≈ 1")
+  })
+
+  it("high summit + weak morning: reach stays low, venting suppressed vs rim_venting=FALSE", {
+    # z_j = 300 m.  BLH barely rises (150 → 155 → 160 m), giving
+    # cbl_growth ≈ [5, 5] and cbl_cumsum_max ≈ 10.
+    # h_vent = pool_top + RIM_LIFT_COEF * 10.  Even with RIM_LIFT_COEF = 5:
+    # h_vent ≈ pool_top + 50 ≪ 300 → reach ≈ 0 → 1a venting suppressed.
+    # On morning hours: exposure with rim_venting=TRUE ≤ rim_venting=FALSE.
+    site <- .make_rim_site(rec_bearing = 0, rec_distance = 2000,
+                            rel_elevation = 300, aspect = 180)
+    d_weak <- data.frame(
+      wind_direction_10m     = c(0, 180, 180),    # night then morning from S
+      wind_speed_10m         = rep(1.5, 3),
+      direct_radiation       = c(0, 400, 400),
+      cloud_cover            = c(0,  20,  20),
+      boundary_layer_height  = c(150, 155, 160),  # tiny morning rise
+      temperature_2m         = rep(5, 3),
+      pressure_msl           = rep(1013, 3),
+      precipitation          = rep(0, 3),
+      relative_humidity_2m   = rep(60, 3),
+      soil_moisture_0_to_1cm = rep(0.1, 3),
+      soil_moisture_1_to_3cm = rep(0.1, 3)
+    )
+    r_off <- odour_exposure(d_weak, site, terrain_backend = "descriptors",
+                             rim_venting = FALSE)
+    r_on  <- odour_exposure(d_weak, site, terrain_backend = "descriptors",
+                             rim_venting = TRUE)
+    morning_hours <- 2:3
+    expect_true(
+      all(r_on[morning_hours] <= r_off[morning_hours] + 1e-6),
+      label = "weak morning / high summit: rim_venting=TRUE ≤ FALSE (reach ≈ 0)"
+    )
+  })
+
+  it("facing receptor (align≈1) more exposed than away-facing (align≈0) on morning hours", {
+    # Both receptors: same bearing (0°), distance (2000 m), rel_elevation (60 m).
+    # rec_facing: aspect = 180° (downslope toward source) → align_j = 1.
+    # rec_away:   aspect = 0°   (downslope away from src) → align_j = 0.
+    # With deep pool and rim_venting=TRUE: facing receptor >> away-facing.
+    ox <- 335000; oy <- 6250000
+    rec_x <- ox; rec_y <- oy + 2000L
+    .rim_site_1rec <- function(asp) {
+      mh_site(
+        sf::st_sf(id = c("src", "rec"),
+                  rel_elevation = c(NA_real_, 60),
+                  aspect        = c(NA_real_, asp),
+                  geometry = sf::st_sfc(sf::st_point(c(ox, oy)),
+                                         sf::st_point(c(rec_x, rec_y)), crs = 32755)),
+        data.frame(feature_id = c("src", "rec"), hazard = "odour",
+                   role = c("source", "receptor"), stringsAsFactors = FALSE),
+        terrain = mh_terrain(drainage_bearing = 0, flow_convergence = 0.8,
+                              valley_depth = 80, taf = 1.5),
+        epsg = 32755L
+      )
+    }
+    d  <- .make_rim_met(wind_direction_day = 180)   # wind from S → plume to N
+    r_facing <- odour_exposure(d, .rim_site_1rec(180),
+                                terrain_backend = "descriptors", rim_venting = TRUE)
+    r_away   <- odour_exposure(d, .rim_site_1rec(0),
+                                terrain_backend = "descriptors", rim_venting = TRUE)
+    morning  <- nrow(d)   # last hour (peak morning)
+    expect_gt(r_facing[morning], r_away[morning],
+              label = "facing slope (align≈1) more exposed than away-facing (align≈0)")
+  })
+
+  it("produces finite, non-NaN values under near-calm venting morning (composition with #25)", {
+    # Calm floor (u_eff ≈ U_CALM_FLOOR) × reach ≈ 1 (low z_j, deep pool):
+    # hz = G*PM*W_rain/(u_eff*h_mix) is finite at the floor; result must be finite.
+    site <- .make_rim_site(rel_elevation = 10, aspect = 180)
+    d    <- .make_rim_met()
+    r    <- odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
+    expect_true(all(is.finite(r)), label = "no NaN/Inf under calm + reach≈1")
+    expect_true(all(r >= 0 & r <= 100))
+  })
+})

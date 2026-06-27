@@ -638,3 +638,95 @@ describe("Terrain-modifier precedence: M3 shelter does not stack with M1 drainag
   })
 
 })
+
+
+# ---------------------------------------------------------------------------
+# C8 — Upslope rim-venting: .rim_reach() unit specs
+# ---------------------------------------------------------------------------
+# Written BEFORE implementation (TDD). These fail until .rim_reach() exists in
+# R/odour-pathways.R.
+# ---------------------------------------------------------------------------
+
+describe(".rim_reach(): vertical reach gate for morning anabatic venting (C8)", {
+
+  # Minimal ventilation-state list: n_t = 3 → [night-with-pool, morning, mid-morning].
+  .rv_vs <- function(pool_top   = c(50,  50,  50),
+                     cbl_growth = c(NA,  10,  15),
+                     is_day     = c(FALSE, TRUE, TRUE)) {
+    list(is_day = is_day, pool_top = pool_top, cbl_growth = cbl_growth)
+  }
+
+  it("returns reach = 0.5 at the logistic centre when h_vent equals z_j", {
+    # With RIM_LIFT_COEF = 0, h_vent = pool_top.  Setting pool_top = z_j puts the
+    # logistic argument at zero, giving 1 / (1 + exp(0)) = 0.5.
+    vs <- .rv_vs(pool_top = c(80, 80, 80), cbl_growth = c(NA, 0.01, 0.01))
+    r  <- meteoHazard:::.rim_reach(c(80), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_equal(r[2L, 1L], 0.5, tolerance = 1e-6,
+                 label = "morning onset: h_vent = z_j ⇒ reach = 0.5")
+  })
+
+  it("returns reach > 0.999 when h_vent >> z_j (deep pool relative to summit)", {
+    vs <- .rv_vs(pool_top = c(1e4, 1e4, 1e4), cbl_growth = c(NA, 0.01, 0.01))
+    r  <- meteoHazard:::.rim_reach(c(50), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_gt(r[2L, 1L], 0.999)
+  })
+
+  it("returns reach = 1 on night and non-transition daytime hours (morning-only gate)", {
+    # Only rows where is_day=TRUE AND cbl_growth > 0 are the morning window.
+    vs <- list(
+      is_day     = c(FALSE, FALSE, TRUE, TRUE, FALSE),
+      pool_top   = rep(80, 5),
+      cbl_growth = c(NA, NA, 8, NA, NA)    # only hour 3 qualifies
+    )
+    r <- meteoHazard:::.rim_reach(c(40), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_equal(r[1L, 1L], 1, tolerance = 1e-9, label = "night row 1")
+    expect_equal(r[2L, 1L], 1, tolerance = 1e-9, label = "night row 2")
+    expect_equal(r[4L, 1L], 1, tolerance = 1e-9, label = "daytime no-CBL row 4")
+    expect_equal(r[5L, 1L], 1, tolerance = 1e-9, label = "night row 5")
+    # Row 3 is the morning window: h_vent=80, z_j=40, δ=20 → logistic(2) ≈ 0.88.
+    # Must be < 0.99 to confirm the gate is active, not stuck at the no-op value.
+    expect_lt(r[3L, 1L], 0.99, label = "morning row: gate fires, reach < 0.99 (expect ≈ 0.88)")
+  })
+
+  it("reach is non-decreasing as pool_top grows (monotone in drainage depth)", {
+    z_j    <- 80
+    ptops  <- c(0, 20, 50, 80, 120, 200)
+    reaches <- vapply(ptops, function(pt) {
+      vs <- .rv_vs(pool_top = rep(pt, 3), cbl_growth = c(NA, 0.01, 0.01))
+      meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)[2L, 1L]
+    }, numeric(1))
+    expect_true(all(diff(reaches) >= -1e-12),
+                label = "reach non-decreasing as pool_top grows")
+  })
+
+  it("reach is non-decreasing across morning hours as cumulative CBL grows", {
+    # cbl_cumsum accumulates hour-by-hour → h_vent rises → reach rises.
+    z_j <- 60
+    vs  <- list(
+      is_day     = c(FALSE, TRUE, TRUE, TRUE),
+      pool_top   = rep(50, 4),
+      cbl_growth = c(NA, 5, 10, 15)
+    )
+    r <- meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 2, RIM_DELTA = 10)
+    expect_true(all(diff(r[2:4, 1L]) >= -1e-12),
+                label = "reach non-decreasing across morning window as CBL grows")
+  })
+
+  it("reach is strictly decreasing in z_j at fixed h_vent (falls with summit height)", {
+    vs     <- .rv_vs(pool_top = c(100, 100, 100), cbl_growth = c(NA, 0.01, 0.01))
+    z_vals <- c(20, 60, 100, 140, 200)
+    reaches <- vapply(z_vals, function(z) {
+      meteoHazard:::.rim_reach(z, vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)[2L, 1L]
+    }, numeric(1))
+    expect_true(all(diff(reaches) < 0),
+                label = "reach strictly decreasing with summit height at fixed h_vent")
+  })
+
+  it("returns an (n_t × n_r) matrix with all values in [0, 1]", {
+    vs  <- .rv_vs()
+    z_j <- c(20, 50, 90)
+    r   <- meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 1, RIM_DELTA = 15)
+    expect_equal(dim(r), c(3L, 3L))
+    expect_true(all(r >= 0 & r <= 1))
+  })
+})
