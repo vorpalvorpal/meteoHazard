@@ -217,10 +217,11 @@ odour_terrain <- odour_risk(met_data, site_t, terrain_backend = "descriptors")
 
 ### Terrain mechanisms
 
-The terrain backend activates two physical mechanisms:
+The terrain backend activates two physical mechanisms, plus an optional rim-venting extension:
 
 - **M1 drainage confinement** — on nocturnal hours when a cold pool is present (`drainage_active = TRUE`), drainage flow channels along the valley axis, concentrating odour downslope.
 - **M3 valley sheltering** (`shelter = TRUE`) — reduces effective wind speed on hours when the site is enclosed by surrounding terrain, scaled by the `shelter_index` (topographic openness) and wind speed.
+- **Upslope rim-venting** (`rim_venting = TRUE`) — extends the M1 morning pulse to elevated rim receptors: during the morning inversion break-up the vented layer climbs the slopes, so a ridge-top receptor is exposed only once the morning vented layer (cold-pool depth plus convective growth) reaches its elevation *and* it sits up the slope the venting flow is climbing. Requires per-receptor `rel_elevation`/`elevation` and `aspect` (from `mh_terrain_from_dem()`); a strict no-op without them. **Off by default — uncalibrated screening defaults (`RIM_LIFT_COEF`, `RIM_DELTA`); calibration pending.**
 
 **Precedence**: M1 takes priority over M3 on any hour when `drainage_active` is `TRUE`. The suppression strength is controlled by `ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP` (default 1.0 = full mutual exclusion on that hour).
 
