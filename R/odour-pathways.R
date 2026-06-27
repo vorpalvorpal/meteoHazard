@@ -88,12 +88,57 @@
 # vs: list from ventilation_state()
 # terrain: mh_terrain or NULL
 
+# ---------------------------------------------------------------------------
+# .rim_reach(z_j, vs, lift_coef, delta)
+# ---------------------------------------------------------------------------
+# Vertical reach gate for C8 upslope rim-venting.
+#
+# Returns an (n_t x n_r) matrix. During morning hours (is_day & cbl_growth > 0)
+# the gate is logistic in (h_vent - z_j) / delta. Outside morning hours the gate
+# is 1 (fully open; caller multiplies, so no effect).
+#
+# h_vent(t) = pool_top(t) + lift_coef * cbl_cumsum(t)
+# cbl_cumsum resets to zero at each morning onset.
+#
+# vs must contain: is_day, cbl_growth, pool_top.
+
+.rim_reach <- function(z_j, vs,
+                       RIM_LIFT_COEF = ODOUR_CONSTANTS$RIM_LIFT_COEF,
+                       RIM_DELTA     = ODOUR_CONSTANTS$RIM_DELTA) {
+  n_t <- length(vs$is_day)
+  n_r <- length(z_j)
+
+  is_morning <- vs$is_day & !is.na(vs$cbl_growth) & vs$cbl_growth > 0
+
+  # Cumulative CBL growth within each morning window (resets at onset).
+  cbl_cumsum <- rep(0.0, n_t)
+  for (t in seq_len(n_t)) {
+    if (!is_morning[t]) next
+    cbl_cumsum[t] <- vs$cbl_growth[t] +
+      if (t > 1L && is_morning[t - 1L]) cbl_cumsum[t - 1L] else 0.0
+  }
+
+  pool_safe <- ifelse(!is.na(vs$pool_top), vs$pool_top, 0.0)
+  h_vent    <- pool_safe + RIM_LIFT_COEF * cbl_cumsum   # 0 on non-morning rows
+
+  reach <- matrix(1.0, n_t, n_r)
+  morning_rows <- which(is_morning)
+  if (length(morning_rows) > 0L) {
+    arg <- outer(h_vent[morning_rows], z_j, "-") / RIM_DELTA
+    reach[morning_rows, ] <- 1 / (1 + exp(-pmin(pmax(arg, -30L), 30L)))
+  }
+  reach
+}
+
+
 # Matrix form: `bearings` is a length-n_r vector of receptor bearings; returns
 # an (n_t x n_r) matrix. The alignment term is the only receptor-dependent
 # quantity, so each hour-mask row is filled with the per-receptor vector.
 .cw_venting_matrix <- function(bearings, vs, terrain,
                                CONFINEMENT_1A = ODOUR_CONSTANTS$CONFINEMENT_1A,
-                               VENTING_1A     = ODOUR_CONSTANTS$VENTING_1A) {
+                               VENTING_1A     = ODOUR_CONSTANTS$VENTING_1A,
+                               rim_reach_mat  = NULL,
+                               align_j        = NULL) {
   n_t <- length(vs$is_day)
   n_r <- length(bearings)
 
@@ -119,6 +164,15 @@
   } else {
     if (any(is_night))   cw[is_night, ]   <- CONFINEMENT_1A
     if (any(is_morning)) cw[is_morning, ] <- VENTING_1A
+  }
+
+  # C8 override: when rim-venting is active, morning rows use the reach-gated
+  # per-receptor alignment rather than the drainage-axis alignment.
+  if (!is.null(rim_reach_mat) && !is.null(align_j) && any(is_morning)) {
+    n_m <- sum(is_morning)
+    cw[is_morning, ] <- VENTING_1A *
+      rim_reach_mat[is_morning, , drop = FALSE] *
+      matrix(align_j, n_m, n_r, byrow = TRUE)
   }
   # Daytime hours with no cbl_growth > 0 remain NA (caller uses flat Gaussian).
   cw
@@ -225,19 +279,20 @@
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$dir_10m_frz[fill]
   fill <- is.na(rw_dir_vec); rw_dir_vec[fill] <- prep$wind_dir_surf[fill]
 
-  # Outer cosine: downwind per hour (down columns) vs bearing per receptor.
-  downwind_dir <- (rw_dir_vec + 180) %% 360
-  diff_deg <- .angular_diff(matrix(bearings,     n_t, n_r, byrow = TRUE),
-                            matrix(downwind_dir, n_t, n_r))
-  cw_val   <- FUMIC_1B * pmax(0, cos(diff_deg * pi / 180))^2
-  dim(cw_val) <- c(n_t, n_r)   # pmax() drops the matrix dim; restore it
-
-  cw         <- matrix(NA_real_, n_t, n_r)
-  known      <- !is.na(rw_dir_vec)               # len n_t
+  known      <- !is.na(rw_dir_vec)
   rows_known <- is_active & known
   rows_zero  <- is_active & !known
-  if (any(rows_known)) cw[rows_known, ] <- cw_val[rows_known, ]
-  if (any(rows_zero))  cw[rows_zero, ]  <- 0
+
+  # Build the cosine matrix only for active rows to avoid allocating full n_t
+  # temporary matrices when most hours are not morning-transition.
+  cw <- matrix(NA_real_, n_t, n_r)
+  if (any(rows_known)) {
+    dw_sub   <- ((rw_dir_vec[rows_known] + 180) %% 360)
+    diff_sub <- .angular_diff(matrix(bearings, sum(rows_known), n_r, byrow = TRUE),
+                              matrix(dw_sub,   sum(rows_known), n_r))
+    cw[rows_known, ] <- FUMIC_1B * pmax(0, cos(diff_sub * pi / 180))^2
+  }
+  if (any(rows_zero)) cw[rows_zero, ] <- 0
   cw
 }
 

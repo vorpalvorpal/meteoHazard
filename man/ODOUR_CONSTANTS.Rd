@@ -5,7 +5,7 @@
 \alias{ODOUR_CONSTANTS}
 \title{Constants for the odour hazard and exposure model}
 \format{
-An object of class \code{list} of length 23.
+An object of class \code{list} of length 32.
 }
 \usage{
 ODOUR_CONSTANTS
@@ -40,6 +40,26 @@ shallow nocturnal boundary layer) and 600 (neutral/unstable).}
 \item{SIGMA_Y_COEF}{Briggs (1973) rural lateral-dispersion leading
 coefficients for Pasquill-Gifford classes A-F (indices 1-6), used as
 \code{sigma_y = c_y * x / sqrt(1 + 0.0001 * x)}.}
+\item{SHELTER_OPEN_REF}{Sky-view openness angle (degrees) for flat/open
+terrain with no sheltering effect, 85. Above this value \code{s_f = 0}.}
+\item{SHELTER_ENCLOSED_REF}{Sky-view openness angle (degrees) for strongly
+enclosed terrain at full shelter effect, 50. Below this value \code{s_f = 1}.}
+\item{SHELTER_U_FULL}{Wind speed (m/s) at or below which the shelter
+regime weight \code{w_r = 1} (full effect), 1.5.}
+\item{SHELTER_U_FLUSH}{Wind speed (m/s) at or above which \code{w_r = 0}
+(shelter flushed out by wind), 6.0.}
+\item{SHELTER_MAX_REDUCTION}{Maximum fractional reduction in \code{u_eff} from
+valley sheltering, 0.7. Uncalibrated screening default.}
+\item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
+drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
+full suppression of M3 on hours where M1 drainage is active.}
+\item{RIM_LIFT_COEF}{Coefficient (dimensionless) scaling cumulative CBL growth
+into the morning vented-layer depth: \code{h_vent = pool_top + RIM_LIFT_COEF *
+    cbl_cumsum}. Uncalibrated screening default 0.2; calibration deferred to
+issue #8.}
+\item{RIM_DELTA}{Logistic half-width (m) for the vertical reach gate: controls
+sharpness of the transition from 0 to 1 as \code{h_vent} crosses the receptor
+height \code{z_j}. Uncalibrated screening default 25 m; calibration → #8.}
 }
 }
 \keyword{internal}

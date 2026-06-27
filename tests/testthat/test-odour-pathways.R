@@ -495,3 +495,238 @@ describe("odour_exposure() terrain-backend edges", {
     expect_true(all(flat_no_ter >= 0 & flat_no_ter <= 100))
   })
 })
+
+
+# ---------------------------------------------------------------------------
+# Terrain-modifier precedence: M3 shelter × M1 drainage no-stack (C6)
+# ---------------------------------------------------------------------------
+#
+# Contract (from C6 plan §2): on any hour where M1 drainage confinement is
+# active, M3 shelter is suppressed (DRAINAGE_SHELTER_OVERLAP = 1.0 → full
+# mutual exclusion). The no-stack test verifies this end-to-end.
+#
+# drainage_active[t] = is_channelled       (flow_convergence ≥ 0.5 & drainage_bearing non-NA)
+#                      & !is_day[t]
+#                      & !is.na(pool_top[t]) & pool_top[t] > 0
+# ---------------------------------------------------------------------------
+
+describe("Terrain-modifier precedence: M3 shelter does not stack with M1 drainage", {
+
+  # Met: 12 clear cold nights (pool_top will accumulate; no morning CBL).
+  .prec_met <- function() {
+    as.data.frame(lapply(list(
+      wind_direction_10m     = rep(30, 12),   # aligned with drainage_bearing
+      wind_speed_10m         = rep(1.5, 12),  # in the shelter-active regime
+      direct_radiation       = rep(0,   12),  # all night
+      cloud_cover            = rep(0,   12),  # clear → fast pool buildup
+      boundary_layer_height  = rep(200, 12),
+      temperature_2m         = rep(5,   12),
+      relative_humidity_2m   = rep(40,  12),
+      pressure_msl           = rep(1013, 12),
+      precipitation          = rep(0,   12),
+      soil_moisture_0_to_1cm = rep(0.1, 12),
+      soil_moisture_1_to_3cm = rep(0.1, 12)
+    ), identity))
+  }
+
+  # Channelled terrain with shelter: both M1 and M3 would fire if not reconciled.
+  .prec_terrain <- function() {
+    mh_terrain(
+      shelter_index    = 50,           # maximum M3 shelter effect
+      flow_convergence = 0.8,          # ≥ 0.5 → channelled (M1 active)
+      drainage_bearing = 30,           # non-NA → channelled predicate
+      valley_depth     = 60,
+      taf              = 1.5
+    )
+  }
+
+  # Site: single source, single receptor, channelled terrain.
+  .prec_site <- function(ter) {
+    origin_x <- 335000; origin_y <- 6250000
+    feats <- sf::st_sf(
+      id       = c("src", "rec"),
+      geometry = sf::st_sfc(
+        sf::st_point(c(origin_x,         origin_y)),
+        sf::st_point(c(origin_x,         origin_y + 400)),
+        crs = 32755
+      )
+    )
+    roles <- data.frame(
+      feature_id = c("src", "rec"),
+      hazard     = "odour",
+      role       = c("source", "receptor"),
+      stringsAsFactors = FALSE
+    )
+    mh_site(feats, roles, terrain = ter, epsg = 32755L)
+  }
+
+
+  it("enabling shelter does not increase exposure on drainage_active hours vs no shelter", {
+    # On hours where M1 drainage is active, M3 shelter must be fully suppressed.
+    # Therefore odour_exposure(..., shelter = TRUE) must give the SAME exposure
+    # as shelter = FALSE on drainage_active hours.
+    #
+    # Both use terrain_backend = "descriptors" so M1 fires.
+    ter  <- .prec_terrain()
+    site <- .prec_site(ter)
+    d    <- .prec_met()
+
+    # Derive the ventilation state to identify drainage_active hours.
+    vs <- ventilation_state(d, terrain = ter)
+    is_channelled   <- !is.na(ter@drainage_bearing) &&
+                       !is.na(ter@flow_convergence)  &&
+                       ter@flow_convergence >= 0.5
+    drainage_active <- is_channelled &
+      !vs$is_day &
+      !is.na(vs$pool_top) &
+      vs$pool_top > 0
+
+    exp_no_shelter   <- odour_exposure(d, site,
+                                        terrain_backend = "descriptors",
+                                        shelter = FALSE)
+    exp_with_shelter <- odour_exposure(d, site,
+                                        terrain_backend = "descriptors",
+                                        shelter = TRUE)
+
+    # Fixture must produce at least one drainage_active hour.
+    expect_true(any(drainage_active),
+                label = "fixture must produce at least one drainage_active hour")
+
+    expect_equal(
+      exp_with_shelter[drainage_active],
+      exp_no_shelter[drainage_active],
+      tolerance = 1e-9,
+      label = "shelter must not change exposure on drainage_active hours"
+    )
+  })
+
+  it("shelter fires on non-drainage hours: raises exposure by at least 5%", {
+    # Daytime hour → is_day=TRUE → drainage_active = FALSE (M1 suppression off).
+    # shelter_index=50, u10=1.5 (=SHELTER_U_FULL): u_eff drops 1.5→0.5 (×3).
+    # After C9 (shared hazard core): c_rel ∝ 1/u_eff → exposure rises ≥5%.
+    # Receptor 2000 m north (wind from 180°) avoids saturation at 100%.
+    d_day <- .pmet(
+      n = 1,
+      wind_direction_10m    = 180,
+      wind_speed_10m        = 1.5,
+      direct_radiation      = 400,   # daytime → drainage_active = FALSE
+      cloud_cover           = 0,
+      boundary_layer_height = 1200
+    )
+    ter <- .prec_terrain()
+    # Bespoke site: receptor 2000 m due north of source (downwind under 180° wind).
+    origin_x <- 335000; origin_y <- 6250000
+    site_far <- mh_site(
+      sf::st_sf(id = c("src", "rec"),
+                geometry = sf::st_sfc(
+                  sf::st_point(c(origin_x, origin_y)),
+                  sf::st_point(c(origin_x, origin_y + 2000)), crs = 32755)),
+      data.frame(feature_id = c("src", "rec"), hazard = "odour",
+                 role = c("source", "receptor"), stringsAsFactors = FALSE),
+      terrain = ter, epsg = 32755L
+    )
+
+    exp_no_shlt   <- odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = FALSE)
+    exp_with_shlt <- odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = TRUE)
+
+    # exp_no_shlt must be < 100 (receptor is far enough to avoid saturation).
+    expect_lt(exp_no_shlt, 100)
+    # M3 fires: lower u_eff → higher c_rel → higher exposure. Require at least 5%.
+    expect_gt(exp_with_shlt, exp_no_shlt * 1.05)
+  })
+
+})
+
+
+# ---------------------------------------------------------------------------
+# C8 — Upslope rim-venting: .rim_reach() unit specs
+# ---------------------------------------------------------------------------
+# Written BEFORE implementation (TDD). These fail until .rim_reach() exists in
+# R/odour-pathways.R.
+# ---------------------------------------------------------------------------
+
+describe(".rim_reach(): vertical reach gate for morning anabatic venting (C8)", {
+
+  # Minimal ventilation-state list: n_t = 3 → [night-with-pool, morning, mid-morning].
+  .rv_vs <- function(pool_top   = c(50,  50,  50),
+                     cbl_growth = c(NA,  10,  15),
+                     is_day     = c(FALSE, TRUE, TRUE)) {
+    list(is_day = is_day, pool_top = pool_top, cbl_growth = cbl_growth)
+  }
+
+  it("returns reach = 0.5 at the logistic centre when h_vent equals z_j", {
+    # With RIM_LIFT_COEF = 0, h_vent = pool_top.  Setting pool_top = z_j puts the
+    # logistic argument at zero, giving 1 / (1 + exp(0)) = 0.5.
+    vs <- .rv_vs(pool_top = c(80, 80, 80), cbl_growth = c(NA, 0.01, 0.01))
+    r  <- meteoHazard:::.rim_reach(c(80), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_equal(r[2L, 1L], 0.5, tolerance = 1e-6,
+                 label = "morning onset: h_vent = z_j ⇒ reach = 0.5")
+  })
+
+  it("returns reach > 0.999 when h_vent >> z_j (deep pool relative to summit)", {
+    vs <- .rv_vs(pool_top = c(1e4, 1e4, 1e4), cbl_growth = c(NA, 0.01, 0.01))
+    r  <- meteoHazard:::.rim_reach(c(50), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_gt(r[2L, 1L], 0.999)
+  })
+
+  it("returns reach = 1 on night and non-transition daytime hours (morning-only gate)", {
+    # Only rows where is_day=TRUE AND cbl_growth > 0 are the morning window.
+    vs <- list(
+      is_day     = c(FALSE, FALSE, TRUE, TRUE, FALSE),
+      pool_top   = rep(80, 5),
+      cbl_growth = c(NA, NA, 8, NA, NA)    # only hour 3 qualifies
+    )
+    r <- meteoHazard:::.rim_reach(c(40), vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)
+    expect_equal(r[1L, 1L], 1, tolerance = 1e-9, label = "night row 1")
+    expect_equal(r[2L, 1L], 1, tolerance = 1e-9, label = "night row 2")
+    expect_equal(r[4L, 1L], 1, tolerance = 1e-9, label = "daytime no-CBL row 4")
+    expect_equal(r[5L, 1L], 1, tolerance = 1e-9, label = "night row 5")
+    # Row 3 is the morning window: h_vent=80, z_j=40, δ=20 → logistic(2) ≈ 0.88.
+    # Must be < 0.99 to confirm the gate is active, not stuck at the no-op value.
+    expect_lt(r[3L, 1L], 0.99, label = "morning row: gate fires, reach < 0.99 (expect ≈ 0.88)")
+  })
+
+  it("reach is non-decreasing as pool_top grows (monotone in drainage depth)", {
+    z_j    <- 80
+    ptops  <- c(0, 20, 50, 80, 120, 200)
+    reaches <- vapply(ptops, function(pt) {
+      vs <- .rv_vs(pool_top = rep(pt, 3), cbl_growth = c(NA, 0.01, 0.01))
+      meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)[2L, 1L]
+    }, numeric(1))
+    expect_true(all(diff(reaches) >= -1e-12),
+                label = "reach non-decreasing as pool_top grows")
+  })
+
+  it("reach is non-decreasing across morning hours as cumulative CBL grows", {
+    # cbl_cumsum accumulates hour-by-hour → h_vent rises → reach rises.
+    z_j <- 60
+    vs  <- list(
+      is_day     = c(FALSE, TRUE, TRUE, TRUE),
+      pool_top   = rep(50, 4),
+      cbl_growth = c(NA, 5, 10, 15)
+    )
+    r <- meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 2, RIM_DELTA = 10)
+    expect_true(all(diff(r[2:4, 1L]) >= -1e-12),
+                label = "reach non-decreasing across morning window as CBL grows")
+  })
+
+  it("reach is strictly decreasing in z_j at fixed h_vent (falls with summit height)", {
+    vs     <- .rv_vs(pool_top = c(100, 100, 100), cbl_growth = c(NA, 0.01, 0.01))
+    z_vals <- c(20, 60, 100, 140, 200)
+    reaches <- vapply(z_vals, function(z) {
+      meteoHazard:::.rim_reach(z, vs, RIM_LIFT_COEF = 0, RIM_DELTA = 20)[2L, 1L]
+    }, numeric(1))
+    expect_true(all(diff(reaches) < 0),
+                label = "reach strictly decreasing with summit height at fixed h_vent")
+  })
+
+  it("returns an (n_t × n_r) matrix with all values in [0, 1]", {
+    vs  <- .rv_vs()
+    z_j <- c(20, 50, 90)
+    r   <- meteoHazard:::.rim_reach(z_j, vs, RIM_LIFT_COEF = 1, RIM_DELTA = 15)
+    expect_equal(dim(r), c(3L, 3L))
+    expect_true(all(r >= 0 & r <= 1))
+  })
+})

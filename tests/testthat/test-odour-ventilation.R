@@ -370,4 +370,263 @@ describe("ventilation_state(): validation", {
     expect_error(ventilation_state(d_ml), class = "meteoHazard_input_error")
   })
 
+  it("raises meteoHazard_input_error for non-logical shelter argument", {
+    d <- vs_met()
+    expect_error(
+      ventilation_state(d, shelter = "yes"),
+      class = "meteoHazard_input_error"
+    )
+    expect_error(
+      ventilation_state(d, shelter = 1L),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("raises meteoHazard_input_error for non-logical shelter_h_mix argument", {
+    d <- vs_met()
+    expect_error(
+      ventilation_state(d, shelter_h_mix = "yes"),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+})
+
+
+# ---------------------------------------------------------------------------
+# M3 — valley sheltering (C6, issue #20)
+# ---------------------------------------------------------------------------
+#
+# Transfer model (all constants in ODOUR_CONSTANTS):
+#   s_f  = clamp((SHELTER_OPEN_REF - shelter_index) /
+#                (SHELTER_OPEN_REF - SHELTER_ENCLOSED_REF), 0, 1)
+#          SHELTER_OPEN_REF = 85 deg, SHELTER_ENCLOSED_REF = 50 deg
+#   w_r  = clamp((SHELTER_U_FLUSH - u10) /
+#                (SHELTER_U_FLUSH - SHELTER_U_FULL), 0, 1)
+#          SHELTER_U_FLUSH = 6.0 m/s, SHELTER_U_FULL = 1.5 m/s
+#   reduction = SHELTER_MAX_REDUCTION * s_f * w_r   (SHELTER_MAX_REDUCTION = 0.7)
+#   reduction_effective = reduction * (1 - DRAINAGE_SHELTER_OVERLAP * drainage_active)
+#   u_eff_sheltered = max(u_eff_base * (1 - reduction_effective), U_CALM_FLOOR)
+# ---------------------------------------------------------------------------
+
+describe("ventilation_state(): M3 valley sheltering (shelter = TRUE)", {
+
+  # Helper: night met, optionally windy, no temperature/RH to keep pool_top simple.
+  vs_night <- function(u10 = 2.0, n = 1) {
+    as.data.frame(lapply(list(
+      wind_speed_10m        = u10,
+      direct_radiation      = 0,
+      cloud_cover           = 50,
+      boundary_layer_height = 400
+    ), rep_len, n))
+  }
+
+  # Helper: channelled terrain (M1 active if pool_top > 0)
+  ter_channelled <- function(shelter_index = 50) {
+    mh_terrain(
+      shelter_index    = shelter_index,
+      flow_convergence = 0.8,          # ≥ 0.5 → channelled
+      drainage_bearing = 30            # non-NA → channelled predicate TRUE
+    )
+  }
+
+  # Helper: open terrain (no M1 drainage confinement)
+  ter_open <- function(shelter_index = 50) {
+    mh_terrain(shelter_index = shelter_index)
+  }
+
+
+  # -- Default-off is identity -----------------------------------------------
+
+  it("shelter = FALSE leaves u_eff bit-identical to the default (regression)", {
+    # shelter = FALSE is the default; it must reproduce the current output
+    # exactly for every input.
+    d <- vs_night(u10 = 3)
+    vs_default <- ventilation_state(d)
+    vs_off     <- ventilation_state(d, shelter = FALSE)
+    expect_identical(vs_default$u_eff, vs_off$u_eff)
+    expect_identical(vs_default$h_mix, vs_off$h_mix)
+  })
+
+  it("shelter = FALSE with terrain leaves u_eff bit-identical to no-terrain (regression)", {
+    d   <- vs_night(u10 = 2)
+    ter <- ter_open(shelter_index = 50)
+    vs_no_ter    <- ventilation_state(d, shelter = FALSE)
+    vs_with_ter  <- ventilation_state(d, terrain = ter, shelter = FALSE)
+    expect_identical(vs_no_ter$u_eff, vs_with_ter$u_eff)
+  })
+
+
+  # -- Analytic transfer-model values ----------------------------------------
+
+  it("u_eff is clamped to U_CALM_FLOOR when shelter_index = 50 and u10 = 1.5", {
+    # At the maximum-shelter inputs:
+    #   s_f = (85 - 50) / (85 - 50) = 1.0
+    #   w_r = (6.0 - 1.5) / (6.0 - 1.5) = 1.0
+    #   reduction = 0.7 * 1.0 * 1.0 = 0.7
+    #   u_eff_base = max(1.5, 0.5) = 1.5
+    #   u_eff_sheltered = max(1.5 * 0.3, 0.5) = max(0.45, 0.5) = 0.5 = U_CALM_FLOOR
+    d   <- vs_night(u10 = 1.5)
+    ter <- ter_open(shelter_index = 50)
+    vs  <- ventilation_state(d, terrain = ter, shelter = TRUE)
+    expect_equal(vs$u_eff, ODOUR_CONSTANTS$U_CALM_FLOOR, tolerance = 1e-9)
+  })
+
+  it("u_eff matches the analytic formula at mid-range shelter and wind", {
+    # shelter_index = 67.5, u10 = 3.75 (both at midpoints of their ranges):
+    #   s_f = (85 - 67.5) / 35 = 0.5
+    #   w_r = (6.0 - 3.75) / 4.5 = 0.5
+    #   reduction = 0.7 * 0.5 * 0.5 = 0.175
+    #   u_eff_base = max(3.75, 0.5) = 3.75
+    #   u_eff_sheltered = max(3.75 * (1 - 0.175), 0.5) = max(3.09375, 0.5) = 3.09375
+    d   <- vs_night(u10 = 3.75)
+    ter <- ter_open(shelter_index = 67.5)
+    vs  <- ventilation_state(d, terrain = ter, shelter = TRUE)
+    u_eff_base     <- max(3.75, ODOUR_CONSTANTS$U_CALM_FLOOR)
+    expected_u_eff <- max(u_eff_base * (1 - 0.175), ODOUR_CONSTANTS$U_CALM_FLOOR)
+    expect_equal(vs$u_eff, expected_u_eff, tolerance = 1e-9)
+  })
+
+
+  # -- Structural invariants -------------------------------------------------
+
+  it("u_eff is monotonically non-increasing as shelter_index decreases", {
+    # More enclosed (lower shelter_index) → larger s_f → larger reduction → lower u_eff.
+    d <- vs_night(u10 = 3.0)
+    idxs   <- c(85, 75, 65, 55, 50)   # decreasing openness
+    u_effs <- vapply(idxs, function(si) {
+      ter <- ter_open(shelter_index = si)
+      ventilation_state(d, terrain = ter, shelter = TRUE)$u_eff
+    }, numeric(1))
+    expect_true(all(diff(u_effs) <= 1e-9),
+                label = "u_eff should be non-increasing as shelter_index falls")
+  })
+
+  it("reduction is capped: shelter_index below SHELTER_ENCLOSED_REF gives same as SHELTER_ENCLOSED_REF", {
+    # SHELTER_ENCLOSED_REF = 50; s_f is clamped to [0,1], so shelter_index = 30
+    # gives s_f = 1.0, same as shelter_index = 50.
+    d       <- vs_night(u10 = 2.0)
+    ter_50  <- ter_open(shelter_index = 50)
+    ter_30  <- ter_open(shelter_index = 30)
+    vs_50   <- ventilation_state(d, terrain = ter_50, shelter = TRUE)
+    vs_30   <- ventilation_state(d, terrain = ter_30, shelter = TRUE)
+    expect_equal(vs_50$u_eff, vs_30$u_eff, tolerance = 1e-9)
+  })
+
+
+  # -- Flush regime ----------------------------------------------------------
+
+  it("reduction is zero when u10 >= SHELTER_U_FLUSH (valley flushed)", {
+    # SHELTER_U_FLUSH = 6.0 m/s: w_r = 0 → reduction = 0 → u_eff unchanged.
+    d_flush  <- vs_night(u10 = 6.0)
+    d_strong <- vs_night(u10 = 8.0)
+    ter      <- ter_open(shelter_index = 50)
+
+    vs_base_flush  <- ventilation_state(d_flush,  shelter = FALSE)
+    vs_base_strong <- ventilation_state(d_strong, shelter = FALSE)
+    vs_shlt_flush  <- ventilation_state(d_flush,  terrain = ter, shelter = TRUE)
+    vs_shlt_strong <- ventilation_state(d_strong, terrain = ter, shelter = TRUE)
+
+    expect_equal(vs_shlt_flush$u_eff,  vs_base_flush$u_eff,  tolerance = 1e-9)
+    expect_equal(vs_shlt_strong$u_eff, vs_base_strong$u_eff, tolerance = 1e-9)
+  })
+
+  it("reduction is maximum when u10 <= SHELTER_U_FULL", {
+    # SHELTER_U_FULL = 1.5 m/s: w_r = 1.0 for all u10 ≤ 1.5.
+    d_at_full   <- vs_night(u10 = 1.5)
+    d_below_full <- vs_night(u10 = 1.0)
+    ter <- ter_open(shelter_index = 50)
+
+    vs_at   <- ventilation_state(d_at_full,    terrain = ter, shelter = TRUE)
+    vs_below <- ventilation_state(d_below_full, terrain = ter, shelter = TRUE)
+
+    # Both should be clamped to U_CALM_FLOOR (since 0.7 reduction from ≤1.5 m/s
+    # drives u_eff below the floor).
+    expect_equal(vs_at$u_eff,    ODOUR_CONSTANTS$U_CALM_FLOOR, tolerance = 1e-9)
+    expect_equal(vs_below$u_eff, ODOUR_CONSTANTS$U_CALM_FLOOR, tolerance = 1e-9)
+  })
+
+
+  # -- Graceful no-ops -------------------------------------------------------
+
+  it("shelter = TRUE with terrain = NULL leaves u_eff unchanged", {
+    d  <- vs_night(u10 = 2.0)
+    vs_null  <- ventilation_state(d, terrain = NULL,            shelter = TRUE)
+    vs_false <- ventilation_state(d, shelter = FALSE)
+    expect_identical(vs_null$u_eff, vs_false$u_eff)
+  })
+
+  it("shelter = TRUE with terrain having shelter_index = NA leaves u_eff unchanged", {
+    d   <- vs_night(u10 = 2.0)
+    ter <- mh_terrain(shelter_index = NA_real_, flow_convergence = 0.3)
+    vs_na    <- ventilation_state(d, terrain = ter, shelter = TRUE)
+    vs_false <- ventilation_state(d, shelter = FALSE)
+    expect_identical(vs_na$u_eff, vs_false$u_eff)
+  })
+
+
+  # -- shelter_h_mix ---------------------------------------------------------
+
+  it("h_mix is unchanged by shelter when shelter_h_mix = FALSE (default)", {
+    d   <- vs_night(u10 = 1.5)
+    ter <- ter_open(shelter_index = 50)
+    vs_on  <- ventilation_state(d, terrain = ter, shelter = TRUE, shelter_h_mix = FALSE)
+    vs_off <- ventilation_state(d, shelter = FALSE)
+    expect_identical(vs_on$h_mix, vs_off$h_mix)
+  })
+
+  it("h_mix is reduced by (1 - reduction) when shelter_h_mix = TRUE", {
+    # At shelter_index = 50, u10 = 3.75: reduction = 0.175 (from the analytic test).
+    # h_mix_sheltered = h_mix_base * (1 - 0.175) = h_mix_base * 0.825.
+    d     <- vs_night(u10 = 3.75)
+    ter   <- ter_open(shelter_index = 67.5)
+    vs_base <- ventilation_state(d, shelter = FALSE)
+    vs_hmix <- ventilation_state(d, terrain = ter, shelter = TRUE, shelter_h_mix = TRUE)
+    expected_h_mix <- vs_base$h_mix * (1 - 0.175)
+    expect_equal(vs_hmix$h_mix, expected_h_mix, tolerance = 1e-6)
+  })
+
+
+  # -- Precedence: M1 drainage × M3 shelter no-stack -------------------------
+
+  it("shelter is fully suppressed on drainage_active hours (DRAINAGE_SHELTER_OVERLAP = 1)", {
+    # drainage_active = is_channelled & !is_day & !is.na(pool_top) & pool_top > 0.
+    # On those hours: reduction_effective = 0 → u_eff unchanged.
+    # Use a channelled terrain and a clear cold night (pool_top will accumulate).
+    d_night <- as.data.frame(lapply(list(
+      wind_speed_10m        = rep(1.5, 6),
+      direct_radiation      = rep(0,   6),   # night
+      cloud_cover           = rep(0,   6),   # clear (max cooling)
+      boundary_layer_height = rep(200, 6),
+      temperature_2m        = rep(5,   6),
+      relative_humidity_2m  = rep(40,  6)
+    ), identity))
+
+    ter <- ter_channelled(shelter_index = 50)   # channelled + shelter
+
+    vs_no_shelter  <- ventilation_state(d_night, terrain = ter, shelter = FALSE)
+    vs_with_shelter <- ventilation_state(d_night, terrain = ter, shelter = TRUE)
+
+    # Identify drainage_active hours: channelled & night & pool_top > 0.
+    is_channelled <- TRUE  # flow_convergence = 0.8 ≥ 0.5 & drainage_bearing non-NA
+    drainage_active <- is_channelled &
+      !vs_no_shelter$is_day &
+      !is.na(vs_no_shelter$pool_top) &
+      vs_no_shelter$pool_top > 0
+
+    # Fixture must exercise at least one drainage_active hour — guards the guard.
+    expect_true(any(drainage_active),
+                label = "fixture must produce at least one drainage_active hour")
+
+    # On drainage_active hours, shelter must NOT reduce u_eff.
+    expect_equal(
+      vs_with_shelter$u_eff[drainage_active],
+      vs_no_shelter$u_eff[drainage_active],
+      tolerance = 1e-9,
+      label = "u_eff on drainage_active hours must equal no-shelter u_eff"
+    )
+    # M3 on unconstrained (non-drainage) nights is covered by the monotonicity and
+    # analytic-formula tests above.
+  })
+
 })

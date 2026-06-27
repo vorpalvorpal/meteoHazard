@@ -199,3 +199,62 @@ describe("odour_hazard() after the C2 ventilation/generation split", {
   })
 
 })
+
+
+# ---------------------------------------------------------------------------
+# C9 — .odour_hazard_raw() single-source-of-truth and shelter wiring
+# ---------------------------------------------------------------------------
+
+describe("odour_hazard(): .odour_hazard_raw() — single source of truth (C9)", {
+
+  it(".odour_hazard_raw(G, vs) returns G*PM*W_rain/(u_eff*h_mix) (unit definition)", {
+    vs <- list(PM = 2.5, W_rain = 0.8, u_eff = 3.0, h_mix = 400.0)
+    G  <- 1.2
+    expect_equal(meteoHazard:::.odour_hazard_raw(G, vs),
+                 1.2 * 2.5 * 0.8 / (3.0 * 400.0))
+  })
+
+  it("odour_hazard() * H_ref_vent == .odour_hazard_raw(G, vs) for varied inputs", {
+    # Structural tie: multiplying the normalized hazard back by the reference
+    # constant must recover the raw helper exactly.
+    d   <- mh(n = 4, wind_speed_10m = c(1, 3, 6, 0.3),
+               direct_radiation = c(0, 600, 0, 0))
+    vs  <- ventilation_state(d, terrain = NULL)
+    G   <- .odour_generation(d)
+    K   <- ODOUR_CONSTANTS
+    ref <- K$PM_MAX / (K$U_CALM_FLOOR * K$H_MIX_FALLBACK_STABLE)
+    expect_equal(odour_hazard(d) * ref,
+                 meteoHazard:::.odour_hazard_raw(G, vs),
+                 tolerance = 1e-12)
+  })
+})
+
+
+describe("odour_hazard(): terrain / shelter params (C9)", {
+
+  it("shelter = FALSE leaves hazard bit-identical to calling without terrain (regression)", {
+    d   <- mh()
+    ter <- mh_terrain(shelter_index = 50)
+    expect_equal(
+      odour_hazard(d, terrain = ter, shelter = FALSE),
+      odour_hazard(d),
+      tolerance = 0
+    )
+  })
+
+  it("odour_hazard(shelter = TRUE) raises hazard on a sheltered low-wind night", {
+    # shelter_index=50 (= SHELTER_ENCLOSED_REF → s_f=1, maximum shelter strength),
+    # u10=1.5 (= SHELTER_U_FULL → w_r=1), no flow_convergence (M1 inactive).
+    # reduction = SHELTER_MAX_REDUCTION * 1 * 1 = 0.7
+    # u_eff_on  = max(1.5 * (1-0.7), 0.5) = max(0.45, 0.5) = 0.5 = U_CALM_FLOOR
+    # u_eff_off = 1.5
+    # hazard ∝ 1/u_eff  →  ratio = 1.5 / 0.5 = 3.
+    d   <- mh(wind_speed_10m = 1.5, direct_radiation = 0, cloud_cover = 5,
+               boundary_layer_height = 150)
+    ter <- mh_terrain(shelter_index = 50)   # no flow_convergence → no drainage suppression
+    h_off <- odour_hazard(d, terrain = ter, shelter = FALSE)
+    h_on  <- odour_hazard(d, terrain = ter, shelter = TRUE)
+    expect_gt(h_on, h_off)
+    expect_equal(h_on / h_off, 3, tolerance = 0.01)
+  })
+})

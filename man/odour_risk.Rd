@@ -10,7 +10,10 @@ odour_risk(
   stability = c("turner", "shear"),
   map_c50 = 0.3,
   terrain_backend = c("none", "descriptors"),
-  datetime = NULL
+  shelter = FALSE,
+  shelter_h_mix = FALSE,
+  datetime = NULL,
+  rim_venting = FALSE
 )
 }
 \arguments{
@@ -32,8 +35,18 @@ and one \verb{(odour, receptor)} role.}
 \item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
 (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
 
+\item{shelter}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}; when \code{TRUE}, M3
+valley sheltering reduces \code{u_eff}, which enters the exposure numerator via
+the shared \code{.odour_hazard_raw()} core — the effect propagates end-to-end
+through \code{odour_risk()} after the C9 fix.}
+
+\item{shelter_h_mix}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}.}
+
 \item{datetime}{Optional \code{POSIXct} vector for the consecutive-hourly spacing
 check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
+
+\item{rim_venting}{Logical. Passed to \code{\link[=odour_exposure]{odour_exposure()}}; activates C8
+upslope rim-venting when \code{TRUE}. Default \code{FALSE}.}
 }
 \value{
 A numeric vector of length \code{nrow(met_data)}: the worst-case 0-100

@@ -26,5 +26,9 @@ Imports:
     sf,
     units
 Suggests:
-    testthat (>= 3.0.0)
+    elevatr,
+    terra,
+    testthat (>= 3.0.0),
+    whitebox,
+    withr
 Config/testthat/edition: 3

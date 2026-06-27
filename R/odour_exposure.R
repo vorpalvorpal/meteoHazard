@@ -39,6 +39,16 @@
 #'   (`100 * (1 - exp(-C_rel / map_c50))`). Default 0.3.
 #' @param terrain_backend `"none"` (flat Gaussian, C3a) or `"descriptors"`
 #'   (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).
+#' @param shelter Logical. Passed to [ventilation_state()]; when `TRUE`, M3
+#'   valley sheltering reduces `u_eff`, which enters the exposure numerator via
+#'   the shared `.odour_hazard_raw()` core — the effect propagates end-to-end
+#'   through `odour_risk()` after the C9 fix.
+#' @param shelter_h_mix Logical. Passed to [ventilation_state()].
+#' @param rim_venting Logical. When `TRUE` and `terrain_backend = "descriptors"`,
+#'   activates C8 upslope rim-venting: the morning pathway 1a crosswind factor is
+#'   gated by a vertical reach function and scaled by per-receptor upslope
+#'   alignment. Has no effect when all receptor `rel_elevation` values are zero or
+#'   absent. Default `FALSE` (C8 not yet calibrated; see issue #8).
 #'
 #' @return A plain numeric vector of length `nrow(met_data)`: the worst-case
 #'   0-100 odour exposure across receptors for each hour.
@@ -59,7 +69,10 @@
 odour_exposure <- function(met_data, site,
                            stability = c("turner", "shear"),
                            map_c50 = 0.3,
-                           terrain_backend = c("none", "descriptors")) {
+                           terrain_backend = c("none", "descriptors"),
+                           shelter = FALSE,
+                           shelter_h_mix = FALSE,
+                           rim_venting = FALSE) {
   stability       <- match.arg(stability)
   terrain_backend <- match.arg(terrain_backend)
 
@@ -99,7 +112,8 @@ odour_exposure <- function(met_data, site,
   }
 
   # ---- Ventilation state -------------------------------------------------- #
-  vs <- ventilation_state(met_data, terrain = site@terrain, stability = stability)
+  vs <- ventilation_state(met_data, terrain = site@terrain, stability = stability,
+                          shelter = shelter, shelter_h_mix = shelter_h_mix)
 
   # ---- Generation modifier G ---------------------------------------------- #
   # Falls back to 1.0 per row if required columns are absent.
@@ -114,8 +128,14 @@ odour_exposure <- function(met_data, site,
   n_r      <- nrow(receptors)
   wind_dir <- met_data$wind_direction_10m
 
-  hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
-    (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
+  # Geometry-based reference (Briggs class-F at X_REF_EXPOSURE, calm floor).
+  # Matches the .odour_hazard_raw() / (u_eff * sigma_y_eff * sigma_z_eff) form.
+  X_ref       <- ODOUR_CONSTANTS$X_REF_EXPOSURE
+  c_y6        <- ODOUR_CONSTANTS$SIGMA_Y_COEF[6]  # class F
+  sigma_y_ref <- c_y6 * X_ref / sqrt(1 + 1e-4 * X_ref)
+  sigma_z_ref <- 0.016 * X_ref / (1 + 3e-4 * X_ref)
+  hazard_ref  <- ODOUR_CONSTANTS$PM_MAX /
+    (ODOUR_CONSTANTS$U_CALM_FLOOR * sigma_y_ref * sigma_z_ref)
 
   sigma_fc <- ODOUR_CONSTANTS$SIGMA_FC_DEG * pi / 180
   c_y      <- ODOUR_CONSTANTS$SIGMA_Y_COEF
@@ -149,10 +169,10 @@ odour_exposure <- function(met_data, site,
     r <- .morning_release(pool_top_for_part, vs$cbl_growth, vs$is_day)
   }
 
-  # Per-hour generation/ventilation scalar (length n_t), broadcast down columns.
-  # Kept separate from hazard_ref so the final division order matches the
-  # original per-receptor arithmetic exactly (G*PM*W_rain*geom*cw / hazard_ref).
-  ghw <- G * vs$PM * vs$W_rain
+  # Per-hour ventilation flux (length n_t), shared with odour_hazard().
+  # hz = G*PM*W_rain/(u_eff*h_mix); multiplied by geom_base the h_mix cancels,
+  # giving G*PM*W_rain/(u_eff*sigma_y_eff*min(sigma_z_eff,h_mix)).
+  hz <- .odour_hazard_raw(G, vs)
 
   # ---- Accumulate summed concentration over sources ----------------------- #
   # All per-(hour, receptor) quantities are held as (n_t x n_r) matrices so the
@@ -222,12 +242,24 @@ odour_exposure <- function(met_data, site,
     cw_flat[vs$is_calm | is.na(wind_dir), ] <- CALM_CROSSWIND
 
     # Flat relative concentration; coincident receptors contribute 0.
-    c_rel_flat <- ghw * geom_base * cw_flat / hazard_ref
+    c_rel_flat <- hz * geom_base * cw_flat / hazard_ref
     c_rel_flat[, dead] <- 0
     c_sum_matrix <- c_sum_matrix + c_rel_flat
 
     # ---- Descriptors terrain delta (reuses geom_base / cw_flat) ----------- #
     if (descriptors) {
+      # D1 z_j priority ladder (per-source: elevation rung uses source ground level).
+      src_elev_k      <- if ("elevation" %in% names(source_k)) source_k$elevation[[1L]] else NA_real_
+      z_j_k           <- .receptor_z_j(receptors, src_elev_k)
+      rim_reach_mat_k <- if (rim_venting && any(z_j_k > 0)) .rim_reach(z_j_k, vs_aug) else NULL
+      # D5 per-receptor upslope alignment (aspect from stored features — no DEM call).
+      asp_k     <- .receptor_aspect(receptors)
+      align_j_k <- if (!is.null(rim_reach_mat_k) && !all(is.na(asp_k))) {
+        brng_rec_src <- (atan2(src_xy[1L, "X"] - rec_coords[, "X"],
+                               src_xy[1L, "Y"] - rec_coords[, "Y"]) * 180 / pi) %% 360
+        pmax(0, cos(.angular_diff(brng_rec_src, asp_k) * pi / 180))
+      } else NULL
+
       part <- .pool_partition(emit_ht, pool_top_for_part, delta_t)
       f_1a <- part$f_1a
       f_1b <- part$f_1b
@@ -237,26 +269,29 @@ odour_exposure <- function(met_data, site,
                              stats::median(pool_top_for_part, na.rm = TRUE) / 2)
       fumic_prep <- .cw_fumigation_prep(vs_aug, above_pool_ht = above_pool_ht)
 
-      cw_1a <- .cw_venting_matrix(brng, vs_aug, terrain)              # n_t x n_r
+      cw_1a <- .cw_venting_matrix(brng, vs_aug, terrain,
+                                  rim_reach_mat = rim_reach_mat_k,
+                                  align_j       = align_j_k)          # n_t x n_r
       cw_1b <- .cw_fumigation_matrix(brng, vs_aug, terrain,
                                      prep = fumic_prep)               # n_t x n_r
 
-      # cw_1a_safe: fall back to flat cw when calm, pool NA, or pathway NA.
-      cond_a <- matrix(is_calm_t | pool_na, n_t, n_r) | is.na(cw_1a)
-      cw_1a_safe <- cw_1a
-      cw_1a_safe[cond_a] <- cw_flat[cond_a]
-
-      # cw_1b_safe: NA → 0 (no fumigation outside morning), then flat when calm
-      # or pool NA.
-      cw_1b_safe <- cw_1b
-      cw_1b_safe[is.na(cw_1b_safe)] <- 0
+      # Patch cw_1a in place: calm/NA-pool rows → flat, then any remaining NAs.
       rows_fb <- is_calm_t | pool_na
-      cw_1b_safe[rows_fb, ] <- cw_flat[rows_fb, ]
+      cw_1a[rows_fb, ] <- cw_flat[rows_fb, ]
+      cw_1a[is.na(cw_1a)] <- cw_flat[is.na(cw_1a)]
 
-      # Blended crosswind (f_1a, f_1b, r_scale are per-hour, broadcast down cols).
-      cw_blended <- f_1a * cw_1a_safe + f_1b * cw_1b_safe * (1 + r_scale)
+      # Patch cw_1b in place: NA → 0 outside morning, then flat when calm/NA-pool.
+      cw_1b[is.na(cw_1b)] <- 0
+      cw_1b[rows_fb, ] <- cw_flat[rows_fb, ]
 
-      c_rel_terrain <- ghw * geom_base * (cw_blended - cw_flat) / hazard_ref
+      # Morning-release scale is a terrain (pool) effect; suppress for calm/NA-pool
+      # hours so the terrain backend stays equal to flat when cw_1a/1b = cw_flat.
+      r_scale_eff <- ifelse(rows_fb, 0, r_scale)
+
+      # Blended crosswind (f_1a, f_1b, r_scale_eff are per-hour, broadcast down cols).
+      cw_blended <- f_1a * cw_1a + f_1b * cw_1b * (1 + r_scale_eff)
+
+      c_rel_terrain <- hz * geom_base * (cw_blended - cw_flat) / hazard_ref
       c_rel_terrain[, dead] <- 0
       c_terrain_matrix <- c_terrain_matrix + c_rel_terrain
     }

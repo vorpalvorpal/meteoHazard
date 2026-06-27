@@ -78,6 +78,26 @@ TWL_CONSTANTS <- list(
 #'   \item{SIGMA_Y_COEF}{Briggs (1973) rural lateral-dispersion leading
 #'     coefficients for Pasquill-Gifford classes A-F (indices 1-6), used as
 #'     `sigma_y = c_y * x / sqrt(1 + 0.0001 * x)`.}
+#'   \item{SHELTER_OPEN_REF}{Sky-view openness angle (degrees) for flat/open
+#'     terrain with no sheltering effect, 85. Above this value `s_f = 0`.}
+#'   \item{SHELTER_ENCLOSED_REF}{Sky-view openness angle (degrees) for strongly
+#'     enclosed terrain at full shelter effect, 50. Below this value `s_f = 1`.}
+#'   \item{SHELTER_U_FULL}{Wind speed (m/s) at or below which the shelter
+#'     regime weight `w_r = 1` (full effect), 1.5.}
+#'   \item{SHELTER_U_FLUSH}{Wind speed (m/s) at or above which `w_r = 0`
+#'     (shelter flushed out by wind), 6.0.}
+#'   \item{SHELTER_MAX_REDUCTION}{Maximum fractional reduction in `u_eff` from
+#'     valley sheltering, 0.7. Uncalibrated screening default.}
+#'   \item{DRAINAGE_SHELTER_OVERLAP}{Mutual-exclusion weight between M1
+#'     drainage confinement and M3 valley sheltering, 1.0. A value of 1 means
+#'     full suppression of M3 on hours where M1 drainage is active.}
+#'   \item{RIM_LIFT_COEF}{Coefficient (dimensionless) scaling cumulative CBL growth
+#'     into the morning vented-layer depth: \code{h_vent = pool_top + RIM_LIFT_COEF *
+#'     cbl_cumsum}. Uncalibrated screening default 0.2; calibration deferred to
+#'     issue #8.}
+#'   \item{RIM_DELTA}{Logistic half-width (m) for the vertical reach gate: controls
+#'     sharpness of the transition from 0 to 1 as \code{h_vent} crosses the receptor
+#'     height \code{z_j}. Uncalibrated screening default 25 m; calibration → #8.}
 #' }
 #' @keywords internal
 ODOUR_CONSTANTS <- list(
@@ -104,5 +124,17 @@ ODOUR_CONSTANTS <- list(
   VENTING_1A               = 0.8,   # morning venting boost for pathway 1a
   FUMIC_1B                 = 0.8,   # fumigation directional factor for pathway 1b
   DELTA_FLOOR              = 20,    # minimum delta for smooth pool partition (m)
-  DELTA_FRAC               = 0.25   # delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
+  DELTA_FRAC               = 0.25,  # delta = max(DELTA_FLOOR, DELTA_FRAC * pool_top)
+  # C6 M3 valley sheltering (uncalibrated screening defaults; calibration → #8)
+  SHELTER_OPEN_REF          = 85,   # deg openness: flat/open (no shelter)
+  SHELTER_ENCLOSED_REF      = 50,   # deg openness: strongly enclosed
+  SHELTER_U_FULL            = 1.5,  # m/s: at/below this, full regime weight
+  SHELTER_U_FLUSH           = 6.0,  # m/s: at/above this, shelter flushed to 0
+  SHELTER_MAX_REDUCTION     = 0.7,  # maximum fractional u_eff reduction
+  DRAINAGE_SHELTER_OVERLAP  = 1.0,  # 1 = full mutual exclusion with M1 drainage
+  # C9 — reference distance for the exposure normaliser (Briggs class-F worst case)
+  X_REF_EXPOSURE            = 250,  # m
+  # C8 upslope rim-venting constants (uncalibrated screening defaults; calibration → #8)
+  RIM_LIFT_COEF             = 0.2,  # α: pool_top + α·cbl_cumsum = h_vent (m/m)
+  RIM_DELTA                 = 25    # δ: logistic reach sharpness (m)
 )

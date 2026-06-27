@@ -65,7 +65,7 @@
   )
 
   ter <- if (with_terrain)
-    mh_terrain(drainage_bearing = 30, flow_convergence = 0.75) else NULL
+    mh_terrain(drainage_bearing = 30, flow_convergence = 0.75, shelter_index = 55) else NULL
   mh_site(feats, roles, terrain = ter, epsg = 32755L)
 }
 
@@ -120,6 +120,17 @@ describe("odour_exposure() golden output (regression oracle for the refactor)", 
   it("matches the pinned descriptors-backend output on the same grid", {
     site <- .char_site(with_terrain = TRUE)
     out  <- odour_exposure(.char_met(), site, terrain_backend = "descriptors")
+    expect_length(out, 24)
+    expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
+  })
+
+  it("matches the pinned descriptors+shelter (M3) output on the same grid", {
+    # After C9, shelter = TRUE feeds u_eff from .odour_hazard_raw() into the
+    # exposure normaliser, so shelter alone is sufficient to change exposure.
+    site <- .char_site(with_terrain = TRUE)
+    out  <- odour_exposure(.char_met(), site,
+                           terrain_backend = "descriptors",
+                           shelter = TRUE)
     expect_length(out, 24)
     expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
   })

@@ -1,3 +1,81 @@
+# meteoHazard 0.3.0
+
+## C8 — Upslope rim-venting to elevated rim receptors (issue #24)
+
+* New `rim_venting = FALSE` parameter on `odour_exposure()` and `odour_risk()`.
+  When `TRUE` with `terrain_backend = "descriptors"`, the morning pathway-1a
+  crosswind factor is gated by a **vertical reach function**: the pulse reaches a
+  receptor at height `z_j` only once the morning vented layer
+  `h_vent = pool_top + RIM_LIFT_COEF * cbl_cumsum` has risen above it.
+* Per-receptor **upslope alignment** (`align_j = max(0, cos(brng_rec_src − aspect_j))`)
+  further scales the 1a term; receptors whose downslope aspect faces away from the
+  source contribute zero regardless of pool depth.
+* **Default-off and uncalibrated.** `rim_venting = FALSE` produces bit-identical
+  output to pre-C8. Constants `RIM_LIFT_COEF = 0.2` and `RIM_DELTA = 25` are
+  screening defaults flagged for calibration in #8.
+* Receptor height `z_j` follows a D1 priority ladder:
+  `receptors$elevation − source_elevation` → `receptors$rel_elevation` (C5
+  setup-time DEM) → 0 (no-op). All receptors with `z_j = 0` bypass the gate.
+* `mh_terrain_from_dem()` now returns a per-receptor `aspect` column (downslope
+  direction, degrees) in `$receptor_fields`, consumed by C8 on the run path.
+* **Run-path safety contract:** `odour_exposure()` never calls `terra::terrain()`
+  or `terra::extract()`; the aspect and relative elevation columns are read from
+  stored receptor features (setup-time C5 output). A §5 regression test locks
+  this boundary.
+* Replaces the removed M2 receptor impaction (#20): M2 had the wrong sign for
+  basin geometry; C8 encodes the correct pathway (morning anabatic venting after
+  overnight cold-pool accumulation).
+
+## C9 — Shared hazard core: wind dilution active in odour_exposure() (issue #25)
+
+* **Bug fix:** `odour_exposure()` previously normalised relative concentration
+  against a constant `H_ref = PM_MAX / (U_CALM_FLOOR * H_MIX_FALLBACK_STABLE)`,
+  meaning `u_eff` did not appear in the exposure formula and M3 valley
+  sheltering had no effect on `odour_risk()` outputs.
+* New internal helper `.odour_hazard_raw(G, vs)` — the ventilation flux
+  `G * PM * W_rain / (u_eff * h_mix)` — is now the single source of truth
+  shared by `odour_hazard()` and `odour_exposure()`.
+* The exposure normaliser is now geometry-based: `PM_MAX / (U_CALM_FLOOR *
+  sigma_y_ref * sigma_z_ref)` at `X_REF_EXPOSURE = 250 m`, Briggs class F,
+  so the reference denominator matches the `1 / (u_eff * sigma_y * sigma_z)`
+  form used in the per-hour concentration.
+* `odour_hazard()` gains `terrain`, `shelter`, and `shelter_h_mix` parameters,
+  wiring M3 valley sheltering directly into the ventilation index.
+* **Consequence:** exposure and risk outputs are lower at short distances (
+  < ~1 km, neutral–unstable conditions) where the old constant normaliser
+  under-estimated dilution; ratios across hours and sites are now physically
+  consistent with the `1/u_eff` advective term.
+* Pre-existing bug in the terrain backend fixed: morning-release `r_scale`
+  was not suppressed for calm/pool-NA hours, producing a spurious spike for
+  calm mornings. Now zeroed via `r_scale_eff`.
+
+## Phase 2 — DEM terrain helper (C5, issue #19)
+
+* New setup-time function `mh_terrain_from_dem()` derives all C1 `mh_terrain`
+  descriptors automatically from a DEM using data-driven analysis scales.
+  Requires `whitebox` + the WhiteboxTools binary (`whitebox::install_whitebox()`)
+  and `terra`. Never on the run path.
+* Analysis scales are recorded in `terrain@meta` (`relief_radius`,
+  `valley_dev_scale`, `shelter_fetch_L`, `drainage_catchment_radius`).
+* `valley_depth` uses multi-scale DEV delineation — **no flow-accumulation
+  channel threshold** — matching the plan's §7 threshold-free requirement.
+* Caller overrides compose: any descriptor may be pre-set to skip its DEM
+  derivation; `meta` flags it as `"user_supplied"`.
+* New `Suggests`: `whitebox`, `terra`, `elevatr`, `withr`.
+
+## Phase 3 — Valley sheltering (M3) (C6, issue #20)
+
+* `ventilation_state()` gains `shelter = FALSE` and `shelter_h_mix = FALSE`.
+  When `shelter = TRUE`, a wind-speed-regime-resolved valley-sheltering
+  reduction is applied to `u_eff` using `terrain@shelter_index`. **Off by
+  default until calibrated** (calibration → #8).
+* **Terrain-modifier precedence:** M1 drainage confinement (C3b) and M3
+  valley sheltering are mutually exclusive on drainage-active hours
+  (`DRAINAGE_SHELTER_OVERLAP = 1.0`). The no-stack contract is regression-
+  guarded by a behaviour spec in `test-odour-pathways.R`.
+* All new coefficients are named constants in `ODOUR_CONSTANTS` (provenance-
+  commented; flagged uncalibrated → #8). No inline literals.
+
 # meteoHazard 0.2.0
 
 ## Performance

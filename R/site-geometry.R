@@ -86,3 +86,37 @@
     (apply(proj_mat, 2L, max) - apply(proj_mat, 2L, min)) / 2
   }
 }
+
+
+# ---------------------------------------------------------------------------
+# .receptor_z_j(receptors, src_elevation)
+# ---------------------------------------------------------------------------
+# D1 priority ladder for receptor height above the source emit base:
+#   (1) receptors$elevation − src_elevation  (absolute ASL columns)
+#   (2) receptors$rel_elevation              (C5 setup-time DEM output)
+#   (3) 0                                    (no-op; reach = 1 everywhere)
+# src_elevation: scalar source ground elevation (NA when absent).
+# Below-source receptors are clamped to 0 (not rim targets).
+
+.receptor_z_j <- function(receptors, src_elevation = NA_real_) {
+  n_r <- nrow(receptors)
+  if ("elevation" %in% names(receptors) && !is.na(src_elevation)) {
+    pmax(0, receptors$elevation - src_elevation)
+  } else if ("rel_elevation" %in% names(receptors)) {
+    pmax(0, receptors$rel_elevation)
+  } else {
+    rep(0.0, n_r)
+  }
+}
+
+
+# ---------------------------------------------------------------------------
+# .receptor_aspect(receptors)
+# ---------------------------------------------------------------------------
+# Returns the downslope aspect column (deg) from stored receptor features,
+# or a vector of NA when the column is absent.
+
+.receptor_aspect <- function(receptors) {
+  if ("aspect" %in% names(receptors)) receptors$aspect
+  else rep(NA_real_, nrow(receptors))
+}

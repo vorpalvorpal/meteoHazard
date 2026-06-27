@@ -136,6 +136,20 @@ library(sf)
 terrain <- mh_terrain(drainage_bearing = 135, flow_convergence = 0.7)
 ```
 
+### Deriving terrain descriptors from a DEM (setup-time)
+
+`mh_terrain_from_dem()` derives the `mh_terrain` descriptors automatically from a digital elevation model. It is a **setup-time-only** function (runs WhiteboxTools flow-routing; takes seconds to minutes); call it once and save the result.
+
+```r
+# One-time setup: derive terrain from a DEM raster.
+dem     <- terra::rast("site_dem.tif")
+source  <- sf::read_sf("source_location.gpkg")
+terrain <- mh_terrain_from_dem(dem, source = source, epsg = 32755L)
+# terrain is an mh_terrain object — pass to mh_site() as shown above.
+```
+
+Requires the `whitebox` and `terra` packages and the WhiteboxTools binary (`whitebox::install_whitebox()`).
+
 ### `site_from_sectors()` — litter sites
 
 For the litter model, `site_from_sectors()` builds an `mh_site` from a compact compass-sector data frame: it places a point source at the site centroid and constructs wedge-arc barrier polygons for each sector.
@@ -200,6 +214,29 @@ site_t  <- mh_site(features = feats, roles = roles, epsg = 32755L,
                    terrain = terrain)
 odour_terrain <- odour_risk(met_data, site_t, terrain_backend = "descriptors")
 ```
+
+### Terrain mechanisms
+
+The terrain backend activates two physical mechanisms, plus an optional rim-venting extension:
+
+- **M1 drainage confinement** — on nocturnal hours when a cold pool is present (`drainage_active = TRUE`), drainage flow channels along the valley axis, concentrating odour downslope.
+- **M3 valley sheltering** (`shelter = TRUE`) — reduces effective wind speed on hours when the site is enclosed by surrounding terrain, scaled by the `shelter_index` (topographic openness) and wind speed.
+- **Upslope rim-venting** (`rim_venting = TRUE`) — extends the M1 morning pulse to elevated rim receptors: during the morning inversion break-up the vented layer climbs the slopes, so a ridge-top receptor is exposed only once the morning vented layer (cold-pool depth plus convective growth) reaches its elevation *and* it sits up the slope the venting flow is climbing. Requires per-receptor `rel_elevation`/`elevation` and `aspect` (from `mh_terrain_from_dem()`); a strict no-op without them. **Off by default — uncalibrated screening defaults (`RIM_LIFT_COEF`, `RIM_DELTA`); calibration pending.**
+
+**Precedence**: M1 takes priority over M3 on any hour when `drainage_active` is `TRUE`. The suppression strength is controlled by `ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP` (default 1.0 = full mutual exclusion on that hour).
+
+```r
+terrain <- mh_terrain(
+  drainage_bearing = 135,
+  flow_convergence = 0.7,
+  shelter_index    = 60    # degrees; ~90 = open plain, <60 = strongly enclosed
+)
+site_t <- mh_site(features = feats, roles = roles, epsg = 32755L, terrain = terrain)
+odour_shelter <- odour_risk(met_data, site_t,
+                            terrain_backend = "descriptors", shelter = TRUE)
+```
+
+`shelter_index` can be provided directly or derived automatically via `mh_terrain_from_dem()`.
 
 The 0–100 exposure maps to provisional operational tiers (subject to calibration against complaint records; the mapping is tunable via the `map_c50` argument):
 

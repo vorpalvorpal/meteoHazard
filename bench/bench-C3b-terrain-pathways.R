@@ -20,24 +20,37 @@ library(sf)
 
 make_met <- function(n_hours) {
   set.seed(42)
+  # Realistic diurnal cycle: night = 8 pm – 8 am (12 h), day = 8 am – 8 pm (12 h).
+  hour_in_day <- (seq_len(n_hours) - 1L) %% 24L
+  is_night    <- hour_in_day < 8L | hour_in_day >= 20L
+
   data.frame(
-    wind_speed_10m         = runif(n_hours, 1, 8),
+    wind_speed_10m         = ifelse(is_night, runif(n_hours, 0.5, 2.5),
+                                              runif(n_hours, 2.0, 7.0)),
     wind_direction_10m     = runif(n_hours, 0, 360),
-    wind_gusts_10m         = runif(n_hours, 2, 12),
-    boundary_layer_height  = runif(n_hours, 200, 1500),
-    temperature_2m         = runif(n_hours, 10, 30),
-    pressure_msl           = runif(n_hours, 1000, 1020),
-    precipitation          = pmax(0, rnorm(n_hours, 0, 0.5)),
-    relative_humidity_2m   = runif(n_hours, 40, 90),
-    cloud_cover            = runif(n_hours, 0, 100),
-    direct_radiation       = pmax(0, rnorm(n_hours, 300, 200)),
+    wind_gusts_10m         = ifelse(is_night, runif(n_hours, 1, 4),
+                                              runif(n_hours, 3, 10)),
+    boundary_layer_height  = ifelse(is_night, runif(n_hours,  80, 300),
+                                              runif(n_hours, 500, 1500)),
+    temperature_2m         = 15 + 5 * sin(2 * pi * hour_in_day / 24 - pi / 2) +
+                               rnorm(n_hours, 0, 0.5),
+    pressure_msl           = 1013 + rnorm(n_hours, 0, 2),
+    precipitation          = pmax(0, rnorm(n_hours, 0, 0.2)),
+    relative_humidity_2m   = ifelse(is_night, runif(n_hours, 70, 95),
+                                              runif(n_hours, 40, 70)),
+    cloud_cover            = runif(n_hours, 0, 60),
+    direct_radiation       = ifelse(is_night, 0,
+                                    pmax(10, rnorm(n_hours, 350, 80))),
     soil_moisture_0_to_1cm = runif(n_hours, 0.05, 0.3),
     soil_moisture_1_to_3cm = runif(n_hours, 0.05, 0.3),
-    wind_speed_80m         = runif(n_hours, 1, 10),
+    wind_speed_80m         = ifelse(is_night, runif(n_hours, 1.0, 4.0),
+                                              runif(n_hours, 3.0, 9.0)),
     wind_direction_80m     = runif(n_hours, 0, 360),
-    wind_speed_120m        = runif(n_hours, 1, 10),
+    wind_speed_120m        = ifelse(is_night, runif(n_hours, 1.5, 5.0),
+                                              runif(n_hours, 3.5, 10.0)),
     wind_direction_120m    = runif(n_hours, 0, 360),
-    wind_speed_180m        = runif(n_hours, 1, 10),
+    wind_speed_180m        = ifelse(is_night, runif(n_hours, 2.0, 6.0),
+                                              runif(n_hours, 4.0, 11.0)),
     wind_direction_180m    = runif(n_hours, 0, 360)
   )
 }

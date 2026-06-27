@@ -4,7 +4,14 @@
 \alias{odour_hazard}
 \title{Landfill odour hazard index (meteorological, receptor-independent)}
 \usage{
-odour_hazard(met_data, stability = c("turner", "shear"), datetime = NULL)
+odour_hazard(
+  met_data,
+  stability = c("turner", "shear"),
+  datetime = NULL,
+  terrain = NULL,
+  shelter = FALSE,
+  shelter_h_mix = FALSE
+)
 }
 \arguments{
 \item{met_data}{A data frame (or tibble), one row per consecutive hourly
@@ -25,6 +32,18 @@ requires a \code{wind_speed_80m} column).}
 the rows are checked for consecutive hourly spacing -- the 3-hour pressure
 tendency and 24-hour rainfall lookback assume it -- and a warning is issued
 if they are not (the computation proceeds on row order regardless).}
+
+\item{terrain}{An \code{\link[=mh_terrain]{mh_terrain()}} object, or \code{NULL} (default). When supplied,
+\code{shelter} and \code{shelter_h_mix} may modify the effective wind speed and
+mixing depth via M3 valley sheltering before the ventilation index is
+computed. Ignored when \code{shelter = FALSE}.}
+
+\item{shelter}{Logical (default \code{FALSE}). If \code{TRUE} and \code{terrain} is
+non-\code{NULL} with a finite \code{shelter_index}, apply M3 valley sheltering
+to reduce the effective wind speed.}
+
+\item{shelter_h_mix}{Logical (default \code{FALSE}). If \code{TRUE}, also reduce the
+mixing depth via M3 shelter.}
 }
 \value{
 A numeric vector of length \code{nrow(met_data)}: the relative odour
