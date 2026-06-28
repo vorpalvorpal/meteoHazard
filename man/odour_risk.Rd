@@ -57,10 +57,9 @@ shape and the rationale for not baking in a 0-100 scale).
 }
 \details{
 This is the entry point for the common case; use \code{\link[=odour_exposure]{odour_exposure()}} directly
-for the same result, and \code{\link[=odour_index_interim]{odour_index_interim()}} for the parked, uncalibrated
-0-100 screening index.
+for the same result. Mapping the relative concentration onto an operational
+index is a site-specific calibration step (see issues #11/#8).
 }
 \seealso{
-\code{\link[=odour_exposure]{odour_exposure()}}, \code{\link[=odour_index_interim]{odour_index_interim()}}, \code{\link[=odour_hazard]{odour_hazard()}},
-\code{\link[=ventilation_state]{ventilation_state()}}.
+\code{\link[=odour_exposure]{odour_exposure()}}, \code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=ventilation_state]{ventilation_state()}}.
 }

@@ -129,7 +129,7 @@
 # odour_exposure() now returns a per-receptor relative-concentration matrix
 # (n_hours x n_receptors). Most relational specs below want the worst-case
 # receptor per hour (the pre-#11 return shape); .worst() reduces to it. The
-# 0-100 map moved to odour_index_interim() and is tested separately.
+# package no longer provides a 0-100 odour map (issue #11).
 .worst <- function(m) apply(m, 1L, max)
 
 # ---------------------------------------------------------------------------
@@ -305,19 +305,14 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     expect_equal(two / one, 2, tolerance = 1e-6)
   })
 
-  # 14. Concentrations add across sources (the interim map saturates the sum)
-  it("sums source contributions, and odour_index_interim() saturates the sum", {
+  # 14. Concentrations add across sources
+  it("sums source contributions across sources", {
     d <- .make_odour_met(wind_speed_10m = 2, boundary_layer_height = 400)
     site_two <- .make_two_source_site(rec_bearing = 0, rec_distance = 10000)
     site_one <- .make_odour_site(rec_bearing = 0, rec_distance = 10000)
     one <- .worst(odour_exposure(d, site_one))
     two <- .worst(odour_exposure(d, site_two))
     expect_gt(two, one)
-    # The parked interim index applies the 0-100 map to the summed value and
-    # stays bounded.
-    idx_two <- odour_index_interim(odour_exposure(d, site_two), map_c50 = 0.3)
-    expect_lte(idx_two, 100)
-    expect_gte(idx_two, 0)
   })
 
   # 15. Single source: worst-case over receptors matches the single-receptor site
@@ -682,40 +677,5 @@ describe("odour_exposure(): rim-venting behaviour (C8)", {
     expect_no_error(
       odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
     )
-  })
-})
-
-
-# ---------------------------------------------------------------------------
-# odour_index_interim(): parked, uncalibrated 0-100 map (issue #11)
-# ---------------------------------------------------------------------------
-
-describe("odour_index_interim()", {
-
-  it("collapses a per-receptor matrix to the worst-case 0-100 band per hour", {
-    site <- .make_two_receptor_site()
-    d    <- .make_odour_met(n = 3, wind_direction_10m = c(180, 0, 270))
-    rel  <- odour_exposure(d, site)
-    idx  <- odour_index_interim(rel)
-    expect_length(idx, 3)
-    expect_true(all(idx >= 0 & idx <= 100))
-    # Equals the map applied to the row-wise worst receptor.
-    expect_equal(idx, apply(100 * (1 - exp(-rel / 0.3)), 1L, max))
-  })
-
-  it("is monotonic in concentration and saturates toward 100", {
-    expect_lt(odour_index_interim(0.1), odour_index_interim(0.5))
-    expect_lt(odour_index_interim(2), 100)    # near saturation but strictly < 100
-    expect_gt(odour_index_interim(2), 99)
-    expect_equal(odour_index_interim(0), 0)
-  })
-
-  it("accepts a plain numeric vector and maps elementwise", {
-    v <- c(0, 0.3, 1.0)
-    expect_equal(odour_index_interim(v), 100 * (1 - exp(-v / 0.3)))
-  })
-
-  it("rejects a non-positive map_c50", {
-    expect_error(odour_index_interim(matrix(0.1), map_c50 = 0))
   })
 })

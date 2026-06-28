@@ -50,8 +50,8 @@ one column per \verb{(odour, receptor)} feature (column names are the receptor
 hour. Unbounded, dimensionless, and referenced to a Briggs class-F plume at
 \code{ODOUR_CONSTANTS$X_REF_EXPOSURE}. Coincident source/receptor pairs and
 upwind receptors read 0. Reduce over columns for a worst-case summary
-(e.g. \code{apply(out, 1, max)}); map to an operational index with
-\code{\link[=odour_index_interim]{odour_index_interim()}} (interim, uncalibrated).
+(e.g. \code{apply(out, 1, max)}); any mapping onto an operational index is a
+site-specific calibration step (see issues #11/#8).
 }
 \description{
 Maps the atmospheric ventilation state onto a per-receptor \strong{relative
@@ -61,11 +61,10 @@ relative concentrations from all \verb{(odour, source)} features are summed at
 each \verb{(odour, receptor)}. The result is the unbounded physical layer: a
 \code{n_hours x n_receptors} matrix.
 
-Turning this physical value into a bounded operational index (0-100) or into
-site-specific tiers is a \strong{calibration} decision that belongs downstream of
-the package. The previous saturating 0-100 map is retained, parked and
-uncalibrated, as \code{\link[=odour_index_interim]{odour_index_interim()}} pending the calibration helper
-(issues #11/#8); it is no longer applied to the default output.
+Turning this physical value into a bounded operational index (e.g. 0-100) or
+into site-specific tiers is a \strong{calibration} decision that belongs downstream
+of the package. The package no longer ships a fixed 0-100 odour scale;
+site-specific calibration tooling is planned (issues #11/#8).
 }
 \details{
 Area sources use ISC3 initial spreads: \code{sigma_y0 = crosswind_halfwidth / 4.3} and \code{sigma_z0 = emit_height / 2.15} (both added in quadrature with the
@@ -85,6 +84,5 @@ US EPA (1995). \emph{User's Guide for the Industrial Source Complex (ISC3)
 Dispersion Models}.
 }
 \seealso{
-\code{\link[=odour_index_interim]{odour_index_interim()}}, \code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=odour_risk]{odour_risk()}},
-\code{\link[=ventilation_state]{ventilation_state()}}, \code{\link[=mh_site]{mh_site()}}
+\code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=odour_risk]{odour_risk()}}, \code{\link[=ventilation_state]{ventilation_state()}}, \code{\link[=mh_site]{mh_site()}}
 }

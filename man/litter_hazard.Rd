@@ -15,9 +15,9 @@ containing at least the columns \code{wind_gusts_10m} (m/s), \code{wind_speed_10
 \code{\link[=litter_hazard_vec]{litter_hazard_vec()}} (e.g. \code{rain_threshold}, \code{soil_wet}, \code{z0}).}
 }
 \value{
-Numeric vector of length \code{nrow(met_data)}, the litter hazard index in
-\verb{[0, 100]} for each forecast hour. (The odour hazard is on a different,
-relative scale; unifying the two is tracked in GitHub issue #11.)
+Numeric vector of length \code{nrow(met_data)}, the relative litter hazard
+index for each forecast hour (see \code{\link[=litter_hazard_vec]{litter_hazard_vec()}}). Issue #11 removed
+the fixed 0-100 scale across hazards in favour of physical/relative outputs.
 }
 \description{
 Computes the hourly litter hazard index (\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}) for each row

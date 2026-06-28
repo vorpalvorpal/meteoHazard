@@ -80,16 +80,27 @@ Default 15 (~54 km/h). Must exceed \code{wind_transport_onset}.}
 hazard is suppressed (mm). Default 0.5.}
 }
 \value{
-Numeric vector of length equal to the inputs, the litter hazard index
-in \verb{[0, 100]} for each forecast hour.
+Numeric vector of length equal to the inputs, the relative litter hazard
+index for each forecast hour (dimensionless; ~0-100 by construction with the
+default \code{entrainment_max}/\code{transport_max}, but not a calibrated operational
+scale — see the Status section).
 }
 \description{
-Computes an hourly \strong{meteorological litter hazard} in the range \verb{[0, 100]}:
-given the weather in a forecast hour, how strong is the propensity for loose
-litter to be entrained from the working face and moved. This is a
-point-source hazard index, \strong{not} a dispersion model, and it is
-direction-agnostic — wind \emph{direction}, site geometry, and barriers are
-handled separately by \code{\link[=litter_exposure]{litter_exposure()}}.
+Computes an hourly \strong{meteorological litter hazard}: given the weather in a
+forecast hour, how strong is the propensity for loose litter to be entrained
+from the working face and moved. This is a point-source \strong{relative} index,
+\strong{not} a dispersion model, and it is direction-agnostic — wind \emph{direction},
+site geometry, and barriers are handled separately by \code{\link[=litter_exposure]{litter_exposure()}}.
+}
+\section{Status — relative index, no fixed operational scale (issue #11)}{
+
+The hard \code{min(., 100)} cap and the package's fixed \code{categorise_litter()}
+tiers were removed: this returns the relative entrainment x transport index
+directly. With the default \code{entrainment_max = 50} and \code{transport_max = 2} the
+index spans ~0-100 by construction, but that scaling is a modelling choice,
+not a calibrated operational scale. Mapping it onto a site-specific index /
+tiers is a calibration step delivered by forthcoming calibration tooling
+(issues #11/#8).
 }
 \details{
 The function does not query any API. The caller fetches the four required
@@ -103,15 +114,15 @@ The dimensional inputs (\code{wind_gusts_10m}, \code{wind_speed_10m}, \code{prec
 may be supplied either as bare numerics in the documented unit or as
 \pkg{units} objects, which are converted automatically (a dimensionally
 incompatible unit is an error). \code{soil_moisture_0_to_1cm} is a dimensionless
-ratio and is taken as-is. The returned index is dimensionless (0--100) and is
-a plain numeric.
+ratio and is taken as-is. The returned index is dimensionless and is a plain
+numeric.
 }
 
 \section{Model}{
 
-The index is a bounded, multiplicative combination of entrainment, transport
+The index is a multiplicative combination of entrainment, transport
 potential, and a rainfall gate:
-\deqn{LRI = \min(E \cdot T \cdot R,\; 100)}
+\deqn{LRI = E \cdot T \cdot R}
 
 \describe{
 \item{Entrainment \code{E}}{Driven by the \strong{gust} through friction velocity
@@ -133,8 +144,8 @@ m/s — the "how far is it moved" penalty.}
 \item{Rainfall gate \code{R}}{Binary: \code{R = 0} when \code{precipitation >= rain_threshold}, else 1.}
 }
 Any single suppressor (rain, saturated surface, sub-threshold gust) drives
-the index to zero. The maximum attainable value is exactly 100
-(\code{entrainment_max * transport_max = 50 * 2}).
+the index to zero. The maximum attainable value is
+\code{entrainment_max * transport_max} (= 100 with the defaults 50 and 2).
 }
 
 \references{

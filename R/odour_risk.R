@@ -7,8 +7,8 @@
 #' shape and the rationale for not baking in a 0-100 scale).
 #'
 #' This is the entry point for the common case; use [odour_exposure()] directly
-#' for the same result, and [odour_index_interim()] for the parked, uncalibrated
-#' 0-100 screening index.
+#' for the same result. Mapping the relative concentration onto an operational
+#' index is a site-specific calibration step (see issues #11/#8).
 #'
 #' @inheritParams odour_exposure
 #' @param datetime Optional `POSIXct` vector for the consecutive-hourly spacing
@@ -19,8 +19,7 @@
 #' @return A numeric matrix (`nrow(met_data)` x n_receptors) of relative odour
 #'   concentration; see [odour_exposure()].
 #'
-#' @seealso [odour_exposure()], [odour_index_interim()], [odour_hazard()],
-#'   [ventilation_state()].
+#' @seealso [odour_exposure()], [odour_hazard()], [ventilation_state()].
 #' @export
 odour_risk <- function(met_data, site,
                        stability = c("turner", "shear"),

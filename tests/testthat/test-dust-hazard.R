@@ -6,7 +6,8 @@
 #
 # Wind inputs are in m/s (Open-Meteo fetched with &wind_speed_unit=ms). For
 # sieve 20 / clay 10 / z0 0.005 the dry entrainment threshold sits at a gust of
-# ~10.6 m/s; the default reference gust (index 100) is 18 m/s.
+# ~10.6 m/s. dust_hazard() returns a crust-adjusted RELATIVE dust flux (issue
+# #11 removed the fixed 0-100 index); it shares dust_flux()'s relative units.
 
 skip_if_no_dust_v2 <- function() {
   testthat::skip_if_not(
@@ -91,26 +92,28 @@ describe("dust_hazard() [v2]", {
     df
   }
 
-  it("returns one index per row, bounded to [0, 100]", {
+  it("returns one relative flux per row, non-negative", {
     skip_if_no_dust_v2()
     out <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)))
     expect_length(out, 4)
-    expect_true(all(out >= 0 & out <= 100))
+    expect_true(all(out >= 0))
   })
 
-  it("anchors the index to 100 at the reference gust on a dry surface", {
+  it("equals dust_flux() with crust off (a met-frame convenience wrapper)", {
     skip_if_no_dust_v2()
-    # By construction: an hour at scale_ref_gust (18 m/s), zero mean wind, dry,
-    # crust off, equals the normalisation reference -> 100.
-    out <- dust_hazard(dust_met(gust = 18, wind = 0, sm = 0.02))
-    expect_equal(out, 100, tolerance = DUST_TOL)
+    met <- dust_met(gust = c(8, 14, 18, 25), wind = 0, sm = 0.02)
+    out <- dust_hazard(met, crust = FALSE)
+    ref <- dust_flux(20L, 10, wind_speed_10m = met$wind_speed_10m,
+                     wind_gusts_10m = met$wind_gusts_10m,
+                     soil_moisture = met$soil_moisture_0_to_1cm)
+    expect_equal(out, ref, tolerance = DUST_TOL)
   })
 
-  it("is zero for sub-threshold winds and saturates at 100 above the reference", {
+  it("is zero for sub-threshold winds and positive above threshold", {
     skip_if_no_dust_v2()
     out <- dust_hazard(dust_met(gust = c(8, 25)))
     expect_equal(out[1], 0)
-    expect_equal(out[2], 100, tolerance = DUST_TOL)
+    expect_gt(out[2], 0)
   })
 
   it("increases monotonically with gust", {
@@ -195,19 +198,7 @@ describe("dust units handling", {
     expect_equal(dust_hazard(met), bare, tolerance = DUST_TOL)
   })
 
-  it("dust_hazard accepts a units-tagged scale_ref_gust", {
-    skip_if_no_dust_v2()
-    # 64.8 km/h = 18 m/s, the default reference gust.
-    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = 18,
-                      soil_moisture_0_to_1cm = 0.02)
-    expect_equal(
-      dust_hazard(met, scale_ref_gust = units::set_units(64.8, "km/h")),
-      dust_hazard(met, scale_ref_gust = 18),
-      tolerance = DUST_TOL
-    )
-  })
-
-  it("dust_hazard returns a plain numeric index", {
+  it("dust_hazard returns a plain numeric relative flux", {
     skip_if_no_dust_v2()
     out <- dust_hazard(data.frame(wind_speed_10m = 0, wind_gusts_10m = 18,
                                   soil_moisture_0_to_1cm = 0.02))

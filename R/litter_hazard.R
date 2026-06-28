@@ -1,19 +1,19 @@
-#' Litter Hazard Index for windblown litter at landfill sites
+#' Litter hazard index for windblown litter at landfill sites
 #'
-#' Computes an hourly **meteorological litter hazard** in the range `[0, 100]`:
-#' given the weather in a forecast hour, how strong is the propensity for loose
-#' litter to be entrained from the working face and moved. This is a
-#' point-source hazard index, **not** a dispersion model, and it is
-#' direction-agnostic — wind *direction*, site geometry, and barriers are
-#' handled separately by [litter_exposure()].
+#' Computes an hourly **meteorological litter hazard**: given the weather in a
+#' forecast hour, how strong is the propensity for loose litter to be entrained
+#' from the working face and moved. This is a point-source **relative** index,
+#' **not** a dispersion model, and it is direction-agnostic — wind *direction*,
+#' site geometry, and barriers are handled separately by [litter_exposure()].
 #'
-#' @section Status — interim 0-100 scale, awaiting the calibration helper:
-#' The `[0, 100]` bound (the `min(., 100)` backstop and the
-#' [categorise_litter()] cut-points) is an uncalibrated operational scale,
-#' retained but parked (issues #11/#8). The underlying physical quantity is the
-#' unbounded entrainment x transport product; a forthcoming calibration helper
-#' will fit a site-specific mapping. Do not treat the 0-100 value as calibrated
-#' or as comparable with the dust/odour indices.
+#' @section Status — relative index, no fixed operational scale (issue #11):
+#' The hard `min(., 100)` cap and the package's fixed `categorise_litter()`
+#' tiers were removed: this returns the relative entrainment x transport index
+#' directly. With the default `entrainment_max = 50` and `transport_max = 2` the
+#' index spans ~0-100 by construction, but that scaling is a modelling choice,
+#' not a calibrated operational scale. Mapping it onto a site-specific index /
+#' tiers is a calibration step delivered by forthcoming calibration tooling
+#' (issues #11/#8).
 #'
 #' The function does not query any API. The caller fetches the four required
 #' hourly variables from the Open-Meteo `/v1/forecast` endpoint (winds in m/s,
@@ -25,13 +25,13 @@
 #' may be supplied either as bare numerics in the documented unit or as
 #' \pkg{units} objects, which are converted automatically (a dimensionally
 #' incompatible unit is an error). `soil_moisture_0_to_1cm` is a dimensionless
-#' ratio and is taken as-is. The returned index is dimensionless (0--100) and is
-#' a plain numeric.
+#' ratio and is taken as-is. The returned index is dimensionless and is a plain
+#' numeric.
 #'
 #' @section Model:
-#' The index is a bounded, multiplicative combination of entrainment, transport
+#' The index is a multiplicative combination of entrainment, transport
 #' potential, and a rainfall gate:
-#' \deqn{LRI = \min(E \cdot T \cdot R,\; 100)}
+#' \deqn{LRI = E \cdot T \cdot R}
 #'
 #' \describe{
 #'   \item{Entrainment `E`}{Driven by the **gust** through friction velocity
@@ -54,8 +54,8 @@
 #'     rain_threshold`, else 1.}
 #' }
 #' Any single suppressor (rain, saturated surface, sub-threshold gust) drives
-#' the index to zero. The maximum attainable value is exactly 100
-#' (`entrainment_max * transport_max = 50 * 2`).
+#' the index to zero. The maximum attainable value is
+#' `entrainment_max * transport_max` (= 100 with the defaults 50 and 2).
 #'
 #' @param wind_gusts_10m Numeric vector. Peak wind gust at 10 m (m/s),
 #'   Open-Meteo `wind_gusts_10m` (fetch with `&wind_speed_unit=ms`). Drives
@@ -93,8 +93,10 @@
 #' @param rain_threshold Hourly precipitation at or above which all litter
 #'   hazard is suppressed (mm). Default 0.5.
 #'
-#' @return Numeric vector of length equal to the inputs, the litter hazard index
-#'   in `[0, 100]` for each forecast hour.
+#' @return Numeric vector of length equal to the inputs, the relative litter
+#'   hazard index for each forecast hour (dimensionless; ~0-100 by construction
+#'   with the default `entrainment_max`/`transport_max`, but not a calibrated
+#'   operational scale — see the Status section).
 #'
 #' @references
 #' EPA (2006). AP-42, Section 13.2.5: Industrial Wind Erosion. Basis for the
@@ -219,8 +221,13 @@ litter_hazard_vec <- function(
   # ---- Rainfall hard gate -------------------------------------------------- #
   rain_gate <- ifelse(precipitation >= rain_threshold, 0, 1)
 
-  # ---- Composite, capped at 100 -------------------------------------------- #
-  pmin(entrainment * transport * rain_gate, 100)
+  # ---- Composite relative index -------------------------------------------- #
+  # entrainment in [0, entrainment_max], transport in [1, transport_max],
+  # rain_gate in {0, 1}: a bounded relative screening index (with the default
+  # entrainment_max=50 / transport_max=2 it spans ~0-100 by construction). This
+  # is NOT a calibrated operational scale; site-specific tiers come from
+  # calibration tooling (issues #11/#8). No fixed 0-100 cap is applied.
+  entrainment * transport * rain_gate
 }
 
 
@@ -236,9 +243,9 @@ litter_hazard_vec <- function(
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_hazard_vec()] (e.g. `rain_threshold`, `soil_wet`, `z0`).
 #'
-#' @return Numeric vector of length `nrow(met_data)`, the litter hazard index in
-#'   `[0, 100]` for each forecast hour. (The odour hazard is on a different,
-#'   relative scale; unifying the two is tracked in GitHub issue #11.)
+#' @return Numeric vector of length `nrow(met_data)`, the relative litter hazard
+#'   index for each forecast hour (see [litter_hazard_vec()]). Issue #11 removed
+#'   the fixed 0-100 scale across hazards in favour of physical/relative outputs.
 #'
 #' @seealso [litter_hazard_vec()], [litter_exposure()].
 #' @export

@@ -26,7 +26,7 @@ litter_hazard_vec(set_units(57.6, "km/h"), set_units(45, "km/h"), 0, 0.02)
 litter_hazard_vec(16, 12.5, 0, 0.02)
 ```
 
-Outputs that are genuine physical quantities are returned as `units` objects — `generate_twl()` returns W/m² (use `units::drop_units()` for a bare numeric; `categorise_twl()`/`twl_colour()` accept either). The 0–100 indices and the relative odour hazard are dimensionless and stay plain numeric. Percentages (relative humidity, cloud cover), ratios (soil moisture) and bearings (degrees) are taken as-is.
+Outputs that are genuine physical quantities are returned as `units` objects — `generate_twl()` returns W/m² (use `units::drop_units()` for a bare numeric; `categorise_twl()`/`twl_colour()` accept either). The hazard/exposure indices (relative odour concentration, relative dust flux, litter index) are dimensionless relative quantities and stay plain numeric. Percentages (relative humidity, cloud cover), ratios (soil moisture) and bearings (degrees) are taken as-is.
 
 ## Installation
 
@@ -176,7 +176,7 @@ The odour model is split into two layers:
 * `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard index (source emission divided by ventilation). Answers *how strong is the odour situation around the site this hour* and returns a relative index (baseline = 1.0).
 * `odour_exposure()` — the **geometry-aware** layer: maps the hazard through a Pasquill-Gifford Gaussian plume onto each receptor in an `mh_site`, applies distance decay, direction uncertainty, and (optionally) terrain-driven cold-pool and morning-fumigation corrections, then returns the **per-receptor relative concentration** as a `n_hours × n_receptors` matrix (the unbounded physical layer).
 
-Mapping that physical value onto a bounded 0–100 index and into site-specific tiers is a **calibration** step left to the consumer (e.g. a dashboard that knows the site's complaint history). The previous saturating 0–100 map is retained — parked and uncalibrated — as `odour_index_interim()` pending a calibration helper; reduce over receptors and map it yourself with e.g. `odour_index_interim(odour_risk(met_data, site))`. See issue #11 for the rationale.
+Mapping that physical value onto a bounded index (e.g. 0–100) and into site-specific tiers is a **calibration** step left to the consumer (e.g. a dashboard that knows the site's complaint history). The package no longer ships a fixed 0–100 odour scale; site-specific calibration tooling is planned (issue #11). Reduce over receptors for a worst-case summary with e.g. `apply(odour_risk(met_data, site), 1, max)`.
 
 `odour_risk()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
@@ -240,16 +240,7 @@ odour_shelter <- odour_risk(met_data, site_t,
 
 `shelter_index` can be provided directly or derived automatically via `mh_terrain_from_dem()`.
 
-The **interim** 0–100 index from `odour_index_interim()` maps to provisional operational tiers (uncalibrated screening defaults — parked pending the calibration helper; the map is tunable via its `map_c50` argument):
-
-| Exposure | Tier | Response |
-|---|---|---|
-| < 15 | LOW | Normal operations |
-| 15 – 40 | MODERATE | Heightened awareness; check cover integrity |
-| 40 – 70 | HIGH | Active mitigation — reduce tipping face, deploy suppression |
-| > 70 | VERY HIGH | Maximum response — consider ceasing tipping |
-
-`categorise_odour()` returns these tier labels and `odour_colour()` the matching colours.
+`odour_exposure()` returns the physical per-receptor relative concentration; the package no longer ships a fixed 0–100 odour scale or operational tiers. Mapping the physical output onto a site-specific index and tiers (potentially 0–100) is a calibration step delivered by forthcoming calibration tooling (issue #11). Reduce over receptors for a worst-case summary with e.g. `apply(odour_risk(met_data, site), 1, max)`.
 
 Stability defaults to Pasquill-Turner (insolation/cloud and wind), with a legacy 10 m/80 m shear estimator available via `stability = "shear"`. See `?odour_hazard`, `?odour_exposure`, and `?ventilation_state` for the full model and references.
 
@@ -259,7 +250,7 @@ Litter is split into two composable layers: a **hazard** index (the meteorology 
 
 ### Hazard index
 
-`litter_hazard()` computes an hourly litter **hazard** in the range 0–100: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below.
+`litter_hazard()` computes an hourly litter **hazard** as a relative index: how strongly is litter being entrained from the working face and moved. It is grounded in aeolian wind-erosion physics — friction-velocity (`u*`) entrainment with the EPA AP-42 excess-squared form, a moisture-raised threshold (Fécan et al. 1999) plus a saturation veto, a rainfall hard gate, and a mean-wind transport-potential multiplier. It is **direction-agnostic**: wind direction and barriers belong to the exposure layer below. (With the default `entrainment_max`/`transport_max` the index spans ~0–100 by construction, but that scaling is a modelling choice, not a calibrated operational scale.)
 
 The caller supplies pre-fetched Open-Meteo data (one row per hour) with four columns:
 
@@ -271,16 +262,7 @@ The caller supplies pre-fetched Open-Meteo data (one row per hour) with four col
 hazard <- litter_hazard(met_data)
 ```
 
-The vector API `litter_hazard_vec()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Suggested tier mapping (high uncertainty — requires site calibration):
-
-| Hazard | Tier | Meaning |
-|---|---|---|
-| 0 – 19 | LOW | Entrainment-and-transport unlikely |
-| 20 – 44 | MODERATE | Enhanced controls warranted |
-| 45 – 69 | HIGH | Likely without intervention |
-| 70 – 100 | EXTREME | Maximum controls or cessation required |
-
-`categorise_litter()` returns these tier labels and `litter_colour()` the matching colours.
+The vector API `litter_hazard_vec()` takes the columns directly (handy inside `dplyr::mutate()`) and exposes all calibration parameters (roughness `z0`, threshold/reference friction velocities, moisture-threshold gain/curvature, transport onset/reference, rain threshold). Mapping the index onto operational tiers is a site-specific calibration step (forthcoming tooling, issue #11) — the package no longer ships fixed litter tiers.
 
 ### Exposure layer
 
@@ -306,7 +288,7 @@ See `?litter_hazard_vec`, `?litter_hazard`, `?litter_exposure`, and `?site_from_
 
 ## Dust hazard
 
-`dust_hazard()` computes an hourly dust hazard (0–100) from wind erosion of an exposed, erodible surface. It uses a physical saltation-to-emission chain — a Shao & Lu (2000) threshold friction velocity, a Fécan et al. (1999) soil-moisture correction, an Owen/White saltation flux, and the MB95 sandblasting efficiency — driven by the gust (fastest-mile proxy). The erodible surface is assumed smooth (no non-erodible roughness drag partition). The index is normalised against a reference gust on a dry surface, so it keeps resolution rather than saturating.
+`dust_hazard()` computes an hourly **relative dust flux** from wind erosion of an exposed, erodible surface (a `met_data`-frame convenience wrapper over `dust_flux()` that adds the crust gate). It uses a physical saltation-to-emission chain — a Shao & Lu (2000) threshold friction velocity, a Fécan et al. (1999) soil-moisture correction, an Owen/White saltation flux, and the MB95 sandblasting efficiency — driven by the gust (fastest-mile proxy). The erodible surface is assumed smooth (no non-erodible roughness drag partition). The package no longer ships a fixed 0–100 dust index.
 
 Meteorological inputs are pre-fetched Open-Meteo columns; the surface is described by one-time site-survey parameters (Tyler sieve number for the modal aggregate size, clay %, roughness, bulk density).
 
@@ -322,16 +304,9 @@ dust <- dust_hazard(
 )
 ```
 
-An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_flux()` returns the underlying relative dust flux. See `?dust_hazard` and `?dust_flux` for the full parameter list and references.
+An optional precipitation **crust gate** (`crust = TRUE`) raises the erosion threshold for days after rain — a memory effect that instantaneous soil moisture cannot capture — and is off by default so it can be enabled per site. The lower-level `dust_flux()` returns the underlying relative dust flux without the `met_data`/crust convenience. See `?dust_hazard` and `?dust_flux` for the full parameter list and references.
 
-Suggested tier mapping (pre-calibration); `categorise_dust()` returns these labels and `dust_colour()` the matching colours:
-
-| Hazard | Tier | Meaning |
-|---|---|---|
-| 0 – 24 | LOW | Erosion unlikely |
-| 25 – 49 | MODERATE | Enhanced controls warranted |
-| 50 – 74 | HIGH | Likely without intervention |
-| 75 – 100 | EXTREME | Maximum controls or cessation required |
+Mapping the relative flux onto operational tiers is a site-specific calibration step (forthcoming tooling, issue #11) — the package no longer ships fixed dust tiers.
 
 ## Reference
 
