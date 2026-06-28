@@ -8,7 +8,6 @@ odour_exposure(
   met_data,
   site,
   stability = c("turner", "shear"),
-  map_c50 = 0.3,
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
   shelter_h_mix = FALSE,
@@ -28,9 +27,6 @@ and one \verb{(odour, receptor)} role.}
 
 \item{stability}{Stability estimator: \code{"turner"} (default) or \code{"shear"}.}
 
-\item{map_c50}{Relative concentration at which the 0-100 map reaches ~63
-(\code{100 * (1 - exp(-C_rel / map_c50))}). Default 0.3.}
-
 \item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
 (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
 
@@ -48,15 +44,27 @@ alignment. Has no effect when all receptor \code{rel_elevation} values are zero 
 absent. Default \code{FALSE} (C8 not yet calibrated; see issue #8).}
 }
 \value{
-A plain numeric vector of length \code{nrow(met_data)}: the worst-case
-0-100 odour exposure across receptors for each hour.
+A plain numeric matrix with \code{nrow(met_data)} rows (one per hour) and
+one column per \verb{(odour, receptor)} feature (column names are the receptor
+\code{id}s): the \strong{relative} odour concentration at each receptor for each
+hour. Unbounded, dimensionless, and referenced to a Briggs class-F plume at
+\code{ODOUR_CONSTANTS$X_REF_EXPOSURE}. Coincident source/receptor pairs and
+upwind receptors read 0. Reduce over columns for a worst-case summary
+(e.g. \code{apply(out, 1, max)}); any mapping onto an operational index is a
+site-specific calibration step (see issues #11/#8).
 }
 \description{
-Maps the atmospheric ventilation state onto an operational consequence given
-the wind direction, the source geometry, and the receptor layout described
-by an \code{\link[=mh_site]{mh_site()}} object. For each hour the relative concentrations from all
-\verb{(odour, source)} features are summed at each \verb{(odour, receptor)}, then
-mapped to a 0-100 band and reduced to the worst-case receptor.
+Maps the atmospheric ventilation state onto a per-receptor \strong{relative
+concentration} given the wind direction, the source geometry, and the
+receptor layout described by an \code{\link[=mh_site]{mh_site()}} object. For each hour the
+relative concentrations from all \verb{(odour, source)} features are summed at
+each \verb{(odour, receptor)}. The result is the unbounded physical layer: a
+\code{n_hours x n_receptors} matrix.
+
+Turning this physical value into a bounded operational index (e.g. 0-100) or
+into site-specific tiers is a \strong{calibration} decision that belongs downstream
+of the package. The package no longer ships a fixed 0-100 odour scale;
+site-specific calibration tooling is planned (issues #11/#8).
 }
 \details{
 Area sources use ISC3 initial spreads: \code{sigma_y0 = crosswind_halfwidth / 4.3} and \code{sigma_z0 = emit_height / 2.15} (both added in quadrature with the

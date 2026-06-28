@@ -2,13 +2,12 @@
 % Please edit documentation in R/odour_risk.R
 \name{odour_risk}
 \alias{odour_risk}
-\title{Landfill odour risk index (combined hazard + exposure)}
+\title{Landfill odour risk (combined hazard + exposure)}
 \usage{
 odour_risk(
   met_data,
   site,
   stability = c("turner", "shear"),
-  map_c50 = 0.3,
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
   shelter_h_mix = FALSE,
@@ -29,9 +28,6 @@ and one \verb{(odour, receptor)} role.}
 
 \item{stability}{Stability estimator: \code{"turner"} (default) or \code{"shear"}.}
 
-\item{map_c50}{Relative concentration at which the 0-100 map reaches ~63
-(\code{100 * (1 - exp(-C_rel / map_c50))}). Default 0.3.}
-
 \item{terrain_backend}{\code{"none"} (flat Gaussian, C3a) or \code{"descriptors"}
 (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).}
 
@@ -49,18 +45,20 @@ check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
 upslope rim-venting when \code{TRUE}. Default \code{FALSE}.}
 }
 \value{
-A numeric vector of length \code{nrow(met_data)}: the worst-case 0-100
-odour exposure across receptors for each hour.
+A numeric matrix (\code{nrow(met_data)} x n_receptors) of relative odour
+concentration; see \code{\link[=odour_exposure]{odour_exposure()}}.
 }
 \description{
 Convenience wrapper that computes the atmospheric ventilation state and maps
 it through the geometry-aware \code{\link[=odour_exposure]{odour_exposure()}} layer in one call,
-returning the worst-case 0-100 odour exposure across the receptors for each
-forecast hour.
+returning the per-receptor \strong{relative concentration} matrix for each
+forecast hour (the physical layer; see \code{\link[=odour_exposure]{odour_exposure()}} for the return
+shape and the rationale for not baking in a 0-100 scale).
 }
 \details{
 This is the entry point for the common case; use \code{\link[=odour_exposure]{odour_exposure()}} directly
-when you need to inspect the per-source or per-receptor concentrations.
+for the same result. Mapping the relative concentration onto an operational
+index is a site-specific calibration step (see issues #11/#8).
 }
 \seealso{
 \code{\link[=odour_exposure]{odour_exposure()}}, \code{\link[=odour_hazard]{odour_hazard()}}, \code{\link[=ventilation_state]{ventilation_state()}}.

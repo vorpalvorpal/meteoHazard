@@ -9,6 +9,12 @@
 # The snapshots in _snaps/ were generated from the pre-restructure
 # implementation and are the regression oracle. A genuine algorithmic change
 # (not a refactor) is expected to update them deliberately.
+#
+# NOTE (#11): odour_exposure() now returns a per-receptor relative-concentration
+# matrix (n_hours x n_receptors) instead of a worst-case 0-100 vector. The four
+# odour_exposure golden blocks were dropped from the snapshot and re-pin on the
+# next test run (the new matrix values). The helper-level goldens
+# (.pool_partition / .cw_venting / .cw_fumigation) are unchanged and stay pinned.
 
 # ---------------------------------------------------------------------------
 # A rich, fully deterministic scenario that exercises the whole hot path in
@@ -113,14 +119,14 @@ describe("odour_exposure() golden output (regression oracle for the refactor)", 
   it("matches the pinned flat-backend output on the 3-source x 6-receptor x 24-hour grid", {
     site <- .char_site(with_terrain = FALSE)
     out  <- odour_exposure(.char_met(), site, terrain_backend = "none")
-    expect_length(out, 24)
+    expect_equal(dim(out), c(24L, 6L))   # 24 hours x 6 receptors (per-receptor matrix)
     expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
   })
 
   it("matches the pinned descriptors-backend output on the same grid", {
     site <- .char_site(with_terrain = TRUE)
     out  <- odour_exposure(.char_met(), site, terrain_backend = "descriptors")
-    expect_length(out, 24)
+    expect_equal(dim(out), c(24L, 6L))   # 24 hours x 6 receptors (per-receptor matrix)
     expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
   })
 
@@ -131,7 +137,7 @@ describe("odour_exposure() golden output (regression oracle for the refactor)", 
     out  <- odour_exposure(.char_met(), site,
                            terrain_backend = "descriptors",
                            shelter = TRUE)
-    expect_length(out, 24)
+    expect_equal(dim(out), c(24L, 6L))   # 24 hours x 6 receptors (per-receptor matrix)
     expect_snapshot_value(round(out, 8), style = "json2", tolerance = 1e-6)
   })
 

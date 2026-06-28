@@ -2,7 +2,7 @@
 % Please edit documentation in R/dust_hazard.R
 \name{dust_hazard}
 \alias{dust_hazard}
-\title{Dust Hazard Index for landfill operations}
+\title{Dust hazard: crust-adjusted relative dust flux}
 \usage{
 dust_hazard(
   met_data,
@@ -14,8 +14,7 @@ dust_hazard(
   crust = FALSE,
   rain_crust_threshold = 2,
   crust_factor_max = 3,
-  crust_decay_hours = 72,
-  scale_ref_gust = 18
+  crust_decay_hours = 72
 )
 }
 \arguments{
@@ -37,23 +36,30 @@ Default 3.}
 
 \item{crust_decay_hours}{E-folding time (hours) over which the crust
 suppression decays. Default 72.}
-
-\item{scale_ref_gust}{Gust speed (m/s) that, on a dry crust-free surface,
-maps to index 100. Default 18 (~65 km/h). Must exceed the entrainment
-threshold.}
 }
 \value{
-Numeric vector of length \code{nrow(met_data)}, the Dust Hazard Index in
-\verb{[0, 100]} for each forecast hour. (The odour hazard is on a different,
-relative scale; unifying the two is tracked in GitHub issue #11.)
+Numeric vector of length \code{nrow(met_data)}, the crust-adjusted
+\strong{relative dust flux} for each forecast hour (same units as \code{\link[=dust_flux]{dust_flux()}};
+unbounded, \code{0} below the entrainment threshold). Issue #11 removed the fixed
+0-100 dust index in favour of this physical output.
 }
 \description{
-Computes an hourly Dust Hazard Index in the range \verb{[0, 100]} for each row of a
-meteorological forecast tibble. Wraps \code{\link[=dust_flux]{dust_flux()}} and
-normalises the relative dust flux against a reference condition (a strong gust
-on a dry surface), so the index keeps resolution across ordinary winds rather
-than saturating.
+Computes an hourly \strong{relative dust flux} for each row of a meteorological
+forecast tibble: a \code{met_data}-frame convenience wrapper over \code{\link[=dust_flux]{dust_flux()}}
+that adds the precipitation-driven crust-persistence gate. The returned flux
+is in the same relative units as \code{\link[=dust_flux]{dust_flux()}} (a strong gust on a dry
+surface produces a large value; a sub-threshold or wet/crusted hour produces
+near-zero).
 }
+\section{Status — physical output, no fixed operational scale (issue #11)}{
+
+This used to return a 0-100 index normalised against a reference gust. That
+fixed 0-100 scale (and the \code{categorise_dust()} tiers) was removed: the
+package now emits the physical relative flux, and mapping it onto a
+site-specific operational index is a calibration step delivered by
+forthcoming calibration tooling (issues #11/#8), not by fixed cut-points.
+}
+
 \seealso{
 \code{\link[=dust_flux]{dust_flux()}}.
 }

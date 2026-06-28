@@ -128,13 +128,21 @@ dust_flux <- function(
 }
 
 
-#' Dust Hazard Index for landfill operations
+#' Dust hazard: crust-adjusted relative dust flux
 #'
-#' Computes an hourly Dust Hazard Index in the range `[0, 100]` for each row of a
-#' meteorological forecast tibble. Wraps [dust_flux()] and
-#' normalises the relative dust flux against a reference condition (a strong gust
-#' on a dry surface), so the index keeps resolution across ordinary winds rather
-#' than saturating.
+#' Computes an hourly **relative dust flux** for each row of a meteorological
+#' forecast tibble: a `met_data`-frame convenience wrapper over [dust_flux()]
+#' that adds the precipitation-driven crust-persistence gate. The returned flux
+#' is in the same relative units as [dust_flux()] (a strong gust on a dry
+#' surface produces a large value; a sub-threshold or wet/crusted hour produces
+#' near-zero).
+#'
+#' @section Status — physical output, no fixed operational scale (issue #11):
+#' This used to return a 0-100 index normalised against a reference gust. That
+#' fixed 0-100 scale (and the `categorise_dust()` tiers) was removed: the
+#' package now emits the physical relative flux, and mapping it onto a
+#' site-specific operational index is a calibration step delivered by
+#' forthcoming calibration tooling (issues #11/#8), not by fixed cut-points.
 #'
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
 #'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
@@ -150,13 +158,11 @@ dust_flux <- function(
 #'   Default 3.
 #' @param crust_decay_hours E-folding time (hours) over which the crust
 #'   suppression decays. Default 72.
-#' @param scale_ref_gust Gust speed (m/s) that, on a dry crust-free surface,
-#'   maps to index 100. Default 18 (~65 km/h). Must exceed the entrainment
-#'   threshold.
 #'
-#' @return Numeric vector of length `nrow(met_data)`, the Dust Hazard Index in
-#'   `[0, 100]` for each forecast hour. (The odour hazard is on a different,
-#'   relative scale; unifying the two is tracked in GitHub issue #11.)
+#' @return Numeric vector of length `nrow(met_data)`, the crust-adjusted
+#'   **relative dust flux** for each forecast hour (same units as [dust_flux()];
+#'   unbounded, `0` below the entrainment threshold). Issue #11 removed the fixed
+#'   0-100 dust index in favour of this physical output.
 #'
 #' @seealso [dust_flux()].
 #' @export
@@ -170,13 +176,11 @@ dust_hazard <- function(
   crust                = FALSE,
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
-  crust_decay_hours    = 72,
-  scale_ref_gust       = 18
+  crust_decay_hours    = 72
 ) {
   # Normalise the dimensional scalars (bare = documented unit; units = converted).
   # met_data wind columns are normalised inside dust_flux(); crust_factor_max and
   # crust_decay_hours are dimensionless / in hours and taken as-is.
-  scale_ref_gust       <- .drop_to(scale_ref_gust, "m/s", arg = "scale_ref_gust")
   rain_crust_threshold <- .drop_to(rain_crust_threshold, "mm", arg = "rain_crust_threshold")
 
   checkmate::assert_data_frame(met_data, min.rows = 1)
@@ -184,7 +188,6 @@ dust_hazard <- function(
   checkmate::assert_number(rain_crust_threshold, lower = 0)
   checkmate::assert_number(crust_factor_max, lower = 1)
   checkmate::assert_number(crust_decay_hours, lower = 1e-9)
-  checkmate::assert_number(scale_ref_gust, lower = 1e-9)
 
   required_cols <- c("wind_speed_10m", "wind_gusts_10m", "soil_moisture_0_to_1cm")
   if (crust) required_cols <- c(required_cols, "precipitation")
@@ -210,28 +213,12 @@ dust_hazard <- function(
     z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
   )
 
-  flux <- do.call(dust_flux, c(common, list(
+  do.call(dust_flux, c(common, list(
     wind_speed_10m       = met_data$wind_speed_10m,
     wind_gusts_10m       = met_data$wind_gusts_10m,
     soil_moisture        = met_data$soil_moisture_0_to_1cm,
     threshold_multiplier = crust_mult
   )))
-
-  # Reference flux: the scaling gust on a dry, crust-free surface, calm mean wind.
-  flux_ref <- do.call(dust_flux, c(common, list(
-    wind_speed_10m       = 0,
-    wind_gusts_10m       = scale_ref_gust,
-    soil_moisture        = 0,
-    threshold_multiplier = 1
-  )))
-  if (flux_ref <= 0) {
-    cli::cli_abort(c(
-      "{.arg scale_ref_gust} ({scale_ref_gust} m/s) does not exceed the erosion threshold.",
-      "i" = "Increase {.arg scale_ref_gust} so the reference condition produces dust."
-    ))
-  }
-
-  pmin(100, 100 * flux / flux_ref)
 }
 
 

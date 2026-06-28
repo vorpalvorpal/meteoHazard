@@ -1,5 +1,34 @@
 # meteoHazard 0.3.0
 
+## Hazards expose physical quantities; the fixed 0–100 scale is removed (issue #11)
+
+The package no longer ships a fixed 0–100 operational scale or tiers for odour,
+dust, or litter. Each hazard now returns a physical / relative quantity;
+mapping it onto a site-specific operational index (potentially 0–100) and tiers
+is a calibration step to be delivered by forthcoming calibration tooling
+(issues #11/#8). TWL keeps its tiers (`categorise_twl()`/`twl_colour()`) because
+its W/m² zones are physically grounded (Brake & Bates 2002).
+
+* **Breaking:** `odour_exposure()` and `odour_risk()` return the unbounded
+  **per-receptor relative concentration** as a `n_hours x n_receptors` matrix
+  (column names are the receptor `id`s), instead of a worst-case 0–100 vector.
+  Reduce over receptors yourself (e.g. `apply(out, 1, max)`). The `map_c50`
+  argument is removed.
+* **Breaking:** `dust_hazard()` now returns the crust-adjusted **relative dust
+  flux** (same units as `dust_flux()`), not a 0–100 index. The `scale_ref_gust`
+  argument and the reference normalisation are removed; the crust-persistence
+  gate and `met_data` interface are retained.
+* **Breaking:** `litter_hazard()` / `litter_hazard_vec()` drop the `min(., 100)`
+  cap and return the relative entrainment × transport index directly (numerically
+  unchanged — the default `entrainment_max`/`transport_max` already bound it to
+  ~0–100; it is no longer presented as a calibrated scale).
+* **Breaking:** removed the fixed-cut-point tier helpers
+  `categorise_odour()`/`odour_colour()`, `categorise_dust()`/`dust_colour()`,
+  `categorise_litter()`/`litter_colour()`, and the interim
+  `odour_index_interim()`.
+* A new issue tracks the **site calibration tooling** (fit physical → site index
+  from complaint/observation records).
+
 ## C8 — Upslope rim-venting to elevated rim receptors (issue #24)
 
 * New `rim_venting = FALSE` parameter on `odour_exposure()` and `odour_risk()`.

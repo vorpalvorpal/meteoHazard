@@ -3,8 +3,11 @@
 #
 # odour_exposure() takes an mh_site (sources + receptors), met_data, and
 # ventilation_state() output.  For each hour it sums relative concentrations
-# over all sources, maps the summed value to 0-100, then returns the
-# worst-case receptor for the hour.
+# over all sources at every receptor and returns the per-receptor relative
+# concentration matrix (the physical layer).  Mapping that physical value onto
+# a bounded operational index / tiers is a site-specific calibration step and
+# is deliberately NOT done here — it is the job of forthcoming calibration
+# tooling (issues #11/#8), not of fixed package cut-points.
 #
 # terrain_backend = "none"  : flat Gaussian (implemented here, C3a).
 # terrain_backend = "descriptors": wired in C3b; C3a just returns the flat
@@ -16,11 +19,19 @@
 
 #' Landfill odour exposure (direction- and geometry-aware, mh_site API)
 #'
-#' Maps the atmospheric ventilation state onto an operational consequence given
-#' the wind direction, the source geometry, and the receptor layout described
-#' by an [mh_site()] object. For each hour the relative concentrations from all
-#' `(odour, source)` features are summed at each `(odour, receptor)`, then
-#' mapped to a 0-100 band and reduced to the worst-case receptor.
+#' Maps the atmospheric ventilation state onto a per-receptor **relative
+#' concentration** given the wind direction, the source geometry, and the
+#' receptor layout described by an [mh_site()] object. For each hour the
+#' relative concentrations from all `(odour, source)` features are summed at
+#' each `(odour, receptor)`. The result is the unbounded physical layer: a
+#' `n_hours x n_receptors` matrix.
+#'
+#' Turning this physical value into a bounded operational index (e.g. 0-100) or
+#' into site-specific tiers is a **calibration** decision that belongs downstream
+#' of the package — a dashboard or calibration step that knows the site's
+#' complaint/observation history fits the mapping. The package no longer ships a
+#' fixed 0-100 odour scale; site-specific calibration tooling is planned
+#' (issues #11/#8).
 #'
 #' Area sources use ISC3 initial spreads: `sigma_y0 = crosswind_halfwidth /
 #' 4.3` and `sigma_z0 = emit_height / 2.15` (both added in quadrature with the
@@ -35,8 +46,6 @@
 #' @param site An [mh_site()] object with at least one `(odour, source)` role
 #'   and one `(odour, receptor)` role.
 #' @param stability Stability estimator: `"turner"` (default) or `"shear"`.
-#' @param map_c50 Relative concentration at which the 0-100 map reaches ~63
-#'   (`100 * (1 - exp(-C_rel / map_c50))`). Default 0.3.
 #' @param terrain_backend `"none"` (flat Gaussian, C3a) or `"descriptors"`
 #'   (terrain-aware morning pulse, wired in C3b; C3a returns the flat result).
 #' @param shelter Logical. Passed to [ventilation_state()]; when `TRUE`, M3
@@ -50,8 +59,14 @@
 #'   alignment. Has no effect when all receptor `rel_elevation` values are zero or
 #'   absent. Default `FALSE` (C8 not yet calibrated; see issue #8).
 #'
-#' @return A plain numeric vector of length `nrow(met_data)`: the worst-case
-#'   0-100 odour exposure across receptors for each hour.
+#' @return A plain numeric matrix with `nrow(met_data)` rows (one per hour) and
+#'   one column per `(odour, receptor)` feature (column names are the receptor
+#'   `id`s): the **relative** odour concentration at each receptor for each
+#'   hour. Unbounded, dimensionless, and referenced to a Briggs class-F plume at
+#'   `ODOUR_CONSTANTS$X_REF_EXPOSURE`. Coincident source/receptor pairs and
+#'   upwind receptors read 0. Reduce over columns for a worst-case summary
+#'   (e.g. `apply(out, 1, max)`); any mapping onto an operational index is a
+#'   site-specific calibration step (see issues #11/#8).
 #'
 #' @section Units:
 #' Dimensional `met_data` columns (see [odour_hazard()]) may be supplied as
@@ -68,7 +83,6 @@
 #' @export
 odour_exposure <- function(met_data, site,
                            stability = c("turner", "shear"),
-                           map_c50 = 0.3,
                            terrain_backend = c("none", "descriptors"),
                            shelter = FALSE,
                            shelter_h_mix = FALSE,
@@ -92,7 +106,6 @@ odour_exposure <- function(met_data, site,
       class = "meteoHazard_input_error"
     )
   }
-  checkmate::assert_number(map_c50, lower = .Machine$double.eps)
 
   # ---- Extract sources and receptors ------------------------------------- #
   sources   <- .role_features(site, "odour", "source")
@@ -297,10 +310,13 @@ odour_exposure <- function(met_data, site,
     }
   }
 
-  # ---- Reduction: sum_k -> map -> max_j ----------------------------------- #
-  c_total     <- if (descriptors) c_sum_matrix + c_terrain_matrix else c_sum_matrix
-  risk_matrix <- 100 * (1 - exp(-c_total / map_c50))
-  apply(risk_matrix, 1, max)
+  # ---- Reduction: sum over sources -> per-receptor relative concentration -- #
+  # The physical layer stops here. No 0-100 map and no worst-case reduction are
+  # applied: both are site-specific calibration choices left to the consumer
+  # (forthcoming calibration tooling, issues #11/#8).
+  c_total <- if (descriptors) c_sum_matrix + c_terrain_matrix else c_sum_matrix
+  colnames(c_total) <- as.character(receptors$id)
+  c_total
 }
 
 

@@ -450,7 +450,7 @@ describe("odour_exposure() terrain-backend edges", {
     result <- odour_exposure(met, site, terrain_backend = "descriptors")
     expect_true(is.numeric(result))
     expect_true(all(is.finite(result)))
-    expect_true(all(result >= 0 & result <= 100))
+    expect_true(all(result >= 0))   # per-receptor relative concentration (unbounded above)
   })
 
   it("bypasses terrain pathways during calm hours (no stacking with calm meander)", {
@@ -465,7 +465,7 @@ describe("odour_exposure() terrain-backend edges", {
 
     # Must be valid
     expect_true(all(is.finite(out_calm)))
-    expect_true(all(out_calm >= 0 & out_calm <= 100))
+    expect_true(all(out_calm >= 0))
 
     # With terrain backend = "none"
     out_calm_flat <- odour_exposure(met_calm, site, terrain_backend = "none")
@@ -490,9 +490,9 @@ describe("odour_exposure() terrain-backend edges", {
     # the site has a terrain object attached
     expect_equal(flat_no_ter, flat_with_ter, tolerance = 1e-10)
 
-    # And both must be plain numeric in [0, 100]
+    # And both must be plain numeric and non-negative
     expect_true(all(is.finite(flat_no_ter)))
-    expect_true(all(flat_no_ter >= 0 & flat_no_ter <= 100))
+    expect_true(all(flat_no_ter >= 0))
   })
 })
 
@@ -626,13 +626,11 @@ describe("Terrain-modifier precedence: M3 shelter does not stack with M1 drainag
       terrain = ter, epsg = 32755L
     )
 
-    exp_no_shlt   <- odour_exposure(d_day, site_far, terrain_backend = "none",
-                                    shelter = FALSE)
-    exp_with_shlt <- odour_exposure(d_day, site_far, terrain_backend = "none",
-                                    shelter = TRUE)
+    exp_no_shlt   <- as.numeric(odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = FALSE))
+    exp_with_shlt <- as.numeric(odour_exposure(d_day, site_far, terrain_backend = "none",
+                                    shelter = TRUE))
 
-    # exp_no_shlt must be < 100 (receptor is far enough to avoid saturation).
-    expect_lt(exp_no_shlt, 100)
     # M3 fires: lower u_eff → higher c_rel → higher exposure. Require at least 5%.
     expect_gt(exp_with_shlt, exp_no_shlt * 1.05)
   })
