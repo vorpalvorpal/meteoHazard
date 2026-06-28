@@ -136,6 +136,13 @@ dust_flux <- function(
 #' on a dry surface), so the index keeps resolution across ordinary winds rather
 #' than saturating.
 #'
+#' @section Status — interim 0-100 scale, awaiting the calibration helper:
+#' The `[0, 100]` mapping (and the [categorise_dust()] cut-points) is an
+#' uncalibrated operational scale, retained but parked (issues #11/#8). The
+#' physical layer is the unbounded [dust_flux()]; a forthcoming calibration
+#' helper will fit a site-specific mapping from it. Do not treat the 0-100 value
+#' as calibrated or as comparable with the litter/odour indices.
+#'
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
 #'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
@@ -154,9 +161,10 @@ dust_flux <- function(
 #'   maps to index 100. Default 18 (~65 km/h). Must exceed the entrainment
 #'   threshold.
 #'
-#' @return Numeric vector of length `nrow(met_data)`, the Dust Hazard Index in
-#'   `[0, 100]` for each forecast hour. (The odour hazard is on a different,
-#'   relative scale; unifying the two is tracked in GitHub issue #11.)
+#' @return Numeric vector of length `nrow(met_data)`, the interim Dust Hazard
+#'   Index in `[0, 100]` for each forecast hour. (Issue #11 resolved the
+#'   cross-hazard scale question by returning physical layers and parking the
+#'   0-100 maps as interim, pending a calibration helper; see [dust_flux()].)
 #'
 #' @seealso [dust_flux()].
 #' @export

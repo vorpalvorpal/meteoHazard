@@ -126,6 +126,12 @@
   as.data.frame(lapply(base, rep_len, n))
 }
 
+# odour_exposure() now returns a per-receptor relative-concentration matrix
+# (n_hours x n_receptors). Most relational specs below want the worst-case
+# receptor per hour (the pre-#11 return shape); .worst() reduces to it. The
+# 0-100 map moved to odour_index_interim() and is tested separately.
+.worst <- function(m) apply(m, 1L, max)
+
 # ---------------------------------------------------------------------------
 # C3a behaviour specs
 # ---------------------------------------------------------------------------
@@ -137,8 +143,8 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     near_site <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
     far_site  <- .make_odour_site(rec_bearing = 0, rec_distance = 1500)
     d <- .make_odour_met()
-    near <- odour_exposure(d, near_site)
-    far  <- odour_exposure(d, far_site)
+    near <- .worst(odour_exposure(d, near_site))
+    far  <- .worst(odour_exposure(d, far_site))
     expect_gt(near, far)
   })
 
@@ -148,10 +154,10 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     # Wind FROM south/SSE/east → downwind bearing 0 / 20 / 90.
     site <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
     d <- .make_odour_met(n = 3, wind_direction_10m = c(180, 160, 270))
-    ex <- odour_exposure(d, site)
+    ex <- .worst(odour_exposure(d, site))
     expect_gt(ex[1], ex[2])
     expect_gt(ex[2], ex[3])
-    expect_lt(ex[3], 0.5)   # ~90° off-axis: negligible
+    expect_lt(ex[3], 0.01)   # ~90° off-axis: negligible relative concentration
   })
 
   # 3. Upwind receptor
@@ -160,8 +166,8 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     # → downwind is N. The receptor at bearing 180 is upwind.
     site <- .make_odour_site(rec_bearing = 180, rec_distance = 400)
     d    <- .make_odour_met(wind_direction_10m = 180)
-    ex   <- odour_exposure(d, site)
-    expect_lt(ex, 0.01)
+    ex   <- .worst(odour_exposure(d, site))
+    expect_lt(ex, 1e-4)
   })
 
   # 4. Forecast-direction uncertainty
@@ -169,7 +175,7 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     # Use 5000 m so on-axis is sub-100 and differences are visible.
     site <- .make_odour_site(rec_bearing = 0, rec_distance = 5000)
     d <- .make_odour_met(n = 2, wind_direction_10m = c(180, 170))  # 0° / 10° off
-    ex <- odour_exposure(d, site)
+    ex <- .worst(odour_exposure(d, site))
     expect_lt(ex[2], ex[1])
     expect_gt(ex[2], 0.4 * ex[1])
   })
@@ -179,8 +185,8 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     site_n <- .make_odour_site(rec_bearing = 0,   rec_distance = 400)
     site_s <- .make_odour_site(rec_bearing = 180, rec_distance = 400)
     d <- .make_odour_met(wind_speed_10m = 0.2)
-    north <- odour_exposure(d, site_n)
-    south <- odour_exposure(d, site_s)
+    north <- .worst(odour_exposure(d, site_n))
+    south <- .worst(odour_exposure(d, site_s))
     expect_equal(north, south)
   })
 
@@ -188,17 +194,16 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
   it("returns the worst-affected receptor's value for the hour", {
     site <- .make_two_receptor_site()
     d    <- .make_odour_met(wind_direction_10m = 180)  # downwind → north
-    combined <- odour_exposure(d, site)
+    combined <- .worst(odour_exposure(d, site))
     # The aligned receptor (north) sets the value; the south receptor is upwind
-    # and contributes 0.  So combined == single-aligned-receptor result.
+    # and contributes 0.  So worst-case == single-aligned-receptor result.
     site_aligned <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
-    single <- odour_exposure(d, site_aligned)
+    single <- .worst(odour_exposure(d, site_aligned))
     expect_equal(combined, single, tolerance = 1e-6)
   })
 
-  # 7. Monotonic in generation / stays in [0, 100]
-  it("increases with hazard and stays within [0, 100]", {
-    # Use 10 km so neither condition saturates the 0-100 map.
+  # 7. Monotonic in generation / non-negative relative concentration
+  it("increases with hazard and stays non-negative", {
     site <- .make_odour_site(rec_bearing = 0, rec_distance = 10000)
     # "Low G": cool, low RH, no pressure drop → G ≈ 1
     d_lo <- .make_odour_met(
@@ -212,20 +217,21 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
       direct_radiation = 0, cloud_cover = 50,
       temperature_2m = 35, pressure_msl = 1008, relative_humidity_2m = 90
     )
-    lo <- odour_exposure(d_lo, site)
-    hi <- odour_exposure(d_hi, site)
+    lo <- .worst(odour_exposure(d_lo, site))
+    hi <- .worst(odour_exposure(d_hi, site))
     expect_gte(lo, 0)
-    expect_lte(lo, 100)
     expect_gte(hi, 0)
-    expect_lte(hi, 100)
     expect_gt(hi, lo)
   })
 
-  # 8. Plain numeric output
-  it("returns a plain numeric band", {
+  # 8. Per-receptor matrix output (plain numeric, not units)
+  it("returns a plain numeric per-receptor matrix", {
     site <- .make_odour_site()
     out  <- odour_exposure(.make_odour_met(), site)
+    expect_true(is.matrix(out))
     expect_type(out, "double")
+    expect_equal(dim(out), c(1L, 1L))       # 1 hour x 1 receptor
+    expect_equal(colnames(out), "rec")      # receptor id
     expect_false(inherits(out, "units"))
   })
 
@@ -259,7 +265,7 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     # not a collapsing Gaussian).
     site <- .make_polygon_site(rec_bearing = 0, rec_distance = 60, width = 100)
     d    <- .make_odour_met()
-    out  <- odour_exposure(d, site)
+    out  <- .worst(odour_exposure(d, site))
     expect_true(is.finite(out))
   })
 
@@ -270,7 +276,7 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     # Exposure should be finite and non-zero.
     site <- .make_polygon_site(rec_bearing = 0, rec_distance = 30, width = 200)
     d    <- .make_odour_met()
-    out  <- odour_exposure(d, site)
+    out  <- .worst(odour_exposure(d, site))
     expect_true(is.finite(out))
     expect_gt(out, 0)
   })
@@ -281,50 +287,48 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     d        <- .make_odour_met(wind_speed_10m = 2, boundary_layer_height = 400)
     site_two <- .make_two_source_site(rec_bearing = 0, rec_distance = 10000)
     site_one <- .make_odour_site(rec_bearing = 0, rec_distance = 10000)
-    two_src  <- odour_exposure(d, site_two)
-    one_src  <- odour_exposure(d, site_one)
+    two_src  <- .worst(odour_exposure(d, site_two))
+    one_src  <- .worst(odour_exposure(d, site_one))
     expect_gt(two_src, one_src)
   })
 
-  # 13. Two identical co-located sources ≈ 2× pre-map concentration
-  it("gives ~twice the single-source concentration for two identical co-located sources", {
-    # Use a very large map_c50 so the exponential map is nearly linear in C:
-    # risk ≈ 100 * C / map_c50 when C << map_c50.
-    # At 20 km C_rel ≈ 0.10 (single) and 0.20 (double); with map_c50=100
-    # we stay well within the linear regime.
-    d       <- .make_odour_met(wind_speed_10m = 2, boundary_layer_height = 400)
-    map_c50 <- 100   # huge → map is linear for typical C_rel values
+  # 13. Two identical co-located sources = exactly 2× the relative concentration
+  it("gives exactly twice the single-source relative concentration for two co-located sources", {
+    # Concentrations add linearly across sources, and there is no saturating
+    # map on the physical output, so two identical co-located sources double it
+    # exactly (no large-map_c50 linear-regime trick needed any more).
+    d        <- .make_odour_met(wind_speed_10m = 2, boundary_layer_height = 400)
     site_two <- .make_two_source_site(rec_bearing = 0, rec_distance = 20000)
     site_one <- .make_odour_site(rec_bearing = 0, rec_distance = 20000)
-    two <- odour_exposure(d, site_two, map_c50 = map_c50)
-    one <- odour_exposure(d, site_one, map_c50 = map_c50)
-    # In the linear regime: risk ∝ C; two identical co-located sources → 2×.
-    expect_equal(two / one, 2, tolerance = 0.05)
+    two <- .worst(odour_exposure(d, site_two))
+    one <- .worst(odour_exposure(d, site_one))
+    expect_equal(two / one, 2, tolerance = 1e-6)
   })
 
-  # 14. Summed map can make two moderate sources severe
-  it("applies the 0-100 map to the summed concentration, so two moderate sources can be severe", {
-    # At 10 km: one source ≈ 53/100, two sources ≈ 78/100 (both sub-100).
-    # This demonstrates that the map is applied to the SUM, not per-source.
+  # 14. Concentrations add across sources (the interim map saturates the sum)
+  it("sums source contributions, and odour_index_interim() saturates the sum", {
     d <- .make_odour_met(wind_speed_10m = 2, boundary_layer_height = 400)
     site_two <- .make_two_source_site(rec_bearing = 0, rec_distance = 10000)
     site_one <- .make_odour_site(rec_bearing = 0, rec_distance = 10000)
-    one <- odour_exposure(d, site_one, map_c50 = 0.3)
-    two <- odour_exposure(d, site_two, map_c50 = 0.3)
-    # Two sources should give higher exposure than one, and still be bounded.
+    one <- .worst(odour_exposure(d, site_one))
+    two <- .worst(odour_exposure(d, site_two))
     expect_gt(two, one)
-    expect_lte(two, 100)
+    # The parked interim index applies the 0-100 map to the summed value and
+    # stays bounded.
+    idx_two <- odour_index_interim(odour_exposure(d, site_two), map_c50 = 0.3)
+    expect_lte(idx_two, 100)
+    expect_gte(idx_two, 0)
   })
 
-  # 15. Single source: result is max over receptors (same as per-receptor)
-  it("reduces to the current max-over-receptors for a single source", {
-    # Two receptors: one aligned, one off-axis.  The result must equal the
+  # 15. Single source: worst-case over receptors matches the single-receptor site
+  it("reduces to the max-over-receptors for a single source", {
+    # Two receptors: one aligned, one off-axis.  The worst-case must equal the
     # aligned receptor's value (since max is taken across receptors).
     site_two_rec <- .make_two_receptor_site()
     site_one_rec <- .make_odour_site(rec_bearing = 0, rec_distance = 400)
     d <- .make_odour_met(wind_direction_10m = 180)  # downwind north
-    two_rec <- odour_exposure(d, site_two_rec)
-    one_rec <- odour_exposure(d, site_one_rec)
+    two_rec <- .worst(odour_exposure(d, site_two_rec))
+    one_rec <- .worst(odour_exposure(d, site_one_rec))
     expect_equal(two_rec, one_rec, tolerance = 1e-6)
   })
 
@@ -344,7 +348,7 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
       cloud_cover           = 50,
       direct_radiation      = c(0, 600)   # night then day
     )
-    ex <- odour_exposure(d, site, terrain_backend = "none")
+    ex <- .worst(odour_exposure(d, site, terrain_backend = "none"))
     # Without terrain_backend, there is no drainage-pool release.
     # The morning (day) hour may be LOWER than the night hour (wider plume,
     # lower PM at unstable class A vs stable class E), but must not EXCEED
@@ -369,7 +373,7 @@ describe("odour_exposure() on the mh_site model (terrain backend 'none')", {
     )
     site <- mh_site(feats, roles, epsg = 32755L)
     d    <- .make_odour_met()
-    out  <- odour_exposure(d, site)
+    out  <- .worst(odour_exposure(d, site))
     expect_equal(out, 0)
   })
 })
@@ -407,8 +411,8 @@ describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
                              wind_direction_10m = 180, boundary_layer_height = 500)
     met4 <- .make_odour_met(wind_speed_10m = 4, wind_speed_80m = 8,
                              wind_direction_10m = 180, boundary_layer_height = 500)
-    e2 <- odour_exposure(met2, site, stability = "shear")
-    e4 <- odour_exposure(met4, site, stability = "shear")
+    e2 <- .worst(odour_exposure(met2, site, stability = "shear"))
+    e4 <- .worst(odour_exposure(met4, site, stability = "shear"))
     expect_gt(e2, e4)
   })
 
@@ -419,8 +423,8 @@ describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
                              wind_direction_10m = 180, boundary_layer_height = 500)
     met4 <- .make_odour_met(wind_speed_10m = 4, wind_speed_80m = 8,
                              wind_direction_10m = 180, boundary_layer_height = 500)
-    e2 <- odour_exposure(met2, site, stability = "shear")
-    e4 <- odour_exposure(met4, site, stability = "shear")
+    e2 <- .worst(odour_exposure(met2, site, stability = "shear"))
+    e4 <- .worst(odour_exposure(met4, site, stability = "shear"))
     expect_equal(e2 / e4, 2, tolerance = 0.15)
   })
 
@@ -435,8 +439,8 @@ describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
     d6 <- .make_odour_met(wind_speed_10m = 6, wind_speed_80m = 12,
                            wind_direction_10m = 180, boundary_layer_height = 500)
     hz_ratio  <- odour_hazard(d2, stability = "shear") / odour_hazard(d6, stability = "shear")
-    exp_ratio <- odour_risk(d2, site, stability = "shear") /
-                 odour_risk(d6, site, stability = "shear")
+    exp_ratio <- .worst(odour_risk(d2, site, stability = "shear")) /
+                 .worst(odour_risk(d6, site, stability = "shear"))
     expect_equal(exp_ratio, hz_ratio, tolerance = 0.10)
   })
 })
@@ -451,8 +455,8 @@ describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", 
     d    <- .make_odour_met(wind_speed_10m = 1.5, wind_direction_10m = 180,
                              direct_radiation = 0, cloud_cover = 5,
                              boundary_layer_height = 150)
-    r_off <- odour_exposure(d, site, shelter = FALSE)
-    r_on  <- odour_exposure(d, site, shelter = TRUE)
+    r_off <- .worst(odour_exposure(d, site, shelter = FALSE))
+    r_on  <- .worst(odour_exposure(d, site, shelter = TRUE))
     expect_gt(r_on, r_off)
   })
 
@@ -462,8 +466,8 @@ describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", 
     d    <- .make_odour_met(wind_speed_10m = 1.5, wind_direction_10m = 180,
                              direct_radiation = 0, cloud_cover = 5,
                              boundary_layer_height = 150)
-    r_off <- odour_exposure(d, site, shelter = FALSE)
-    r_on  <- odour_exposure(d, site, shelter = TRUE)
+    r_off <- .worst(odour_exposure(d, site, shelter = FALSE))
+    r_on  <- .worst(odour_exposure(d, site, shelter = TRUE))
     expect_equal(r_on / r_off, 3, tolerance = 0.15)
   })
 })
@@ -660,7 +664,7 @@ describe("odour_exposure(): rim-venting behaviour (C8)", {
     d    <- .make_rim_met()
     r    <- odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
     expect_true(all(is.finite(r)), label = "no NaN/Inf under calm + reach≈1")
-    expect_true(all(r >= 0 & r <= 100))
+    expect_true(all(r >= 0))
   })
 
   it("makes no GIS/DEM call on the run path (aspect read from stored features)", {
@@ -678,5 +682,40 @@ describe("odour_exposure(): rim-venting behaviour (C8)", {
     expect_no_error(
       odour_exposure(d, site, terrain_backend = "descriptors", rim_venting = TRUE)
     )
+  })
+})
+
+
+# ---------------------------------------------------------------------------
+# odour_index_interim(): parked, uncalibrated 0-100 map (issue #11)
+# ---------------------------------------------------------------------------
+
+describe("odour_index_interim()", {
+
+  it("collapses a per-receptor matrix to the worst-case 0-100 band per hour", {
+    site <- .make_two_receptor_site()
+    d    <- .make_odour_met(n = 3, wind_direction_10m = c(180, 0, 270))
+    rel  <- odour_exposure(d, site)
+    idx  <- odour_index_interim(rel)
+    expect_length(idx, 3)
+    expect_true(all(idx >= 0 & idx <= 100))
+    # Equals the map applied to the row-wise worst receptor.
+    expect_equal(idx, apply(100 * (1 - exp(-rel / 0.3)), 1L, max))
+  })
+
+  it("is monotonic in concentration and saturates toward 100", {
+    expect_lt(odour_index_interim(0.1), odour_index_interim(0.5))
+    expect_lt(odour_index_interim(2), 100)    # near saturation but strictly < 100
+    expect_gt(odour_index_interim(2), 99)
+    expect_equal(odour_index_interim(0), 0)
+  })
+
+  it("accepts a plain numeric vector and maps elementwise", {
+    v <- c(0, 0.3, 1.0)
+    expect_equal(odour_index_interim(v), 100 * (1 - exp(-v / 0.3)))
+  })
+
+  it("rejects a non-positive map_c50", {
+    expect_error(odour_index_interim(matrix(0.1), map_c50 = 0))
   })
 })

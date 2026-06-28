@@ -7,6 +7,14 @@
 #' direction-agnostic — wind *direction*, site geometry, and barriers are
 #' handled separately by [litter_exposure()].
 #'
+#' @section Status — interim 0-100 scale, awaiting the calibration helper:
+#' The `[0, 100]` bound (the `min(., 100)` backstop and the
+#' [categorise_litter()] cut-points) is an uncalibrated operational scale,
+#' retained but parked (issues #11/#8). The underlying physical quantity is the
+#' unbounded entrainment x transport product; a forthcoming calibration helper
+#' will fit a site-specific mapping. Do not treat the 0-100 value as calibrated
+#' or as comparable with the dust/odour indices.
+#'
 #' The function does not query any API. The caller fetches the four required
 #' hourly variables from the Open-Meteo `/v1/forecast` endpoint (winds in m/s,
 #' `&wind_speed_unit=ms`) and passes them as numeric vectors, one element per

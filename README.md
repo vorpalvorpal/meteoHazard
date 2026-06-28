@@ -174,7 +174,9 @@ site <- site_from_sectors(
 The odour model is split into two layers:
 
 * `odour_hazard()` — a **receptor-independent, direction-agnostic** hourly hazard index (source emission divided by ventilation). Answers *how strong is the odour situation around the site this hour* and returns a relative index (baseline = 1.0).
-* `odour_exposure()` — the **geometry-aware** layer: maps the hazard through a Pasquill-Gifford Gaussian plume onto each receptor in an `mh_site`, applies distance decay, direction uncertainty, and (optionally) terrain-driven cold-pool and morning-fumigation corrections, then returns the worst-case 0–100 exposure across receptors.
+* `odour_exposure()` — the **geometry-aware** layer: maps the hazard through a Pasquill-Gifford Gaussian plume onto each receptor in an `mh_site`, applies distance decay, direction uncertainty, and (optionally) terrain-driven cold-pool and morning-fumigation corrections, then returns the **per-receptor relative concentration** as a `n_hours × n_receptors` matrix (the unbounded physical layer).
+
+Mapping that physical value onto a bounded 0–100 index and into site-specific tiers is a **calibration** step left to the consumer (e.g. a dashboard that knows the site's complaint history). The previous saturating 0–100 map is retained — parked and uncalibrated — as `odour_index_interim()` pending a calibration helper; reduce over receptors and map it yourself with e.g. `odour_index_interim(odour_risk(met_data, site))`. See issue #11 for the rationale.
 
 `odour_risk()` is a convenience wrapper that runs both in one call. None of these functions call the weather API — the caller fetches the hourly variables from [Open-Meteo](https://open-meteo.com/) (requesting `&wind_speed_unit=ms`) and passes them as a data frame, one row per consecutive hour.
 
@@ -238,7 +240,7 @@ odour_shelter <- odour_risk(met_data, site_t,
 
 `shelter_index` can be provided directly or derived automatically via `mh_terrain_from_dem()`.
 
-The 0–100 exposure maps to provisional operational tiers (subject to calibration against complaint records; the mapping is tunable via the `map_c50` argument):
+The **interim** 0–100 index from `odour_index_interim()` maps to provisional operational tiers (uncalibrated screening defaults — parked pending the calibration helper; the map is tunable via its `map_c50` argument):
 
 | Exposure | Tier | Response |
 |---|---|---|

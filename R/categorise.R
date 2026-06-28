@@ -61,6 +61,13 @@ twl_colour <- function(twl) {
 # so a dashboard can colour every hazard consistently. The band cut-points are
 # provisional and tracked for calibration (see the odour calibration issue and
 # the litter/dust tier notes in their specs).
+#
+# INTERIM / awaiting the calibration helper (issues #11/#8): the 0-100 indices
+# these tiers consume are uncalibrated screening maps. The physical layers are
+# the unbounded quantities (odour: relative concentration from odour_exposure();
+# dust: dust_flux()). These tier helpers are retained but parked until a
+# calibration helper fits a site-specific mapping from the physical values.
+# Shared palette does NOT imply the hazards are comparable on one scale.
 
 #' Categorise a litter hazard index into operational tiers
 #'
@@ -163,19 +170,28 @@ dust_colour <- function(hazard) {
 
 #' Categorise an odour exposure into operational tiers
 #'
-#' Maps the 0-100 odour exposure ([odour_exposure()] / [odour_risk()]) to the
-#' four operational tiers documented in the README. The cut-points (15/40/70)
-#' are provisional and tunable through `map_c50`; see the odour calibration
-#' issue.
+#' Maps a 0-100 odour index to the four operational tiers documented in the
+#' README. The expected input is the **interim** index from
+#' [odour_index_interim()], NOT the raw relative concentration now returned by
+#' [odour_exposure()] / [odour_risk()].
 #'
-#' @param exposure Numeric vector of odour exposure values in `[0, 100]`.
+#' @section Status — interim, awaiting the calibration helper:
+#' Both this tier mapping (cut-points 15/40/70) and the underlying
+#' [odour_index_interim()] map are uncalibrated screening defaults (issue #8),
+#' retained but parked. A forthcoming calibration helper (issues #11/#8) will
+#' fit a site-specific mapping from the physical relative concentration. Treat
+#' these tiers as a flagged screening aid, not a calibrated or cross-site scale.
+#'
+#' @param exposure Numeric vector of interim odour index values in `[0, 100]`
+#'   (see [odour_index_interim()]).
 #' @return Character vector of tiers: `"LOW"`, `"MODERATE"`, `"HIGH"`,
 #'   `"VERY HIGH"`, or `NA`.
 #'
 #' @examples
-#' categorise_odour(c(10, 30, 55, 85))
+#' categorise_odour(odour_index_interim(c(0.05, 0.2, 0.6, 1.5)))
 #'
-#' @seealso [odour_exposure()], [odour_risk()], [odour_colour()].
+#' @seealso [odour_index_interim()], [odour_exposure()], [odour_risk()],
+#'   [odour_colour()].
 #' @export
 categorise_odour <- function(exposure) {
   case_when(

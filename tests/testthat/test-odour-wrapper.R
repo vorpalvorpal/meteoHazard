@@ -73,11 +73,13 @@ describe("odour_risk() on the mh_site model", {
     expect_equal(risk_out, exposure_out)
   })
 
-  it("returns one 0-100 value per forecast hour", {
+  it("returns a per-receptor relative-concentration matrix (one row per hour)", {
     d    <- mw(n = 12)
     site <- .make_wrapper_site()
     out  <- odour_risk(d, site)
-    expect_length(out, 12)
-    expect_true(all(out >= 0 & out <= 100))
+    expect_true(is.matrix(out))
+    expect_equal(nrow(out), 12)            # one row per forecast hour
+    expect_equal(ncol(out), 2)             # two receptors
+    expect_true(all(out >= 0))             # relative concentration, unbounded above
   })
 })
