@@ -58,11 +58,10 @@ describe("ventilation_state()", {
     )
     vs <- ventilation_state(d)
 
-    # Reference via the old helper (still available as .odour_dispersion_state
-    # is gone; re-derive by running odour_hazard internals via ventilation_state
-    # itself -- the numeric test is the same as the odour-hazard golden tests).
-    # Just verify the three core fields are finite, in-range, and consistent
-    # with what the existing odour_hazard golden tests rely on.
+    # These rows carry temperature_2m/relative_humidity_2m (vs_met() defaults),
+    # so the v3 cold-pool cap may shrink h_mix below the raw BLH on night rows
+    # (rows 1 and 3) -- only checked here for positivity, not an exact value;
+    # see the dedicated "nocturnal cold-pool cap" describe block below.
     expect_true(all(vs$u_eff >= ODOUR_CONSTANTS$U_CALM_FLOOR))
     expect_true(all(vs$h_mix > 0))
     expect_true(all(vs$s >= 0 & vs$s <= 5))
@@ -71,6 +70,113 @@ describe("ventilation_state()", {
     expect_equal(vs$s[1], 4.25)
     # Day + strong radiation + 5 m/s -> day_s is low (B class, s ~ 1).
     expect_lt(vs$s[2], vs$s[1])
+  })
+
+})
+
+
+# ---------------------------------------------------------------------------
+# Nocturnal cold-pool cap on h_mix (v3 Change 1)
+# ---------------------------------------------------------------------------
+#
+# Physical basis: under a nocturnal surface inversion the valley cold pool
+# (pool_top) caps vertical mixing far below the synoptic boundary-layer
+# height forecast -- the depth odour dilutes through is then the pool depth,
+# not the BLH. h_mix = min(BLH, pool_top) when: (a) the hour is dark
+# (!is_day) -- the daytime pool breakup is the morning-pulse machinery's
+# transient, owned by odour_exposure(), not this cap; and (b) pool_top is
+# THERMALLY derived (temperature_2m + relative_humidity_2m present) --
+# without them .pool_top() returns a mechanical/constant floor (>= 200 m) on
+# every hour, which is not evidence of an actual pool.
+#
+# Written BEFORE implementation (TDD): these fail with "unused argument
+# (pool_cap = ...)" until ventilation_state() gains the pool_cap parameter
+# (default TRUE).
+
+describe("ventilation_state(): nocturnal cold-pool cap on h_mix (pool_cap)", {
+
+  it("caps h_mix at pool_top on a thermally-derived clear cold night (default pool_cap = TRUE)", {
+    d <- night6(temperature_2m = 5, relative_humidity_2m = 30, cloud_cover = 0,
+                wind_speed_10m = 0.5, boundary_layer_height = 500)
+    vs_capped   <- ventilation_state(d)                       # pool_cap = TRUE (default)
+    vs_uncapped <- ventilation_state(d, pool_cap = FALSE)
+
+    # Uncapped h_mix is the raw BLH throughout (no NA/fallback in this fixture).
+    expect_true(all(vs_uncapped$h_mix == 500))
+
+    pool_active <- !vs_capped$is_day & !is.na(vs_capped$pool_top) & vs_capped$pool_top > 0
+    expect_true(any(pool_active), label = "fixture must accumulate a pool")
+
+    # Capped h_mix must equal pmin(BLH, pool_top) on every pool-active hour.
+    expect_equal(vs_capped$h_mix[pool_active],
+                 pmin(500, vs_capped$pool_top[pool_active]), tolerance = 1e-8)
+
+    # And it must be <= the uncapped depth everywhere, strictly < wherever the
+    # pool is shallower than the synoptic BLH (the whole point of the cap).
+    expect_true(all(vs_capped$h_mix[pool_active] <= vs_uncapped$h_mix[pool_active]))
+    expect_true(any(vs_capped$h_mix[pool_active] < vs_uncapped$h_mix[pool_active]))
+  })
+
+  it("never caps daytime h_mix, even though pool_top is frozen into daytime hours", {
+    d <- rbind(
+      night6(temperature_2m = 5, relative_humidity_2m = 30, cloud_cover = 0,
+             wind_speed_10m = 0.5, boundary_layer_height = 500),
+      vs_met(n = 4, direct_radiation = 600, boundary_layer_height = 800,
+             temperature_2m = 15, relative_humidity_2m = 50)
+    )
+    vs <- ventilation_state(d)
+    day_rows <- vs$is_day
+    expect_true(any(day_rows))
+    expect_true(all(vs$pool_top[day_rows] > 0),
+                label = "pool must be frozen (non-zero) into daytime")
+    # Daytime h_mix must equal the (uncapped) BLH exactly, not the frozen pool.
+    expect_equal(vs$h_mix[day_rows], d$boundary_layer_height[day_rows])
+  })
+
+  it("does not cap when temperature/RH are absent (a mechanical floor is not evidence of a pool)", {
+    d <- data.frame(
+      wind_speed_10m = rep(0.5, 6), direct_radiation = rep(0, 6),
+      cloud_cover = rep(0, 6), boundary_layer_height = rep(500, 6)
+    )
+    vs_default <- ventilation_state(d)
+    vs_off     <- ventilation_state(d, pool_cap = FALSE)
+    expect_identical(vs_default$h_mix, vs_off$h_mix)
+    expect_true(all(vs_default$h_mix == 500))
+  })
+
+  it("does not cap on a windy night where the mechanical floor exceeds a shallow BLH", {
+    d <- night6(temperature_2m = 10, relative_humidity_2m = 60, cloud_cover = 50,
+                wind_speed_10m = 8, boundary_layer_height = 50)
+    vs_default <- ventilation_state(d)
+    vs_off     <- ventilation_state(d, pool_cap = FALSE)
+    # Strong mechanical mixing (u10 = 8) drives the Venkatram floor for
+    # pool_top well above the (deliberately shallow) BLH, so
+    # min(BLH, pool_top) == BLH -- the cap is a no-op here.
+    expect_equal(vs_default$h_mix, vs_off$h_mix, tolerance = 1e-8)
+  })
+
+  it("cbl_growth is identical whether or not pool_cap is applied (derived from uncapped BLH)", {
+    # cbl_growth must come from the synoptic (uncapped) mixing depth: capping
+    # h_mix at sunrise (pool breaks up, BLH grows) must not masquerade as CBL
+    # growth via diff(h_mix). GOTCHA guarded by this test.
+    d <- rbind(
+      night6(temperature_2m = 3, relative_humidity_2m = 20, cloud_cover = 0,
+             wind_speed_10m = 0.5, boundary_layer_height = 200),
+      vs_met(n = 4, direct_radiation = 600,
+             boundary_layer_height = c(300, 600, 1000, 1500),
+             temperature_2m = 15, relative_humidity_2m = 50)
+    )
+    vs_on  <- ventilation_state(d, pool_cap = TRUE)
+    vs_off <- ventilation_state(d, pool_cap = FALSE)
+    expect_identical(vs_on$cbl_growth, vs_off$cbl_growth)
+  })
+
+  it("pool_cap = FALSE reproduces the raw BLH / stability fallback exactly regardless of pool depth", {
+    d <- night6(temperature_2m = 5, relative_humidity_2m = 30, cloud_cover = 0,
+                wind_speed_10m = 0.5, boundary_layer_height = NA_real_)
+    vs <- ventilation_state(d, pool_cap = FALSE)
+    # NA BLH, calm/stable night -> stable fallback, unaffected by pool_top.
+    expect_true(all(vs$h_mix == ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE))
   })
 
 })
@@ -307,46 +413,140 @@ describe("ventilation_state(): residual_wind", {
 
 
 # ---------------------------------------------------------------------------
+# W_rain -- solubility-aware below-cloud scavenging (v3 Change 4)
+# ---------------------------------------------------------------------------
+#
+# Physical basis: below-cloud gas washout scales with Henry's-law solubility
+# (Seinfeld & Pandis Ch. 19). The tiered factors (down to 0.05, i.e. 95%
+# removal) are the HIGHLY SOLUBLE limit; the reduced-sulfur compounds that
+# drive most landfill odour complaints are only sparingly soluble and
+# scavenge weakly. W_rain blends linearly between "no washout"
+# (odorant_solubility = 0) and the soluble-limit tiers (odorant_solubility =
+# 1); default 0.5 represents a mixed sulfur/soluble-VOC profile.
+
+describe("ventilation_state(): W_rain solubility-aware scavenging (odorant_solubility)", {
+
+  it("odorant_solubility = 1 reproduces the soluble-limit tiers exactly", {
+    d  <- vs_met(n = 3, precipitation = c(0.5, 2, 5))  # light / moderate / heavy
+    vs <- ventilation_state(d, odorant_solubility = 1)
+    K <- ODOUR_CONSTANTS
+    expect_equal(vs$W_rain, c(K$W_RAIN_FACTOR_LIGHT, K$W_RAIN_FACTOR_MOD,
+                              K$W_RAIN_FACTOR_HEAVY), tolerance = 1e-8)
+  })
+
+  it("odorant_solubility = 0 gives no washout at any rain rate", {
+    d  <- vs_met(n = 3, precipitation = c(0.5, 2, 5))
+    vs <- ventilation_state(d, odorant_solubility = 0)
+    expect_equal(vs$W_rain, c(1, 1, 1))
+  })
+
+  it("odorant_solubility = 0.5 (default) blends linearly to the soluble-limit tier", {
+    d           <- vs_met(precipitation = 5)   # heavy rain
+    vs_default  <- ventilation_state(d)
+    vs_explicit <- ventilation_state(d, odorant_solubility = 0.5)
+    expected <- 1 - 0.5 * (1 - ODOUR_CONSTANTS$W_RAIN_FACTOR_HEAVY)  # 0.525
+    expect_equal(vs_default$W_rain, expected, tolerance = 1e-8)
+    expect_equal(vs_explicit$W_rain, expected, tolerance = 1e-8)
+  })
+
+  it("raises meteoHazard_input_error for out-of-range odorant_solubility", {
+    d <- vs_met()
+    expect_error(ventilation_state(d, odorant_solubility = -0.1),
+                 class = "meteoHazard_input_error")
+    expect_error(ventilation_state(d, odorant_solubility = 1.1),
+                 class = "meteoHazard_input_error")
+  })
+
+})
+
+
+# ---------------------------------------------------------------------------
 # .odour_generation()
 # ---------------------------------------------------------------------------
+#
+# Physical basis for the v3 rewrite of G (Changes 2 + 3):
+#  - Multiplicative combination: the five modifiers are independent
+#    fractional changes to emission rate, and independent fractional effects
+#    compound multiplicatively (E = E0 * prod(1+m_i)), not additively. Additive
+#    superposition is only the first-order approximation and understates the
+#    coincident worst case (e.g. falling pressure + hot + humid together).
+#  - Exponential V_mod: the cited basis (Henry's-law / Clausius-Clapeyron
+#    vapour-pressure temperature dependence, "~doubling per 10 degC") is
+#    exponential, not linear. V_mod is anchored to 0 at V_MOD_T_LO and
+#    V_MOD_MAX at V_MOD_T_HI, clamped beyond T_HI as a deliberate screening
+#    ceiling (this site's worst case is winter inversions, not extreme heat).
 
 describe(".odour_generation()", {
 
-  it("reproduces the current generation modifier G exactly", {
-    # Use the same fixtures as the odour_hazard golden tests; G is the only
-    # thing that changes between the two implementations (it was inlined before).
-    mh_base <- function(n = 1, ...) {
-      base <- list(
-        wind_speed_10m         = 3,
-        direct_radiation       = 0,
-        cloud_cover            = 50,
-        boundary_layer_height  = 500,
-        temperature_2m         = 15,
-        pressure_msl           = 1013,
-        precipitation          = 0,
-        relative_humidity_2m   = 50,
-        soil_moisture_0_to_1cm = 0.1,
-        soil_moisture_1_to_3cm = 0.1
-      )
-      ov <- list(...)
-      base[names(ov)] <- ov
-      as.data.frame(lapply(base, rep_len, n))
-    }
-
-    # Default row: V_mod = 0.30*(15-10)/25 = 0.06 -> G = 1.06
-    expect_equal(.odour_generation(mh_base()), 1.06, tolerance = 1e-8)
-
-    # Temp = 35 -> V_mod = 0.30 -> G = 1.30
-    expect_equal(.odour_generation(mh_base(temperature_2m = 35)), 1.30, tolerance = 1e-8)
-
-    # Temp = 5 -> V_mod = 0 -> G = 1.00
-    expect_equal(.odour_generation(mh_base(temperature_2m = 5)), 1.00, tolerance = 1e-8)
-
-    # Heavy wet soil -> S_seal = -0.20 -> G = 1.06 - 0.20 = 0.86
-    expect_equal(
-      .odour_generation(mh_base(soil_moisture_0_to_1cm = 0.45, soil_moisture_1_to_3cm = 0.45)),
-      1.06 - 0.20, tolerance = 1e-8
+  mh_base <- function(n = 1, ...) {
+    base <- list(
+      wind_speed_10m         = 3,
+      direct_radiation       = 0,
+      cloud_cover            = 50,
+      boundary_layer_height  = 500,
+      temperature_2m         = 15,
+      pressure_msl           = 1013,
+      precipitation          = 0,
+      relative_humidity_2m   = 50,
+      soil_moisture_0_to_1cm = 0.1,
+      soil_moisture_1_to_3cm = 0.1
     )
+    ov <- list(...)
+    base[names(ov)] <- ov
+    as.data.frame(lapply(base, rep_len, n))
+  }
+
+  it("combines simultaneous modifiers multiplicatively: G = prod(1 + m_i), not sum", {
+    # temperature_2m = V_MOD_T_HI clamps V_mod to exactly V_MOD_MAX (0.30),
+    # independent of the exact exponential shape -- isolates the combination
+    # rule (multiplicative vs additive) from the V_mod curve shape.
+    d <- mh_base(n = 5, temperature_2m = ODOUR_CONSTANTS$V_MOD_T_HI,
+                 pressure_msl = c(1013, 1010, 1007, 1004, 1001))
+    G <- .odour_generation(d)
+    V_mod  <- ODOUR_CONSTANTS$V_MOD_MAX
+    dP_mod <- 0.30   # dP3 = 1004 - 1013 = -9 <= -5 at row 4 -> saturated dP_mod
+    expect_equal(G[4], (1 + dP_mod) * (1 + V_mod), tolerance = 1e-8)
+    expect_false(isTRUE(all.equal(G[4], 1 + dP_mod + V_mod)),
+                 label = "must NOT be the additive combination")
+  })
+
+  it("V_mod(T) is 0 at V_MOD_T_LO, V_MOD_MAX at/beyond V_MOD_T_HI, and convex (exponential) between", {
+    T_lo <- ODOUR_CONSTANTS$V_MOD_T_LO
+    T_hi <- ODOUR_CONSTANTS$V_MOD_T_HI
+    vmax <- ODOUR_CONSTANTS$V_MOD_MAX
+
+    expect_equal(.odour_generation(mh_base(temperature_2m = T_lo)), 1.0, tolerance = 1e-8)
+    expect_equal(.odour_generation(mh_base(temperature_2m = T_hi)), 1.0 + vmax, tolerance = 1e-8)
+    expect_equal(.odour_generation(mh_base(temperature_2m = T_hi + 5)), 1.0 + vmax,
+                 tolerance = 1e-8)  # clamped beyond T_hi
+
+    # Convexity: the value at the midpoint temperature must sit BELOW the
+    # linear midpoint (0.5 * vmax) -- doubling growth is back-loaded.
+    mid_temp <- (T_lo + T_hi) / 2
+    G_mid    <- .odour_generation(mh_base(temperature_2m = mid_temp))
+    expect_lt(G_mid - 1.0, 0.5 * vmax)
+
+    # Monotone increasing over (T_lo, T_hi).
+    temps <- seq(T_lo, T_hi, length.out = 6)
+    Gs    <- vapply(temps, function(t) .odour_generation(mh_base(temperature_2m = t)), numeric(1))
+    expect_true(all(diff(Gs) >= -1e-10))
+  })
+
+  it("NA temperature leaves V_mod at 0 (neutral)", {
+    expect_equal(.odour_generation(mh_base(temperature_2m = NA_real_)), 1.0, tolerance = 1e-8)
+  })
+
+  it("wet-soil sealing multiplies rather than subtracts from the other modifiers", {
+    # Heavy wet soil: S_seal = -0.20. Default temp 15 -> V_mod follows the
+    # exponential ramp. G = (1 + V_mod) * (1 + S_seal) = (1 + V_mod) * 0.80,
+    # NOT the old additive 1 + V_mod - 0.20.
+    K    <- ODOUR_CONSTANTS
+    f_hi <- 2^((K$V_MOD_T_HI - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C)
+    V_mod_15 <- K$V_MOD_MAX * (2^((15 - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C) - 1) / (f_hi - 1)
+    expected <- (1 + V_mod_15) * (1 - 0.20)
+    G <- .odour_generation(mh_base(soil_moisture_0_to_1cm = 0.45,
+                                    soil_moisture_1_to_3cm = 0.45))
+    expect_equal(G, expected, tolerance = 1e-8)
   })
 
 })
@@ -386,6 +586,18 @@ describe("ventilation_state(): validation", {
     d <- vs_met()
     expect_error(
       ventilation_state(d, shelter_h_mix = "yes"),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("raises meteoHazard_input_error for non-logical pool_cap argument", {
+    d <- vs_met()
+    expect_error(
+      ventilation_state(d, pool_cap = "yes"),
+      class = "meteoHazard_input_error"
+    )
+    expect_error(
+      ventilation_state(d, pool_cap = 1L),
       class = "meteoHazard_input_error"
     )
   })

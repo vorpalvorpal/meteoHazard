@@ -469,6 +469,44 @@ describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", 
 
 
 # ---------------------------------------------------------------------------
+# v3 -- nocturnal cold-pool cap as the exposure reflecting lid (Change 1)
+# ---------------------------------------------------------------------------
+#
+# C_rel is proportional to 1/min(sigma_z_eff, h_mix): h_mix only survives in
+# the exposure formula through that min(). At most ridge distances sigma_z_eff
+# < h_mix and the cap is a no-op there (h_mix cancels algebraically between
+# the hazard numerator and geom_base's denominator -- see
+# specs/Odour_v3_changes.md's short-distance caveat). This fixture is
+# deliberately engineered so the cap DOES bind: a shallow, low-wind, warm/
+# humid/cloudy night keeps pool_top pinned near the Venkatram mechanical
+# floor (~22 m) -- well below Briggs class F's OWN asymptotic sigma_z ceiling
+# (0.016/0.0003 ~= 53 m, the ceiling class F's sigma_z(x) approaches as
+# x -> infinity, so class F alone could never produce this crossover at any
+# distance from a deeper pool). An 8 km on-axis receptor gives
+# sigma_z(F, 8 km) ~= 37.6 m: bigger than the capped pool (so the pool
+# becomes the binding lid) but well below the uncapped BLH (150 m, so the
+# uncapped run is governed purely by sigma_z, unaffected by h_mix at all).
+# Ground-truthed against the current (unchanged) .pool_top() and the Briggs
+# class-F sigma_z formula before writing this test.
+
+describe("odour_exposure(): v3 nocturnal cold-pool cap as the reflecting lid", {
+
+  it("pool_cap = TRUE (default) exceeds pool_cap = FALSE when the shallow capped pool -- not sigma_z -- sets the vertical lid", {
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 8000)
+    d <- .make_odour_met(
+      wind_direction_10m = 180, wind_speed_10m = 0.5,
+      direct_radiation = 0, cloud_cover = 85, boundary_layer_height = 150,
+      temperature_2m = 18, relative_humidity_2m = 75
+    )
+    e_on  <- .worst(odour_exposure(d, site))                    # pool_cap = TRUE (default)
+    e_off <- .worst(odour_exposure(d, site, pool_cap = FALSE))
+    expect_gt(e_on, e_off)
+  })
+
+})
+
+
+# ---------------------------------------------------------------------------
 # C8 — Upslope rim-venting: odour_exposure() integration specs
 # ---------------------------------------------------------------------------
 # Written BEFORE implementation (TDD).  These fail until odour_exposure() gains

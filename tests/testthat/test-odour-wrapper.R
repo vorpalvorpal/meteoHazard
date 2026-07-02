@@ -82,4 +82,27 @@ describe("odour_risk() on the mh_site model", {
     expect_equal(ncol(out), 2)             # two receptors
     expect_true(all(out >= 0))             # relative concentration, unbounded above
   })
+
+  it("threads pool_cap and odorant_solubility through to odour_exposure() (non-default values)", {
+    # The "equals odour_exposure() applied by hand" test above only exercises
+    # matching DEFAULTS on both sides, so it would not catch a forgotten wire.
+    # Use non-default values on both to confirm they actually propagate; rain
+    # is added so odorant_solubility has an observable effect too (mw()'s
+    # default precipitation = 0 would make it a silent no-op otherwise).
+    d    <- mw(n = 6, precipitation = 5)
+    site <- .make_wrapper_site()
+    risk_out     <- odour_risk(d, site, pool_cap = FALSE, odorant_solubility = 1)
+    exposure_out <- odour_exposure(d, site, pool_cap = FALSE, odorant_solubility = 1)
+    expect_equal(risk_out, exposure_out)
+
+    # And each argument individually must move the result away from the
+    # all-defaults call, proving BOTH were threaded (not just one of them).
+    default_out <- odour_risk(d, site)
+    pool_only   <- odour_risk(d, site, pool_cap = FALSE)
+    sol_only    <- odour_risk(d, site, odorant_solubility = 1)
+    expect_false(isTRUE(all.equal(pool_only, default_out)),
+                 label = "pool_cap = FALSE must change the result")
+    expect_false(isTRUE(all.equal(sol_only, default_out)),
+                 label = "odorant_solubility = 1 must change the result")
+  })
 })
