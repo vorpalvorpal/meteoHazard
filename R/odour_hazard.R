@@ -1,9 +1,10 @@
 # ===========================================================================
 # Odour hazard layer (receptor-independent, direction-agnostic).
 #
-# See specs/Odour_v2.md for the full model. This file holds the shared
-# dispersion-state helper and the odour_hazard() ventilation index. The
-# geometry-aware exposure layer lives in R/odour_exposure.R.
+# See specs/Odour_v2.md for the full model. This file holds the
+# odour_hazard() ventilation index (built on ventilation_state(), in
+# R/odour-ventilation.R). The geometry-aware exposure layer lives in
+# R/odour_exposure.R.
 # ===========================================================================
 
 
@@ -41,15 +42,20 @@
 #'
 #' \describe{
 #'   \item{\eqn{G}}{Source generation modifier
-#'     \eqn{1 + \Delta P_{mod} + R_{mod} + S_{seal} + H_{mod} + V_{mod}}
+#'     \eqn{(1 + \Delta P_{mod})(1 + R_{mod})(1 + S_{seal})(1 + H_{mod})(1 + V_{mod})}
 #'     (barometric pumping, post-rain piston, soil sealing, humidity, surface
-#'     volatilisation), range about 0.80 to 1.95.}
+#'     volatilisation), combined multiplicatively -- independent fractional
+#'     modifiers compound rather than add -- range about 0.80 to 2.33.}
 #'   \item{\eqn{PM(s)}}{Peak-to-mean ratio, rising with stability from
 #'     `PM_MIN` (unstable) to `PM_MAX` (very stable); odour annoyance is driven
 #'     by sub-minute peaks that hourly-average dispersion smooths out.}
-#'   \item{\eqn{W_{rain}}}{Below-cloud scavenging of soluble odorants.}
+#'   \item{\eqn{W_{rain}}}{Below-cloud scavenging, blended between no washout
+#'     and the soluble-limit tiers by `odorant_solubility` (Henry's-law
+#'     solubility, default 0.5 = mixed sulfur/soluble profile).}
 #'   \item{\eqn{u_{eff}, h_{mix}, s}}{Effective wind, mixing depth, and stability
-#'     from the shared dispersion state (see Details / `stability`).}
+#'     from the shared dispersion state (see Details / `stability`). By default
+#'     (`pool_cap = TRUE`) `h_mix` is capped at the nocturnal cold-pool depth on
+#'     stable nights -- see [ventilation_state()].}
 #' }
 #'
 #' @param met_data A data frame (or tibble), one row per consecutive hourly
@@ -73,6 +79,11 @@
 #'   index has no natural ceiling, and the 0--100 framing is applied downstream
 #'   by [odour_exposure()]. Whether to unify all hazards onto one scale is a
 #'   deferred modelling/API decision (GitHub issue #11).
+#'
+#'   **`H approx 1` is no longer the worst baseline.** With the v3 nocturnal
+#'   cold-pool cap (`pool_cap = TRUE`, default) an actively-trapped inversion
+#'   night can push `h_mix` well below the calm-stable reference depth used to
+#'   normalise `H`, so trapped nights now routinely exceed 1.0.
 #'
 #' @references
 #' Turner, D.B. (1970). \emph{Workbook of Atmospheric Dispersion Estimates}.
@@ -100,11 +111,19 @@
 #'   to reduce the effective wind speed.
 #' @param shelter_h_mix Logical (default `FALSE`). If `TRUE`, also reduce the
 #'   mixing depth via M3 shelter.
+#' @param pool_cap Logical (default `TRUE`). Passed to [ventilation_state()];
+#'   caps `h_mix` at the nocturnal cold-pool depth on stable nights.
+#' @param odorant_solubility Number in `[0, 1]` (default
+#'   `ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT`, 0.5). Passed to
+#'   [ventilation_state()]; blends `W_rain` between no washout (0) and the
+#'   soluble-limit tiers (1).
 #' @export
 odour_hazard <- function(met_data, stability = c("turner", "shear"),
                          datetime = NULL,
                          terrain = NULL,
-                         shelter = FALSE, shelter_h_mix = FALSE) {
+                         shelter = FALSE, shelter_h_mix = FALSE,
+                         pool_cap = TRUE,
+                         odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT) {
   stability <- match.arg(stability)
   .assert_hourly(datetime)
 
@@ -123,7 +142,9 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   met_data <- .odour_normalise_met(met_data)
 
   vs <- ventilation_state(met_data, terrain = terrain, stability = stability,
-                          shelter = shelter, shelter_h_mix = shelter_h_mix)
+                          shelter = shelter, shelter_h_mix = shelter_h_mix,
+                          pool_cap = pool_cap,
+                          odorant_solubility = odorant_solubility)
   G  <- .odour_generation(met_data)
 
   hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
@@ -221,17 +242,6 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     alpha <= 0.40 ~ 4.0 + (alpha - 0.22) / 0.18,
     TRUE          ~ 5.0
   )
-}
-
-
-# ---- Backward-compat shim -------------------------------------------------- #
-# Tests that pre-date C2 call .odour_dispersion_state() directly. Retained as a
-# thin alias extracting the five core fields from ventilation_state().
-.odour_dispersion_state <- function(met_data, stability = c("turner", "shear")) {
-  stability <- match.arg(stability)
-  vs <- ventilation_state(met_data, terrain = NULL, stability = stability)
-  list(s = vs$s, u_eff = vs$u_eff, h_mix = vs$h_mix,
-       is_calm = vs$is_calm, is_day = vs$is_day)
 }
 
 

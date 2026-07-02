@@ -9,7 +9,9 @@ ventilation_state(
   terrain = NULL,
   stability = c("turner", "shear"),
   shelter = FALSE,
-  shelter_h_mix = FALSE
+  shelter_h_mix = FALSE,
+  pool_cap = TRUE,
+  odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT
 )
 }
 \arguments{
@@ -39,13 +41,26 @@ gives bit-identical output to the pre-C6 baseline.}
 \code{shelter = TRUE}), also scales \code{h_mix} by \code{(1 - reduction_effective)}.
 Undocumented interaction with the forecast \code{boundary_layer_height}
 (potential double-count); leave \code{FALSE} until reconciled.}
+
+\item{pool_cap}{Logical (default \code{TRUE}). When \code{TRUE}, caps \code{h_mix} at the
+nocturnal cold-pool depth (\code{pool_top}) on stable nights -- see the
+\code{h_mix} return-value bullet below. \code{FALSE} reproduces the pre-v3
+raw-boundary-layer-height behaviour.}
+
+\item{odorant_solubility}{Number in \verb{[0, 1]} (default
+\code{ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT}, 0.5). Blends \code{W_rain}
+between no washout (0, poorly-soluble reduced-sulfur odorants) and the
+soluble-limit tiers (1, highly-soluble ammonia/amines/VOCs).}
 }
 \value{
 A named list, all vectors of length \code{nrow(met_data)}:
 \describe{
 \item{\code{u_eff}}{Effective wind speed (m/s), floored at \code{U_CALM_FLOOR}.}
 \item{\code{h_mix}}{Mixing depth (m), positive; falls back to stable/unstable
-constant when \code{boundary_layer_height} is \code{NA} or non-positive.}
+constant when \code{boundary_layer_height} is \code{NA} or non-positive. By
+default the nocturnal cold-pool depth (\code{pool_top}) caps it on stable
+nights (\code{pool_cap = TRUE}); set \code{pool_cap = FALSE} for the raw
+boundary-layer-height behaviour.}
 \item{\code{s}}{Pasquill-Gifford stability index in [0, 5] (A = 0, F = 5).}
 \item{\code{is_calm}}{Logical; wind below \code{U_CALM_FLOOR} or \code{NA}.}
 \item{\code{is_day}}{Logical; direct radiation > 10 W/m^2.}
@@ -89,6 +104,11 @@ The M3 hazard/exposure re-entanglement caveat: enabling \code{shelter = TRUE}
 makes \code{ventilation_state()} depend on a terrain descriptor, so the
 ventilation state is no longer purely meteorological. This is inherent to
 M3; keep \code{shelter = FALSE} in all meteorological-analysis contexts.
+
+With \code{terrain = NULL} the nocturnal cold-pool cap (\code{pool_cap = TRUE}) is
+still purely meteorological -- \code{pool_top} is derived from Brunt/Whiteman/
+Venkatram formulas over \code{met_data} alone. It becomes terrain-modulated only
+when \code{terrain} supplies \code{taf} and/or \code{valley_depth} (see \code{\link[=mh_terrain]{mh_terrain()}}).
 }
 
 \references{

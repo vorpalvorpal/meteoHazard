@@ -53,6 +53,12 @@
 #'   the shared `.odour_hazard_raw()` core — the effect propagates end-to-end
 #'   through `odour_risk()` after the C9 fix.
 #' @param shelter_h_mix Logical. Passed to [ventilation_state()].
+#' @param pool_cap Logical (default `TRUE`). Passed to [ventilation_state()];
+#'   caps `h_mix` at the nocturnal cold-pool depth on stable nights.
+#' @param odorant_solubility Number in `[0, 1]` (default
+#'   `ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT`, 0.5). Passed to
+#'   [ventilation_state()]; blends `W_rain` between no washout (0) and the
+#'   soluble-limit tiers (1).
 #' @param rim_venting Logical. When `TRUE` and `terrain_backend = "descriptors"`,
 #'   activates C8 upslope rim-venting: the morning pathway 1a crosswind factor is
 #'   gated by a vertical reach function and scaled by per-receptor upslope
@@ -86,6 +92,8 @@ odour_exposure <- function(met_data, site,
                            terrain_backend = c("none", "descriptors"),
                            shelter = FALSE,
                            shelter_h_mix = FALSE,
+                           pool_cap = TRUE,
+                           odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT,
                            rim_venting = FALSE) {
   stability       <- match.arg(stability)
   terrain_backend <- match.arg(terrain_backend)
@@ -126,7 +134,9 @@ odour_exposure <- function(met_data, site,
 
   # ---- Ventilation state -------------------------------------------------- #
   vs <- ventilation_state(met_data, terrain = site@terrain, stability = stability,
-                          shelter = shelter, shelter_h_mix = shelter_h_mix)
+                          shelter = shelter, shelter_h_mix = shelter_h_mix,
+                          pool_cap = pool_cap,
+                          odorant_solubility = odorant_solubility)
 
   # ---- Generation modifier G ---------------------------------------------- #
   # Falls back to 1.0 per row if required columns are absent.

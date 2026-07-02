@@ -11,6 +11,8 @@ odour_risk(
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
   shelter_h_mix = FALSE,
+  pool_cap = TRUE,
+  odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT,
   datetime = NULL,
   rim_venting = FALSE
 )
@@ -37,6 +39,14 @@ the shared \code{.odour_hazard_raw()} core — the effect propagates end-to-end
 through \code{odour_risk()} after the C9 fix.}
 
 \item{shelter_h_mix}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}.}
+
+\item{pool_cap}{Logical (default \code{TRUE}). Passed to \code{\link[=odour_exposure]{odour_exposure()}};
+caps \code{h_mix} at the nocturnal cold-pool depth on stable nights.}
+
+\item{odorant_solubility}{Number in \verb{[0, 1]} (default
+\code{ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT}, 0.5). Passed to
+\code{\link[=odour_exposure]{odour_exposure()}}; blends \code{W_rain} between no washout (0) and the
+soluble-limit tiers (1).}
 
 \item{datetime}{Optional \code{POSIXct} vector for the consecutive-hourly spacing
 check; see \code{\link[=odour_hazard]{odour_hazard()}}.}
