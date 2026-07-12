@@ -10,7 +10,7 @@ dust_flux(
   wind_speed_10m,
   wind_gusts_10m,
   soil_moisture,
-  z0 = 0.005,
+  z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
   threshold_multiplier = 1
@@ -22,17 +22,25 @@ aggregate size of the erodible surface. Must be one of the tabulated values
 (see \code{TYLER_SIEVE_DIAMETERS_M}).}
 
 \item{clay_percent}{Clay fraction of the surface material (\% by mass), in
-\code{0}–\code{100}.}
+\code{0}–\code{100}. Values above \code{DUST_CONSTANTS$MB95_CLAY_CAP} (20\%) are capped
+for the MB95 sandblasting efficiency only (with a warning); the Fecan
+moisture correction still uses the true \code{clay_percent}.}
 
 \item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (m/s).}
 
-\item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (m/s).}
+\item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (m/s). Must be
+\verb{>= wind_speed_10m} at every hour.}
 
 \item{soil_moisture}{Numeric vector. Volumetric water content of the top
 0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}
 
 \item{z0}{Aerodynamic roughness length for the wind profile (m). Default
-0.005.}
+\code{NULL}, which derives the smooth-bed value \code{d/30} (Nikuradse
+equivalent-sand roughness; the MB95 \code{z0s} convention) from the modal
+grain diameter implied by \code{tyler_sieve_no}. A caller-supplied \code{z0} larger
+than this smooth-bed value warns, because larger roughness is not
+sheltering the bed here (no drag partition is modelled) and so instead
+biases u*, and hence the flux, high.}
 
 \item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
 
@@ -44,18 +52,21 @@ length 1 or matching the met vectors. Used by \code{\link[=dust_hazard]{dust_haz
 to inject the crust-persistence factor; defaults to 1 (no effect).}
 }
 \value{
-Numeric vector of vertical dust flux (relative units), one per hour;
-\code{0} where the wind does not exceed the (possibly moisture/crust/roughness
-adjusted) threshold.
+Numeric vector, one value per hour, proportional to the
+instantaneous vertical dust mass-flux rate (relative units, unscaled;
+see @section Units); \code{0} where the wind does not exceed the (possibly
+moisture/crust/roughness adjusted) threshold.
 }
 \description{
 Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
 surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
-an Owen/White saltation flux, and the Marticorena & Bergametti (1995)
-sandblasting efficiency. The erodible surface is assumed smooth (no
-non-erodible roughness drag partition). The returned flux is in relative
-units; for an operational, bounded index use \code{\link[=dust_hazard]{dust_hazard()}}.
+an Owen (1964) / White (1979) saltation flux, and the Marticorena &
+Bergametti (1995, "MB95") sandblasting efficiency. The erodible surface is
+assumed smooth (no non-erodible roughness drag partition; see \code{z0}). The
+returned value is proportional to the instantaneous vertical dust
+mass-flux rate, returned \strong{unscaled} for relative ranking; for an
+operational, bounded index use \code{\link[=dust_hazard]{dust_hazard()}}.
 }
 \details{
 The function does not query any API. The caller supplies the per-hour
@@ -67,16 +78,77 @@ The dimensional inputs (\code{wind_speed_10m}, \code{wind_gusts_10m}, \code{z0},
 \code{bulk_density}) may be supplied as bare numerics in the documented unit or as
 \pkg{units} objects, which are converted automatically (a dimensionally
 incompatible unit is an error). \code{clay_percent}, \code{soil_moisture} (m^3/m^3) and
-\code{gust_factor} are dimensionless and taken as-is. The returned flux is in
-relative units (plain numeric).
+\code{gust_factor} are dimensionless and taken as-is. The returned value is
+proportional to the instantaneous vertical dust mass-flux rate
+(\code{alpha * Q}; physical dimensions kg m^-2 s^-1), but is returned \strong{unscaled}
+(plain numeric, not a \pkg{units} object) for relative ranking pending
+calibration (issues #11/#8). Two unit notes for anyone converting to an
+absolute rate: (1) the MB95 \code{alpha} coefficient is used in its native
+cm^-1 units and is NOT converted to SI (m^-1, which would require \verb{* 100});
+(2) this is an instantaneous rate, not an hourly total — the per-hour mass
+is \code{F * 3600}.
+}
+
+\section{Idealisations}{
+
+This engine makes several simplifying assumptions, in decreasing order of
+expected impact on absolute accuracy (the relative ranking across hours is
+more robust than the absolute value):
+\itemize{
+\item \strong{Steady hourly gust forcing.} The gust is applied as a constant
+hourly-steady friction velocity rather than integrated over a
+within-hour wind-speed distribution. Because saltation flux is a
+convex (odd-power, threshold-gated) function of wind speed, this biases
+the flux high near the threshold and is a placeholder for a future
+within-hour intermittency treatment (see the T8 TODO below).
+\item \strong{MB95 alpha not SI-converted, and capped at 20\% clay.} \code{alpha} is
+kept in its native cm^-1 units (see @section Units) and is clamped at
+the clay \% where the Marticorena & Bergametti (1995) fit was validated
+(Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
+and emit less than a naive extrapolation would predict.
+\item \strong{Fixed reference air density.} \code{rho_a} is a constant
+(\code{DUST_CONSTANTS$RHO_A_REF}), not adjusted for site temperature or
+pressure (see the T10 TODO below).
+\item \strong{Smooth surface, no drag partition.} \code{z0} defaults to the
+smooth-bed value \code{d/30}; non-erodible roughness elements (gravel,
+vegetation, stockpiles) are not represented, so u* — and hence the flux
+— is not sheltered the way a drag-partition model would predict
+(Raupach et al. 1993; Okin 2008; Webb et al. 2014).
+\item \strong{Transport-limited, not supply-limited.} The Owen/White saltation
+flux assumes an unlimited erodible reservoir. Real surfaces can be
+supply-limited (surface armouring, prior deflation), which this model
+does not represent; sustained high winds are more likely to be
+overestimated than gusty, intermittent ones (Gillette et al. 1982;
+Kok et al. 2012). A future reservoir/hybrid treatment is a TODO, not
+implemented here.
+}
 }
 
 \references{
-Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304}.
+Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304} — threshold friction
+velocity (\code{A_N}, \code{gamma}).
 Fecan, F., Marticorena, B. & Bergametti, G. (1999)
-\doi{10.1007/s00585-999-0149-7}.
-Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690}.
-Owen, P.R. (1964) saltation of uniform grains in air; White, B.R. (1979).
+\doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
+Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
+partition and sandblasting efficiency (\code{z0s = d/30},
+\code{alpha = 10^(0.134*clay - 6)} cm^-1).
+Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
+Res. 84:4643 — saltation flux forms.
+Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}
+— roughness elements raise the threshold / shelter the bed.
+Okin, G.S. (2008) J. Geophys. Res.-Earth Surf. 113:F02S10 — roughness
+suppresses emission (patchy-vegetation model).
+Webb, N.P. et al. (2014) \doi{10.1002/2014JD021491} — roughness and
+shear-stress partitioning.
+Foroutan, H. et al. (2017) Geosci. Model Dev. 10:2591 (PMC6145470) — MB95
+alpha validity limited to <=20\% clay.
+Kok, J.F. et al. (2012) Rep. Prog. Phys. 75:106901 — saltation flux;
+transport- vs supply-limited regimes.
+Kok, J.F. et al. (2014) Atmos. Chem. Phys. 14:13043 — clay fraction
+commonly capped at 0.2 in dust-emission schemes.
+Gillette, D.A. et al. (1982) J. Geophys. Res. 87:9003 — supply limitation
+and crust rupture by saltation impact.
+Nikuradse, J. (1933); Sherman, D.J. (1992) — smooth-bed \code{z0 = d/30}.
 }
 \seealso{
 \code{\link[=dust_hazard]{dust_hazard()}} for the bounded operational index.

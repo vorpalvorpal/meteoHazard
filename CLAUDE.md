@@ -72,10 +72,11 @@ Both are active only when `terrain_backend = "descriptors"` and `site@terrain` i
 
 ### Constants
 
-All tunable model parameters live in two named lists in [`R/constants.R`](R/constants.R):
+All tunable model parameters live in three named lists in [`R/constants.R`](R/constants.R):
 
 - **`ODOUR_CONSTANTS`** — odour model: `U_CALM_FLOOR`, `PM_MIN/MAX`, stability coefficients, Brunt cooling, pool accumulation, C3b pathway factors, C6 sheltering coefficients, `X_REF_EXPOSURE`.
 - **`TWL_CONSTANTS`** — Brake & Bates TWL model.
+- **`DUST_CONSTANTS`** — dust model: Shao & Lu threshold (`A_N`, `GAMMA`), densities, `Z0_SMOOTH_RATIO` (smooth-bed `z0 = d/30`), Fécan moisture coefficients, MB95 sandblasting (`MB95_ALPHA_SLOPE/INTERCEPT`, `MB95_CLAY_CAP`).
 
 No inline literals in the physics code.
 
