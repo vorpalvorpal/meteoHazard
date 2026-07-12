@@ -2,7 +2,7 @@
 % Please edit documentation in R/litter_hazard.R
 \name{litter_hazard_vec}
 \alias{litter_hazard_vec}
-\title{Litter Hazard Index for windblown litter at landfill sites}
+\title{Litter hazard index for windblown litter at landfill sites}
 \usage{
 litter_hazard_vec(
   wind_gusts_10m,
@@ -80,10 +80,10 @@ Default 15 (~54 km/h). Must exceed \code{wind_transport_onset}.}
 hazard is suppressed (mm). Default 0.5.}
 }
 \value{
-Numeric vector of length equal to the inputs, the relative litter hazard
-index for each forecast hour (dimensionless; ~0-100 by construction with the
-default \code{entrainment_max}/\code{transport_max}, but not a calibrated operational
-scale — see the Status section).
+Numeric vector of length equal to the inputs, the relative litter
+hazard index for each forecast hour (dimensionless; ~0-100 by construction
+with the default \code{entrainment_max}/\code{transport_max}, but not a calibrated
+operational scale — see the Status section).
 }
 \description{
 Computes an hourly \strong{meteorological litter hazard}: given the weather in a
@@ -101,13 +101,13 @@ index spans ~0-100 by construction, but that scaling is a modelling choice,
 not a calibrated operational scale. Mapping it onto a site-specific index /
 tiers is a calibration step delivered by forthcoming calibration tooling
 (issues #11/#8).
-}
-\details{
+
 The function does not query any API. The caller fetches the four required
 hourly variables from the Open-Meteo \verb{/v1/forecast} endpoint (winds in m/s,
 \verb{&wind_speed_unit=ms}) and passes them as numeric vectors, one element per
 forecast hour.
 }
+
 \section{Units}{
 
 The dimensional inputs (\code{wind_gusts_10m}, \code{wind_speed_10m}, \code{precipitation})

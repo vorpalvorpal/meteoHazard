@@ -8,13 +8,14 @@ dust_hazard(
   met_data,
   tyler_sieve_no = 20L,
   clay_percent = 10,
-  z0 = 0.005,
+  z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
   crust = FALSE,
   rain_crust_threshold = 2,
   crust_factor_max = 3,
-  crust_decay_hours = 72
+  crust_decay_hours = 72,
+  hours_since_last_rain = Inf
 )
 }
 \arguments{
@@ -36,6 +37,13 @@ Default 3.}
 
 \item{crust_decay_hours}{E-folding time (hours) over which the crust
 suppression decays. Default 72.}
+
+\item{hours_since_last_rain}{Assumed crust age (hours) going into row 1 of
+\code{met_data}, i.e. how long since the last crust-forming rain before the
+forecast window starts. Default \code{Inf} (no crust memory at row 1,
+reproducing the pre-v3 behaviour). Set to \code{0} if the forecast is known to
+start immediately after a crust-forming rain event; see @section Crust
+cold-start.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the crust-adjusted
@@ -58,6 +66,34 @@ fixed 0-100 scale (and the \code{categorise_dust()} tiers) was removed: the
 package now emits the physical relative flux, and mapping it onto a
 site-specific operational index is a calibration step delivered by
 forthcoming calibration tooling (issues #11/#8), not by fixed cut-points.
+}
+
+\section{Crust cold-start}{
+
+The precipitation-driven crust gate has no look-back before row 1 of
+\code{met_data}: unless told otherwise, it assumes row 1 has no crust memory
+(equivalent to "it has not rained in a very long time"). To represent a
+forecast that starts partway through a crust-decay window, either (a)
+prepend roughly \code{3 * crust_decay_hours} of history to \code{met_data} so the
+crust state has settled by the row of interest, or (b) set
+\code{hours_since_last_rain} to the actual elapsed time since the last
+crust-forming rain before the forecast window starts.
+}
+
+\section{Idealisations}{
+
+The precipitation-driven crust factor is an uncalibrated exponential
+clock-decay placeholder (\code{1 + (crust_factor_max - 1) * exp(-age / crust_decay_hours)}): real crust breakdown is primarily mechanical
+(abrasion/rupture by saltating-particle impact), not a pure function of
+elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A future version
+should gate crust decay on cumulative saltation activity (a TODO, not
+implemented here) rather than the clock alone. Separately, watering and
+other surface management (the first-order dust-suppression control on an
+active landfill working face) are invisible to the gridded
+\code{soil_moisture_0_to_1cm} input; \code{threshold_multiplier} (via \code{\link[=dust_flux]{dust_flux()}})
+is the intended injection hook — e.g. a caller can locally raise the
+threshold multiplier during known watering hours before invoking
+\code{\link[=dust_flux]{dust_flux()}} directly.
 }
 
 \seealso{

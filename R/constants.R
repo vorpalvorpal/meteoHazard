@@ -138,3 +138,61 @@ ODOUR_CONSTANTS <- list(
   RIM_LIFT_COEF             = 0.2,  # α: pool_top + α·cbl_cumsum = h_vent (m/m)
   RIM_DELTA                 = 25    # δ: logistic reach sharpness (m)
 )
+
+#' Constants for the dust hazard model
+#'
+#' Shared physical parameters for [dust_flux()], [dust_hazard()], and the
+#' internal `.dust_crust_factor()` helper. The dust model is a physical
+#' saltation-to-emission chain: a Shao & Lu (2000) threshold friction
+#' velocity, a Fecan et al. (1999) soil-moisture correction, an Owen (1964) /
+#' White (1979) saltation flux, and a Marticorena & Bergametti (1995, "MB95")
+#' sandblasting efficiency.
+#'
+#' \describe{
+#'   \item{A_N}{Shao & Lu (2000) dimensionless threshold coefficient, 0.0123.}
+#'   \item{GAMMA}{Shao & Lu (2000) interparticle cohesion parameter (N/m),
+#'     3.0e-4 (their tabulated range is 1.65e-4-5e-4; 3e-4 is their
+#'     recommended best estimate).}
+#'   \item{RHO_P}{Particle density (kg/m^3), 2650 (quartz).}
+#'   \item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level,
+#'     15 degC standard atmosphere; not yet temperature/pressure adjusted,
+#'     see T10 TODO).}
+#'   \item{G}{Gravitational acceleration, 9.81 m/s^2.}
+#'   \item{KAPPA}{von Karman constant, 0.40.}
+#'   \item{Z_REF}{Reference height (m) for the 10 m wind used in the
+#'     logarithmic wind-profile law, 10.}
+#'   \item{Z0_SMOOTH_RATIO}{Smooth-bed aerodynamic roughness as a fraction of
+#'     the modal grain diameter, `z0 = d * Z0_SMOOTH_RATIO`, 1/30 (Nikuradse
+#'     equivalent-sand roughness; MB95 z0s convention).}
+#'   \item{FECAN_WP_QUAD, FECAN_WP_LIN}{Fecan et al. (1999) quadratic and
+#'     linear coefficients of the residual gravimetric moisture w' (as a
+#'     function of clay %), 0.0014 and 0.17.}
+#'   \item{FECAN_A}{Fecan et al. (1999) moisture-correction coefficient A in
+#'     `sqrt(1 + A * (w - w')^b)`, 1.21.}
+#'   \item{FECAN_B}{Fecan et al. (1999) moisture-correction exponent b',
+#'     0.68.}
+#'   \item{MB95_ALPHA_SLOPE}{Marticorena & Bergametti (1995) sandblasting
+#'     log-alpha slope on clay % (cm^-1), 0.134.}
+#'   \item{MB95_ALPHA_INTERCEPT}{Marticorena & Bergametti (1995) sandblasting
+#'     log-alpha intercept, -6.}
+#'   \item{MB95_CLAY_CAP}{Clay fraction (%) above which the MB95 alpha fit is
+#'     no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
+#' }
+#' @keywords internal
+DUST_CONSTANTS <- list(
+  A_N                   = 0.0123,   # Shao & Lu (2000) threshold coefficient
+  GAMMA                 = 3.0e-4,   # N/m; Shao & Lu (2000) interparticle cohesion (best ~3e-4 of 1.65e-4-5e-4)
+  RHO_P                 = 2650,     # kg/m^3 particle density (quartz)
+  RHO_A_REF             = 1.225,    # kg/m^3 reference air density
+  G                     = 9.81,     # m/s^2
+  KAPPA                 = 0.40,     # von Karman constant
+  Z_REF                 = 10,       # m, wind reference height
+  Z0_SMOOTH_RATIO       = 1 / 30,   # z0 = d/30 smooth-bed roughness (Nikuradse; MB95 z0s)
+  FECAN_WP_QUAD         = 0.0014,   # Fecan (1999) w' = a*clay^2 + b*clay
+  FECAN_WP_LIN          = 0.17,
+  FECAN_A               = 1.21,     # Fecan (1999) correction coefficient A
+  FECAN_B               = 0.68,     # Fecan (1999) correction exponent b'
+  MB95_ALPHA_SLOPE      = 0.134,    # MB95 sandblasting log-alpha slope (cm^-1)
+  MB95_ALPHA_INTERCEPT  = -6,       # MB95 sandblasting log-alpha intercept
+  MB95_CLAY_CAP         = 20        # % clay; MB95 alpha validity ceiling
+)

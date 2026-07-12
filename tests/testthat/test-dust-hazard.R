@@ -23,6 +23,21 @@ DUST_TOL <- 1e-3
 # w' = 1.84, so sm < 0.0294 is "dry". 0.02 is safely dry.
 
 
+describe("DUST_CONSTANTS [v3]", {
+
+  it("exposes the pinned physical constants used by dust_flux()/dust_hazard() [CC-0a]", {
+    skip_if_no_dust_v2()
+    # Guards against a silent coefficient typo in the v3 constants refactor.
+    expect_true(is.list(meteoHazard:::DUST_CONSTANTS))
+    expect_equal(meteoHazard:::DUST_CONSTANTS$A_N, 0.0123)
+    expect_equal(meteoHazard:::DUST_CONSTANTS$GAMMA, 3.0e-4)
+    expect_equal(meteoHazard:::DUST_CONSTANTS$Z0_SMOOTH_RATIO, 1 / 30)
+    expect_equal(meteoHazard:::DUST_CONSTANTS$MB95_CLAY_CAP, 20)
+    expect_equal(meteoHazard:::DUST_CONSTANTS$FECAN_B, 0.68)
+  })
+})
+
+
 describe("dust_flux() [v2]", {
 
   it("returns zero flux below the entrainment threshold", {
@@ -60,8 +75,10 @@ describe("dust_flux() [v2]", {
 
   it("raising threshold_multiplier reduces the flux (crust hook)", {
     skip_if_no_dust_v2()
-    f_base  <- dust_flux(20L, 10, 0, 16, 0.02, threshold_multiplier = 1)
-    f_crust <- dust_flux(20L, 10, 0, 16, 0.02, threshold_multiplier = 2)
+    # gust bumped from 16 -> 20 (CONTRACT.md): 16 m/s sits below the v3 default
+    # smooth-bed threshold (~17.9 m/s), which would make both fluxes 0.
+    f_base  <- dust_flux(20L, 10, 0, 20, 0.02, threshold_multiplier = 1)
+    f_crust <- dust_flux(20L, 10, 0, 20, 0.02, threshold_multiplier = 2)
     expect_lt(f_crust, f_base)
   })
 
@@ -75,6 +92,104 @@ describe("dust_flux() [v2]", {
     expect_error(dust_flux(20L, 150, 0, 16, 0.02))   # clay > 100
     expect_error(dust_flux(20L, 10, 0, 16, 1.5))     # soil moisture > 1
     expect_error(dust_flux(20L, 10, c(0, NA), c(16, 16), c(0.02, 0.02)))
+  })
+
+  # ---- T1: smooth-bed roughness (z0 default NULL -> d/30) ------------------ #
+
+  it("uses the smooth-bed roughness threshold by default (z0 = NULL) [CC-1a]", {
+    skip_if_no_dust_v2()
+    # Sieve 20 / clay 10 dry entrainment threshold at z0 = d/30 is ~17.9 m/s.
+    expect_equal(
+      dust_flux(20L, 10, wind_speed_10m = 0, wind_gusts_10m = 17, soil_moisture = 0.02),
+      0
+    )
+    expect_gt(
+      dust_flux(20L, 10, wind_speed_10m = 0, wind_gusts_10m = 18, soil_moisture = 0.02),
+      0
+    )
+  })
+
+  it("warns when z0 exceeds the smooth-bed roughness (drag partition not modelled) [CC-1b]", {
+    skip_if_no_dust_v2()
+    expect_warning(
+      dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
+      regexp = "roughness|drag partition"
+    )
+  })
+
+  it("z0 = NULL matches the explicit smooth-bed z0 exactly, without a warning [CC-1c]", {
+    skip_if_no_dust_v2()
+    z0_smooth <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]] * (1 / 30)
+    f_default  <- dust_flux(20L, 10, 0, 20, 0.02, z0 = NULL)
+    f_explicit <- dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_smooth)
+    expect_equal(f_default, f_explicit)
+    # Guard is `>`, not `>=`: the exact smooth-bed value must not warn.
+    expect_warning(dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_smooth), NA)
+  })
+
+  # ---- T2: clamp MB95 sandblasting alpha at the clay validity ceiling ------ #
+
+  it("caps the MB95 sandblasting alpha at the clay validity ceiling [CC-2a]", {
+    skip_if_no_dust_v2()
+    f_over_cap <- suppressWarnings(dust_flux(20L, 50, 0, 20, 0.02, z0 = 0.005))
+    f_at_cap   <- suppressWarnings(dust_flux(20L, 20, 0, 20, 0.02, z0 = 0.005))
+    expect_equal(f_over_cap, f_at_cap)
+    expect_equal(f_over_cap, 2.96222398e-05, tolerance = 1e-4)
+  })
+
+  it("warns when clay_percent exceeds the MB95 validity ceiling [CC-2b]", {
+    skip_if_no_dust_v2()
+    # Use the default z0 = NULL so ONLY the clay warning fires (an explicit
+    # z0 > smooth-bed would add a second, order-dependent warning). The alpha
+    # clamp/warning is independent of the entrainment threshold.
+    expect_warning(dust_flux(20L, 50, 0, 20, 0.02), regexp = "clay")
+  })
+
+  # ---- T3: input validation (threshold_multiplier length; gust >= wind) ---- #
+
+  it("rejects a threshold_multiplier whose length matches neither 1 nor n [CC-3a]", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(20L, 10, c(0, 0, 0), c(20, 20, 20), c(0.02, 0.02, 0.02),
+                threshold_multiplier = c(1, 2))
+    )
+  })
+
+  it("accepts length-1 and length-n threshold_multiplier without error [CC-3b]", {
+    skip_if_no_dust_v2()
+    expect_no_error(
+      dust_flux(20L, 10, c(0, 0, 0), c(20, 20, 20), c(0.02, 0.02, 0.02),
+                threshold_multiplier = 1)
+    )
+    expect_no_error(
+      dust_flux(20L, 10, c(0, 0, 0), c(20, 20, 20), c(0.02, 0.02, 0.02),
+                threshold_multiplier = c(1, 1, 2))
+    )
+  })
+
+  it("rejects a gust below the mean wind speed [CC-3c]", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(20L, 10, wind_speed_10m = 5, wind_gusts_10m = 3, soil_moisture = 0.02),
+      regexp = "gust"
+    )
+  })
+
+  # ---- T5: known-answer values (KAT), z0 = 0.005 explicit ------------------ #
+
+  it("matches the hand-computed known-answer flux at z0 = 0.005 (KAT) [CC-5a]", {
+    skip_if_no_dust_v2()
+    expect_equal(
+      suppressWarnings(dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.005)),
+      1.35399760e-06,
+      tolerance = 1e-4
+    )
+  })
+
+  it("known-answer: gust 10.5 sub-threshold zero, gust 10.75 supra-threshold positive at z0 = 0.005 [CC-5b]", {
+    skip_if_no_dust_v2()
+    expect_equal(suppressWarnings(dust_flux(20L, 10, 0, 10.5, 0.02, z0 = 0.005)), 0)
+    expect_gt(suppressWarnings(dust_flux(20L, 10, 0, 10.75, 0.02, z0 = 0.005)), 0)
   })
 })
 
@@ -146,6 +261,16 @@ describe("dust_hazard() [v2]", {
     expect_equal(with_p, without_p)
   })
 
+  it("hours_since_last_rain = 0 suppresses hour 1 relative to Inf (crust cold-start) [CC-4a]", {
+    skip_if_no_dust_v2()
+    # No rain at all in the series: the only difference between the two calls
+    # is the assumed crust age going into hour 1.
+    met  <- dust_met(gust = 20, wind = 0, sm = 0.02, precip = 0, n = 5)
+    cold <- dust_hazard(met, crust = TRUE, hours_since_last_rain = 0)
+    warm <- dust_hazard(met, crust = TRUE, hours_since_last_rain = Inf)
+    expect_lt(cold[1], warm[1])
+  })
+
   it("errors if crust is enabled but precipitation is absent", {
     skip_if_no_dust_v2()
     expect_error(dust_hazard(dust_met(gust = 20), crust = TRUE))
@@ -165,6 +290,21 @@ describe("dust_hazard() [v2]", {
     coarse <- dust_hazard(dust_met(gust = 14), tyler_sieve_no = 20L)
     fine   <- dust_hazard(dust_met(gust = 14), tyler_sieve_no = 60L)
     expect_gte(fine, coarse)
+  })
+})
+
+
+describe(".dust_crust_factor() [v3 cold-start]", {
+
+  it("age0 sets the initial crust age for the cold-start row [CC-4c]", {
+    skip_if_no_dust_v2()
+    # No rain in the series (all precip 0): with age0 = 0, hour 1 is treated as
+    # freshly rained-on (age 0 -> full factor_max). With age0 = Inf, hour 1 has
+    # no crust memory at all (age Inf -> factor 1, i.e. old default behaviour).
+    fresh <- meteoHazard:::.dust_crust_factor(rep(0, 3), 2, 3, 24, age0 = 0)
+    stale <- meteoHazard:::.dust_crust_factor(rep(0, 3), 2, 3, 24, age0 = Inf)
+    expect_equal(fresh[1], 3, tolerance = 1e-6)
+    expect_equal(stale[1], 1)
   })
 })
 
