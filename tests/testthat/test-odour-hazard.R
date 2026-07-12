@@ -23,11 +23,21 @@ mh <- function(n = 1, ...) {
 
 # ── Normalisation / wiring (characterisation) ───────────────────────────────
 test_that("hazard matches the closed-form ventilation index for a known row", {
-  # Defaults, single row: dP_mod = 0 (no lookback), R = 0, S_seal = 0, H = 0,
-  # V_mod = 0.30*(15-10)/25 = 0.06 -> G = 1.06; night, wind 3-5, cloud 50%
-  # -> s = 3 -> PM = 1 + 2*(3/5) = 2.2; W_rain = 1; u_eff = 3, h_mix = 500.
-  # raw = 1.06*2.2/(3*500) = 0.00155467; ref = 3/(0.5*200) = 0.03.
-  expect_equal(odour_hazard(mh()), 0.00155467 / 0.03, tolerance = 1e-4)
+  # Defaults, single row, pool_cap = FALSE (isolates the ventilation/generation
+  # arithmetic from the v3 nocturnal cold-pool cap, which has its own dedicated
+  # tests below): dP_mod = 0 (no lookback), R_mod = 0, S_seal = 0, H_mod = 0
+  # (rh = 50 < 60); V_mod follows the exponential Henry's-law ramp (0 at
+  # V_MOD_T_LO, V_MOD_MAX at V_MOD_T_HI); G = 1 + V_mod (only one modifier
+  # active here, so the multiplicative and additive combinations coincide).
+  # Night, wind 3-5, cloud 50% -> s = 3 -> PM = 1 + 2*(3/5) = 2.2; W_rain = 1
+  # (no precipitation); u_eff = 3, h_mix = 500 (pool_cap = FALSE).
+  K     <- ODOUR_CONSTANTS
+  f_hi  <- 2^((K$V_MOD_T_HI - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C)
+  V_mod <- K$V_MOD_MAX * (2^((15 - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C) - 1) / (f_hi - 1)
+  G     <- 1 + V_mod
+  raw   <- G * 2.2 / (3 * 500)
+  ref   <- K$PM_MAX / (K$U_CALM_FLOOR * K$H_MIX_FALLBACK_STABLE)
+  expect_equal(odour_hazard(mh(), pool_cap = FALSE), raw / ref, tolerance = 1e-6)
 })
 
 # ── Ventilation dominates ───────────────────────────────────────────────────
@@ -61,11 +71,18 @@ test_that("post-rain piston surge raises hazard when the surface has dried", {
 })
 
 test_that("active-rain guard suppresses the piston surge during heavy rain", {
-  # 25 h of rain (P_24 = 25 > 15) then a heavy active hour: R_mod = 0 (guard),
-  # W_rain = 0.05. raw = G(1.06)*PM(s=3,=2.2)*0.05/(3*500); ref = 0.03.
-  d <- mh(n = 26, precipitation = c(rep(1, 25), 5))
-  expect_equal(odour_hazard(d)[26],
-               (1.06 * 2.2 * 0.05 / (3 * 500)) / 0.03, tolerance = 1e-4)
+  # 25 h of rain (P_24 = 25 > 15) then a heavy active hour: R_mod = 0 (guard).
+  # odorant_solubility = 1 (soluble limit) -> W_rain = W_RAIN_FACTOR_HEAVY
+  # (0.05); pool_cap = FALSE isolates this from the v3 cold-pool cap.
+  K     <- ODOUR_CONSTANTS
+  f_hi  <- 2^((K$V_MOD_T_HI - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C)
+  V_mod <- K$V_MOD_MAX * (2^((15 - K$V_MOD_T_LO) / K$V_MOD_DOUBLING_C) - 1) / (f_hi - 1)
+  G     <- 1 + V_mod
+  d   <- mh(n = 26, precipitation = c(rep(1, 25), 5))
+  raw <- G * 2.2 * K$W_RAIN_FACTOR_HEAVY / (3 * 500)
+  ref <- K$PM_MAX / (K$U_CALM_FLOOR * K$H_MIX_FALLBACK_STABLE)
+  expect_equal(odour_hazard(d, pool_cap = FALSE, odorant_solubility = 1)[26],
+               raw / ref, tolerance = 1e-4)
 })
 
 # ── Peak-to-mean / stability ────────────────────────────────────────────────
@@ -80,10 +97,13 @@ test_that("hazard rises with stability via PM(s) at fixed ventilation", {
 })
 
 # ── Scavenging ──────────────────────────────────────────────────────────────
-test_that("heavy rain suppresses hazard via W_rain", {
-  dry   <- odour_hazard(mh(precipitation = 0))
-  heavy <- odour_hazard(mh(precipitation = 5))
-  expect_equal(heavy / dry, 0.05, tolerance = 1e-6) # W_rain 0.05 vs 1.0
+test_that("heavy rain suppresses hazard via W_rain (soluble-limit odorant)", {
+  # odorant_solubility = 1 reproduces the soluble-limit tier exactly (0.05);
+  # the default-solubility (0.5, mixed sulfur/soluble profile) behaviour is
+  # covered by the W_rain describe block in test-odour-ventilation.R.
+  dry   <- odour_hazard(mh(precipitation = 0), odorant_solubility = 1)
+  heavy <- odour_hazard(mh(precipitation = 5), odorant_solubility = 1)
+  expect_equal(heavy / dry, ODOUR_CONSTANTS$W_RAIN_FACTOR_HEAVY, tolerance = 1e-6)
 })
 
 # ── NA handling / robustness ────────────────────────────────────────────────
@@ -257,4 +277,41 @@ describe("odour_hazard(): terrain / shelter params (C9)", {
     expect_gt(h_on, h_off)
     expect_equal(h_on / h_off, 3, tolerance = 0.01)
   })
+})
+
+
+# ---------------------------------------------------------------------------
+# v3 — nocturnal cold-pool cap and solubility-aware scavenging (hazard layer)
+# ---------------------------------------------------------------------------
+#
+# Written BEFORE implementation (TDD): fail with "unused argument" errors
+# until odour_hazard() gains the pool_cap / odorant_solubility parameters
+# (threaded through to ventilation_state(); see test-odour-ventilation.R for
+# the underlying physical-basis comments).
+
+describe("odour_hazard(): v3 cold-pool cap and odorant_solubility", {
+
+  it("pool_cap = TRUE (default) raises hazard above pool_cap = FALSE on a thermally-derived night", {
+    # Default mh() row: wind = 3, temp = 15, rh = 50, cloud = 50, BLH = 500,
+    # night. Ground-truthed against .pool_top(): pool_top ~= 319.2 m < BLH
+    # (500 m), so the cap binds, shrinking h_mix and raising 1/(u_eff*h_mix).
+    h_on  <- odour_hazard(mh())                     # pool_cap = TRUE (default)
+    h_off <- odour_hazard(mh(), pool_cap = FALSE)
+    expect_gt(h_on, h_off)
+  })
+
+  it("odorant_solubility sweeps W_rain from no-washout (0) through mixed (0.5, default) to soluble-limit (1)", {
+    d <- mh(precipitation = 5)   # heavy rain
+    h_0   <- odour_hazard(d, pool_cap = FALSE, odorant_solubility = 0)
+    h_mid <- odour_hazard(d, pool_cap = FALSE)                        # default 0.5
+    h_1   <- odour_hazard(d, pool_cap = FALSE, odorant_solubility = 1)
+    dry   <- odour_hazard(mh(precipitation = 0), pool_cap = FALSE)
+    expect_equal(h_0 / dry, 1.0, tolerance = 1e-6)
+    expect_equal(h_1 / dry, ODOUR_CONSTANTS$W_RAIN_FACTOR_HEAVY, tolerance = 1e-6)
+    expect_equal(h_mid / dry,
+                 1 - 0.5 * (1 - ODOUR_CONSTANTS$W_RAIN_FACTOR_HEAVY), tolerance = 1e-6)
+    # Monotone: more soluble -> more washout -> lower hazard.
+    expect_true(h_0 > h_mid && h_mid > h_1)
+  })
+
 })

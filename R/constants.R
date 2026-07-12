@@ -53,9 +53,11 @@ TWL_CONSTANTS <- list(
 #' Shared parameters for [odour_hazard()] and [odour_exposure()]. The odour
 #' model is a two-layer screening tool: a receptor-independent **hazard**
 #' (source emission divided by atmospheric ventilation) and a geometry-aware
-#' **exposure** layer (Gaussian-plume distance and direction). These constants
-#' carry the tunable, partly-uncalibrated parameters; see the calibration issue
-#' referenced in `NEWS.md`.
+#' **exposure** layer (Gaussian-plume distance and direction). The generation
+#' modifier `G` combines its five fractional terms **multiplicatively**
+#' (independent fractional effects compound; v3 change) and these constants
+#' carry the tunable, partly-uncalibrated parameters; see the calibration
+#' issue referenced in `NEWS.md`.
 #'
 #' \describe{
 #'   \item{U_CALM_FLOOR}{Lower clamp on wind speed (m/s) used in the `1/u`
@@ -66,8 +68,9 @@ TWL_CONSTANTS <- list(
 #'     Gaussian (separate from, not a substitute for, the stability-dependent
 #'     physical width).}
 #'   \item{V_MOD_MAX}{Maximum surface-volatilisation contribution to the
-#'     generation modifier `G`, 0.30. Widened from an earlier 0.15; high
-#'     calibration uncertainty (Henry's-law doubling per ~10 C; Zou 2003).}
+#'     generation modifier `G`, 0.30 (approached asymptotically at
+#'     `V_MOD_T_HI` by the exponential Henry's-law ramp). High calibration
+#'     uncertainty (Henry's-law doubling per ~10 C; Zou 2003).}
 #'   \item{PM_MIN, PM_MAX}{Peak-to-mean ratio bounds, 1.0 (unstable) to 3.0
 #'     (very stable). Accounts for sub-minute concentration peaks that drive
 #'     odour annoyance but are averaged out of ~hourly Gaussian sigmas.
@@ -98,6 +101,24 @@ TWL_CONSTANTS <- list(
 #'   \item{RIM_DELTA}{Logistic half-width (m) for the vertical reach gate: controls
 #'     sharpness of the transition from 0 to 1 as \code{h_vent} crosses the receptor
 #'     height \code{z_j}. Uncalibrated screening default 25 m; calibration → #8.}
+#'   \item{ODORANT_SOLUBILITY_DEFAULT}{Default value of the `odorant_solubility`
+#'     argument, 0.5. 0 = poorly soluble (reduced-sulfur compounds, the typical
+#'     landfill-odour driver); 1 = highly soluble (ammonia, amines, soluble
+#'     VOCs); 0.5 = mixed profile.}
+#'   \item{W_RAIN_RATE_LIGHT, W_RAIN_RATE_MOD, W_RAIN_RATE_HEAVY}{Precipitation
+#'     rate tiers (mm/h) for below-cloud scavenging: 0.2, 1.0, 4.0.}
+#'   \item{W_RAIN_FACTOR_LIGHT, W_RAIN_FACTOR_MOD, W_RAIN_FACTOR_HEAVY}{Soluble-limit
+#'     washout survival factors (Seinfeld & Pandis Ch. 19) at the light/moderate/heavy
+#'     precipitation tiers: 0.40, 0.15, 0.05. These are the `odorant_solubility = 1`
+#'     endpoint; `W_rain` blends toward 1.0 (no washout) as solubility falls.}
+#'   \item{V_MOD_T_LO}{Temperature (deg C) at/below which surface NMOC
+#'     volatilisation is negligible (`V_mod = 0`), 10.}
+#'   \item{V_MOD_T_HI}{Temperature (deg C) at/above which `V_mod` is clamped
+#'     to `V_MOD_MAX`, 35 -- a deliberate screening ceiling (this site's worst
+#'     case is winter inversions, not extreme heat).}
+#'   \item{V_MOD_DOUBLING_C}{Temperature interval (deg C) over which the
+#'     exponential `V_mod` curve doubles, 10 -- Henry's-law / Clausius-Clapeyron
+#'     vapour pressure roughly doubles per 10 degC.}
 #' }
 #' @keywords internal
 ODOUR_CONSTANTS <- list(
@@ -136,7 +157,15 @@ ODOUR_CONSTANTS <- list(
   X_REF_EXPOSURE            = 250,  # m
   # C8 upslope rim-venting constants (uncalibrated screening defaults; calibration → #8)
   RIM_LIFT_COEF             = 0.2,  # α: pool_top + α·cbl_cumsum = h_vent (m/m)
-  RIM_DELTA                 = 25    # δ: logistic reach sharpness (m)
+  RIM_DELTA                 = 25,   # δ: logistic reach sharpness (m)
+  # Solubility-aware below-cloud washout (v3 Change 4)
+  ODORANT_SOLUBILITY_DEFAULT = 0.5,   # 0 = poorly soluble (reduced sulfur), 1 = highly soluble
+  W_RAIN_RATE_LIGHT   = 0.2,  W_RAIN_RATE_MOD   = 1.0,  W_RAIN_RATE_HEAVY   = 4.0,   # mm/h
+  W_RAIN_FACTOR_LIGHT = 0.40, W_RAIN_FACTOR_MOD = 0.15, W_RAIN_FACTOR_HEAVY = 0.05,  # soluble-limit
+  # Exponential V_mod (v3 Change 3)
+  V_MOD_T_LO       = 10,   # deg C, below which volatilisation negligible
+  V_MOD_T_HI       = 35,   # deg C, screening ceiling
+  V_MOD_DOUBLING_C = 10    # deg C per doubling (Henry / Clausius-Clapeyron)
 )
 
 #' Constants for the dust hazard model

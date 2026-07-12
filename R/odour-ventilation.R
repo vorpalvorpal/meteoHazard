@@ -41,12 +41,23 @@
 #'   `shelter = TRUE`), also scales `h_mix` by `(1 - reduction_effective)`.
 #'   Undocumented interaction with the forecast `boundary_layer_height`
 #'   (potential double-count); leave `FALSE` until reconciled.
+#' @param pool_cap Logical (default `TRUE`). When `TRUE`, caps `h_mix` at the
+#'   nocturnal cold-pool depth (`pool_top`) on stable nights -- see the
+#'   `h_mix` return-value bullet below. `FALSE` reproduces the pre-v3
+#'   raw-boundary-layer-height behaviour.
+#' @param odorant_solubility Number in `[0, 1]` (default
+#'   `ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT`, 0.5). Blends `W_rain`
+#'   between no washout (0, poorly-soluble reduced-sulfur odorants) and the
+#'   soluble-limit tiers (1, highly-soluble ammonia/amines/VOCs).
 #'
 #' @return A named list, all vectors of length `nrow(met_data)`:
 #' \describe{
 #'   \item{`u_eff`}{Effective wind speed (m/s), floored at `U_CALM_FLOOR`.}
 #'   \item{`h_mix`}{Mixing depth (m), positive; falls back to stable/unstable
-#'     constant when `boundary_layer_height` is `NA` or non-positive.}
+#'     constant when `boundary_layer_height` is `NA` or non-positive. By
+#'     default the nocturnal cold-pool depth (`pool_top`) caps it on stable
+#'     nights (`pool_cap = TRUE`); set `pool_cap = FALSE` for the raw
+#'     boundary-layer-height behaviour.}
 #'   \item{`s`}{Pasquill-Gifford stability index in \[0, 5\] (A = 0, F = 5).}
 #'   \item{`is_calm`}{Logical; wind below `U_CALM_FLOOR` or `NA`.}
 #'   \item{`is_day`}{Logical; direct radiation > 10 W/m^2.}
@@ -94,11 +105,18 @@
 #' ventilation state is no longer purely meteorological. This is inherent to
 #' M3; keep `shelter = FALSE` in all meteorological-analysis contexts.
 #'
+#' With `terrain = NULL` the nocturnal cold-pool cap (`pool_cap = TRUE`) is
+#' still purely meteorological -- `pool_top` is derived from Brunt/Whiteman/
+#' Venkatram formulas over `met_data` alone. It becomes terrain-modulated only
+#' when `terrain` supplies `taf` and/or `valley_depth` (see [mh_terrain()]).
+#'
 #' @export
 ventilation_state <- function(met_data, terrain = NULL,
                               stability = c("turner", "shear"),
                               shelter      = FALSE,
-                              shelter_h_mix = FALSE) {
+                              shelter_h_mix = FALSE,
+                              pool_cap = TRUE,
+                              odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT) {
   stability <- match.arg(stability)
 
   # ---- Validation ---------------------------------------------------------- #
@@ -131,6 +149,18 @@ ventilation_state <- function(met_data, terrain = NULL,
   if (!is.logical(shelter_h_mix) || length(shelter_h_mix) != 1L || is.na(shelter_h_mix))
     cli::cli_abort("{.arg shelter_h_mix} must be logical (TRUE or FALSE).",
                    class = "meteoHazard_input_error")
+  if (!is.logical(pool_cap) || length(pool_cap) != 1L || is.na(pool_cap))
+    cli::cli_abort("{.arg pool_cap} must be logical (TRUE or FALSE).",
+                   class = "meteoHazard_input_error")
+  tryCatch(
+    checkmate::assert_number(odorant_solubility, lower = 0, upper = 1),
+    error = function(e) {
+      cli::cli_abort(
+        "{.arg odorant_solubility} must be a single number in [0, 1].",
+        class = "meteoHazard_input_error"
+      )
+    }
+  )
 
   # ---- Core dispersion state (replaces .odour_dispersion_state) ------------ #
   u10   <- met_data$wind_speed_10m
@@ -157,14 +187,47 @@ ventilation_state <- function(met_data, terrain = NULL,
     s <- ifelse(use_calm_stab, 4.25, .alpha_to_s(alpha))
   }
 
+  # Effective wind is the floored 10 m wind. Deliberately NOT the
+  # residual/upper-level wind: that is the decoupled layer above the pool,
+  # not the drainage flow ventilating it.
   u_eff <- pmax(u10_safe, ODOUR_CONSTANTS$U_CALM_FLOOR)
 
-  h_mix <- ifelse(
+  # Synoptic / convective mixing depth from the forecast boundary-layer height,
+  # with a stability-aware fallback when the field is missing. This is the depth
+  # through which a *daytime, well-mixed* plume dilutes.
+  h_mix_blh <- ifelse(
     is.na(bl) | bl <= 0,
     ifelse(is_calm | s >= 4, ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE,
            ODOUR_CONSTANTS$H_MIX_FALLBACK_UNSTABLE),
     bl
   )
+
+  # Convective boundary-layer growth is a daytime phenomenon: derive it from the
+  # convective depth BEFORE the nocturnal pool cap, so the cap lifting at sunrise
+  # does not masquerade as CBL growth. (GOTCHA: must use h_mix_blh, not h_mix.)
+  cbl_growth <- pmax(0, c(0, diff(h_mix_blh)))
+
+  # ---- pool_top (needed before the h_mix cap) ------------------------------- #
+  pool_top <- .pool_top(met_data, u10_safe, is_day, terrain)
+
+  # Nocturnal cold-pool cap on the dilution depth. Physical basis: on stable
+  # nights the inversion lid (pool_top), not the synoptic BLH, sets the depth
+  # through which odour dilutes, so h_mix = min(BLH, pool_top). Gated on:
+  #   * !is_day  — daytime pool has broken up (morning pulse handles the transient)
+  #   * have_pool_thermal — only when pool_top is thermally derived; otherwise
+  #     .pool_top() returns a mechanical/constant floor (>= 200 m) every hour,
+  #     which is not evidence of a pool. (GOTCHA: this have_t_rh test must stay in
+  #     sync with the identical test inside .pool_top().)
+  have_pool_thermal <-
+    !is.null(met_data$temperature_2m) && !is.null(met_data$relative_humidity_2m) &&
+    any(!is.na(met_data$temperature_2m)) && any(!is.na(met_data$relative_humidity_2m))
+
+  if (isTRUE(pool_cap) && have_pool_thermal) {
+    pool_active <- !is_day & !is.na(pool_top) & pool_top > 0
+    h_mix <- ifelse(pool_active, pmin(h_mix_blh, pool_top), h_mix_blh)
+  } else {
+    h_mix <- h_mix_blh
+  }
 
   # ---- PM and W_rain ------------------------------------------------------- #
   PM <- ODOUR_CONSTANTS$PM_MIN +
@@ -172,26 +235,28 @@ ventilation_state <- function(met_data, terrain = NULL,
 
   if (!is.null(met_data$precipitation)) {
     precip_safe <- .na_fill(met_data$precipitation, 0)
-    W_rain <- dplyr::case_when(
-      precip_safe > 4.0 ~ 0.05,
-      precip_safe > 1.0 ~ 0.15,
-      precip_safe > 0.2 ~ 0.40,
-      TRUE              ~ 1.0
+    # Soluble-limit below-cloud washout factor (rate tiers, mm/h): the removal a
+    # HIGHLY soluble odorant would experience (Seinfeld & Pandis Ch. 19).
+    W_soluble <- dplyr::case_when(
+      precip_safe > ODOUR_CONSTANTS$W_RAIN_RATE_HEAVY ~ ODOUR_CONSTANTS$W_RAIN_FACTOR_HEAVY,
+      precip_safe > ODOUR_CONSTANTS$W_RAIN_RATE_MOD   ~ ODOUR_CONSTANTS$W_RAIN_FACTOR_MOD,
+      precip_safe > ODOUR_CONSTANTS$W_RAIN_RATE_LIGHT ~ ODOUR_CONSTANTS$W_RAIN_FACTOR_LIGHT,
+      TRUE                                            ~ 1.0
     )
+    # Effective washout scales with solubility: reduced-sulfur odorants (s -> 0)
+    # barely wash out; soluble species (s -> 1) approach the soluble limit.
+    W_rain <- 1 - odorant_solubility * (1 - W_soluble)
   } else {
     W_rain <- rep(1.0, nrow(met_data))
   }
 
-  # ---- pool_top ------------------------------------------------------------ #
-  pool_top <- .pool_top(met_data, u10_safe, is_day, terrain)
-
-  # ---- cbl_growth ---------------------------------------------------------- #
-  cbl_growth <- pmax(0, c(0, diff(h_mix)))
-
   # ---- Residual winds ------------------------------------------------------ #
   residual_wind <- .residual_wind(met_data, is_day)
 
-  # ---- M3 valley sheltering ------------------------------------------------ #
+  # ---- M3 valley sheltering -------------------------------------------------- #
+  # Must run after the pool cap (it already runs last). On the rare hour where
+  # both pool_cap and shelter_h_mix fire, the two trapping reductions compound
+  # (known, acceptable; shelter is off by default).
   if (isTRUE(shelter)) {
     sheltered <- .valley_shelter(u_eff, h_mix, u10_safe, is_day, pool_top,
                                  terrain, shelter_h_mix)
@@ -458,16 +523,28 @@ ventilation_state <- function(met_data, terrain = NULL,
     TRUE          ~ 0.0
   )
 
-  # Surface NMOC volatilisation (Henry's law); ceiling widened to V_MOD_MAX.
-  vmax <- ODOUR_CONSTANTS$V_MOD_MAX
+  # Surface NMOC volatilisation. Henry's-law / Clausius-Clapeyron temperature
+  # dependence is exponential (~doubling per V_MOD_DOUBLING_C degrees), not
+  # linear. Anchor an exponential curve to 0 at V_MOD_T_LO and V_MOD_MAX at
+  # V_MOD_T_HI; clamp at V_MOD_T_HI as a deliberate screening ceiling (extreme-
+  # heat volatilisation is intentionally under-represented — inversions, not
+  # heatwaves, dominate this site's odour risk).
+  T_lo <- ODOUR_CONSTANTS$V_MOD_T_LO
+  T_hi <- ODOUR_CONSTANTS$V_MOD_T_HI
+  dbl  <- ODOUR_CONSTANTS$V_MOD_DOUBLING_C
+  f_hi <- 2^((T_hi - T_lo) / dbl)                       # = 2^2.5 with defaults
   V_mod <- dplyr::case_when(
-    is.na(temp) ~ 0.0,
-    temp <= 10  ~ 0.0,
-    temp >= 35  ~ vmax,
-    TRUE        ~ vmax * (temp - 10) / 25
+    is.na(temp)  ~ 0.0,
+    temp <= T_lo ~ 0.0,
+    temp >= T_hi ~ ODOUR_CONSTANTS$V_MOD_MAX,
+    TRUE         ~ ODOUR_CONSTANTS$V_MOD_MAX *
+                     (2^((temp - T_lo) / dbl) - 1) / (f_hi - 1)
   )
 
-  1.0 + dP_mod + R_mod + S_seal + H_mod + V_mod
+  # Independent fractional emission modifiers compound multiplicatively:
+  # E = E0 * prod(1 + m_i). Additive superposition (the previous 1 + sum(m_i)) is
+  # only its first-order approximation and understates coincident modifiers.
+  (1 + dP_mod) * (1 + R_mod) * (1 + S_seal) * (1 + H_mod) * (1 + V_mod)
 }
 
 

@@ -20,14 +20,15 @@ mw <- function(n = 6, ...) {
   as.data.frame(lapply(base, rep_len, n))
 }
 
-# Build a minimal mh_site for wrapper tests.
-.make_wrapper_site <- function() {
+# Build a minimal mh_site for wrapper tests. `scale` stretches both receptor
+# distances proportionally (default 1 keeps the original 400 m / 700 m).
+.make_wrapper_site <- function(scale = 1) {
   feats <- sf::st_sf(
     id       = c("src", "rec1", "rec2"),
     geometry = sf::st_sfc(
       sf::st_point(c(335000,       6250000)),
-      sf::st_point(c(335000,       6250400)),   # 400 m north
-      sf::st_point(c(335000 + 700, 6250000)),   # 700 m east
+      sf::st_point(c(335000,       6250000 + 400 * scale)),   # 400 m north
+      sf::st_point(c(335000 + 700 * scale, 6250000)),         # 700 m east
       crs = 32755
     )
   )
@@ -81,5 +82,43 @@ describe("odour_risk() on the mh_site model", {
     expect_equal(nrow(out), 12)            # one row per forecast hour
     expect_equal(ncol(out), 2)             # two receptors
     expect_true(all(out >= 0))             # relative concentration, unbounded above
+  })
+
+  it("threads pool_cap and odorant_solubility through to odour_exposure() (non-default values)", {
+    # The "equals odour_exposure() applied by hand" test above only exercises
+    # matching DEFAULTS on both sides, so it would not catch a forgotten wire.
+    # Use non-default values on both to confirm they actually propagate.
+    #
+    # pool_cap only has an observable effect on odour_exposure() when the
+    # capped pool -- not sigma_z -- sets the vertical dilution lid (see
+    # specs/Odour_v3_changes.md's short-distance caveat, and the "reflecting
+    # lid" spec in test-odour-exposure.R). mw()'s default night
+    # (wind_speed_10m = 3, cloud_cover = 50) only reaches Pasquill class D,
+    # whose sigma_z grows too fast with distance to ever fall below a
+    # realistic pool depth at the short receptor ranges used elsewhere in this
+    # file. Use the same clear/calm/humid engineered night as the reflecting-
+    # lid test (-> class F, pool_top ~ 22 m) and a scaled-up site (receptors
+    # at ~4.6 km / 8 km, where Briggs class-F sigma_z is ~30-38 m: bigger than
+    # the capped pool so the pool binds, but well below the raw BLH of 150 m
+    # so the uncapped run is governed by sigma_z alone). Rain is added so
+    # odorant_solubility has an observable effect too (default
+    # precipitation = 0 would make it a silent no-op otherwise).
+    d    <- mw(n = 6, wind_speed_10m = 0.5, direct_radiation = 0, cloud_cover = 85,
+               boundary_layer_height = 150, temperature_2m = 18,
+               relative_humidity_2m = 75, precipitation = 5)
+    site <- .make_wrapper_site(scale = 8000 / 700)   # rec2 (east) at 8 km
+    risk_out     <- odour_risk(d, site, pool_cap = FALSE, odorant_solubility = 1)
+    exposure_out <- odour_exposure(d, site, pool_cap = FALSE, odorant_solubility = 1)
+    expect_equal(risk_out, exposure_out)
+
+    # And each argument individually must move the result away from the
+    # all-defaults call, proving BOTH were threaded (not just one of them).
+    default_out <- odour_risk(d, site)
+    pool_only   <- odour_risk(d, site, pool_cap = FALSE)
+    sol_only    <- odour_risk(d, site, odorant_solubility = 1)
+    expect_false(isTRUE(all.equal(pool_only, default_out)),
+                 label = "pool_cap = FALSE must change the result")
+    expect_false(isTRUE(all.equal(sol_only, default_out)),
+                 label = "odorant_solubility = 1 must change the result")
   })
 })

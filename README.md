@@ -225,6 +225,8 @@ The terrain backend activates two physical mechanisms, plus an optional rim-vent
 - **M3 valley sheltering** (`shelter = TRUE`) — reduces effective wind speed on hours when the site is enclosed by surrounding terrain, scaled by the `shelter_index` (topographic openness) and wind speed.
 - **Upslope rim-venting** (`rim_venting = TRUE`) — extends the M1 morning pulse to elevated rim receptors: during the morning inversion break-up the vented layer climbs the slopes, so a ridge-top receptor is exposed only once the morning vented layer (cold-pool depth plus convective growth) reaches its elevation *and* it sits up the slope the venting flow is climbing. Requires per-receptor `rel_elevation`/`elevation` and `aspect` (from `mh_terrain_from_dem()`); a strict no-op without them. **Off by default — uncalibrated screening defaults (`RIM_LIFT_COEF`, `RIM_DELTA`); calibration pending.**
 
+**Nocturnal cold-pool cap on `h_mix`** (`pool_cap = TRUE`, default, on `ventilation_state()`/`odour_hazard()`/`odour_exposure()`/`odour_risk()`) — on stable nights the model caps the dilution depth at `min(boundary_layer_height, pool_top)` instead of always using the raw forecast boundary-layer height, so a shallow thermal cold pool (not an unreliable synoptic BLH field) sets the ventilation depth. This is the mechanism that captures the site's known worst case: winter temperature inversions trapping odour in the valley, with the strongest impact at ridge-top receptors. The cap only engages at night, and only when the pool is thermally derived from `temperature_2m` + `relative_humidity_2m`; set `pool_cap = FALSE` to restore the raw boundary-layer-height behaviour.
+
 **Precedence**: M1 takes priority over M3 on any hour when `drainage_active` is `TRUE`. The suppression strength is controlled by `ODOUR_CONSTANTS$DRAINAGE_SHELTER_OVERLAP` (default 1.0 = full mutual exclusion on that hour).
 
 ```r
@@ -239,6 +241,15 @@ odour_shelter <- odour_risk(met_data, site_t,
 ```
 
 `shelter_index` can be provided directly or derived automatically via `mh_terrain_from_dem()`.
+
+### Rain scavenging and odorant solubility
+
+`odorant_solubility` (default 0.5, on the same four functions as `pool_cap`) controls how strongly rain washes odorant out of the plume. Below-cloud washout scales with Henry's-law solubility: `0` represents poorly soluble reduced-sulfur odorants (the compounds that drive most landfill complaints), which barely wash out; `1` represents highly soluble species (ammonia, amines) and reproduces the old fixed washout tiers; the default `0.5` is a mixed sulfur/soluble profile.
+
+```r
+# Model a poorly soluble reduced-sulfur odorant (little rain washout):
+odour_dry <- odour_risk(met_data, site, odorant_solubility = 0)
+```
 
 `odour_exposure()` returns the physical per-receptor relative concentration; the package no longer ships a fixed 0–100 odour scale or operational tiers. Mapping the physical output onto a site-specific index and tiers (potentially 0–100) is a calibration step delivered by forthcoming calibration tooling (issue #11). Reduce over receptors for a worst-case summary with e.g. `apply(odour_risk(met_data, site), 1, max)`.
 

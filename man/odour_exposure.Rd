@@ -11,6 +11,8 @@ odour_exposure(
   terrain_backend = c("none", "descriptors"),
   shelter = FALSE,
   shelter_h_mix = FALSE,
+  pool_cap = TRUE,
+  odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT,
   rim_venting = FALSE
 )
 }
@@ -37,6 +39,14 @@ through \code{odour_risk()} after the C9 fix.}
 
 \item{shelter_h_mix}{Logical. Passed to \code{\link[=ventilation_state]{ventilation_state()}}.}
 
+\item{pool_cap}{Logical (default \code{TRUE}). Passed to \code{\link[=ventilation_state]{ventilation_state()}};
+caps \code{h_mix} at the nocturnal cold-pool depth on stable nights.}
+
+\item{odorant_solubility}{Number in \verb{[0, 1]} (default
+\code{ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT}, 0.5). Passed to
+\code{\link[=ventilation_state]{ventilation_state()}}; blends \code{W_rain} between no washout (0) and the
+soluble-limit tiers (1).}
+
 \item{rim_venting}{Logical. When \code{TRUE} and \code{terrain_backend = "descriptors"},
 activates C8 upslope rim-venting: the morning pathway 1a crosswind factor is
 gated by a vertical reach function and scaled by per-receptor upslope
@@ -59,14 +69,16 @@ concentration} given the wind direction, the source geometry, and the
 receptor layout described by an \code{\link[=mh_site]{mh_site()}} object. For each hour the
 relative concentrations from all \verb{(odour, source)} features are summed at
 each \verb{(odour, receptor)}. The result is the unbounded physical layer: a
-\code{n_hours x n_receptors} matrix.
-
-Turning this physical value into a bounded operational index (e.g. 0-100) or
-into site-specific tiers is a \strong{calibration} decision that belongs downstream
-of the package. The package no longer ships a fixed 0-100 odour scale;
-site-specific calibration tooling is planned (issues #11/#8).
+\verb{n_hours x n_receptors} matrix.
 }
 \details{
+Turning this physical value into a bounded operational index (e.g. 0-100) or
+into site-specific tiers is a \strong{calibration} decision that belongs downstream
+of the package — a dashboard or calibration step that knows the site's
+complaint/observation history fits the mapping. The package no longer ships a
+fixed 0-100 odour scale; site-specific calibration tooling is planned
+(issues #11/#8).
+
 Area sources use ISC3 initial spreads: \code{sigma_y0 = crosswind_halfwidth / 4.3} and \code{sigma_z0 = emit_height / 2.15} (both added in quadrature with the
 Briggs physical spread). Point sources have \code{sigma_y0 = sigma_z0 = 0}.
 }

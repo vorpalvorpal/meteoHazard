@@ -1,5 +1,38 @@
 # meteoHazard 0.3.0
 
+## Odour hazard physics corrections (v3)
+
+Five physical corrections to the odour hazard/exposure/ventilation chain,
+following a scientific review of the model.
+
+* **Nocturnal cold-pool cap on `h_mix`** (the biggest fix): on stable nights
+  the dilution depth is now `min(boundary_layer_height, pool_top)` instead of
+  always the raw forecast boundary-layer height, so the already-computed
+  thermal cold-pool depth actually caps ventilation. This corrects the known
+  worst case at the primary site — a valley landfill with ridge-top receptors
+  under winter temperature inversions. New `pool_cap = TRUE` argument on
+  `ventilation_state()`, `odour_hazard()`, `odour_exposure()`, and
+  `odour_risk()`; set `FALSE` to restore the old raw-BLH behaviour. Gated to
+  night-only hours where the pool is thermally derived from temperature + RH.
+* **Breaking (numeric):** the generation modifier `G` is now **multiplicative**
+  rather than additive (`(1+dP_mod)*(1+R_mod)*(1+S_seal)*(1+H_mod)*(1+V_mod)`),
+  correctly compounding independent fractional emission effects instead of
+  under-predicting coincident worst cases. New range ≈ [0.80, 2.33] (was
+  [0.80, 1.95]).
+* **Breaking (numeric):** `V_mod` (surface volatilisation) is now
+  **exponential** in temperature rather than linear, matching the Henry's-law
+  / Clausius-Clapeyron basis (vapour pressure roughly doubles every 10 °C).
+  Still anchored at 0 at 10 °C and `V_MOD_MAX` (0.30) at 35 °C.
+* Rain scavenging `W_rain` is now **solubility-aware**: new
+  `odorant_solubility` argument (numeric in `[0, 1]`, default 0.5) on the same
+  four functions as `pool_cap`. `0` models poorly soluble reduced-sulfur
+  odorants (barely washed out by rain); `1` reproduces the old fixed washout
+  tiers and models highly soluble species (ammonia, amines); the default 0.5
+  is a mixed profile.
+* Removed the internal `.odour_dispersion_state()` backward-compatibility
+  shim (pre-v0, unexported, no users); everything now goes through
+  `ventilation_state()` directly.
+
 ## Hazards expose physical quantities; the fixed 0–100 scale is removed (issue #11)
 
 The package no longer ships a fixed 0–100 operational scale or tiers for odour,

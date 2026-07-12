@@ -424,7 +424,16 @@ describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
   })
 
   it("odour_hazard and odour_risk respond with the same ratio to a pure u_eff change", {
-    # Both layers share .odour_hazard_raw() → same ventilation core → same ratio.
+    # Both layers share .odour_hazard_raw() → same ventilation core → same
+    # ratio, PROVIDED h_mix is identical between the two compared hours. Use
+    # pool_cap = FALSE to isolate that: with the v3 nocturnal cold-pool cap
+    # (default TRUE), pool_top's Venkatram mechanical floor depends on u10
+    # (h_floor = C * u_star^1.5), so d2 (u10 = 2) and d6 (u10 = 6) would get
+    # DIFFERENT capped h_mix values -- a second wind-speed-driven effect this
+    # test isn't designed to isolate. h_mix always algebraically cancels
+    # between odour_hazard()'s 1/h_mix and odour_exposure()'s h_mix/min(sigma_z,
+    # h_mix) (see specs/Odour_v3_changes.md), so pool_cap = FALSE (equal h_mix
+    # in both rows) is required for the ratios to match exactly here.
     # Use stability = "shear" with constant u80/u10 = 2 so stability class is
     # identical for both rows — only u_eff changes.  Large distance stays in
     # the linear map regime.
@@ -433,9 +442,10 @@ describe("odour_exposure(): wind dilution — 1/(u_eff) advective term (C9)", {
                            wind_direction_10m = 180, boundary_layer_height = 500)
     d6 <- .make_odour_met(wind_speed_10m = 6, wind_speed_80m = 12,
                            wind_direction_10m = 180, boundary_layer_height = 500)
-    hz_ratio  <- odour_hazard(d2, stability = "shear") / odour_hazard(d6, stability = "shear")
-    exp_ratio <- .worst(odour_risk(d2, site, stability = "shear")) /
-                 .worst(odour_risk(d6, site, stability = "shear"))
+    hz_ratio  <- odour_hazard(d2, stability = "shear", pool_cap = FALSE) /
+                 odour_hazard(d6, stability = "shear", pool_cap = FALSE)
+    exp_ratio <- .worst(odour_risk(d2, site, stability = "shear", pool_cap = FALSE)) /
+                 .worst(odour_risk(d6, site, stability = "shear", pool_cap = FALSE))
     expect_equal(exp_ratio, hz_ratio, tolerance = 0.10)
   })
 })
@@ -465,6 +475,44 @@ describe("odour_exposure(): M3 valley shelter raises exposure end-to-end (C9)", 
     r_on  <- .worst(odour_exposure(d, site, shelter = TRUE))
     expect_equal(r_on / r_off, 3, tolerance = 0.15)
   })
+})
+
+
+# ---------------------------------------------------------------------------
+# v3 -- nocturnal cold-pool cap as the exposure reflecting lid (Change 1)
+# ---------------------------------------------------------------------------
+#
+# C_rel is proportional to 1/min(sigma_z_eff, h_mix): h_mix only survives in
+# the exposure formula through that min(). At most ridge distances sigma_z_eff
+# < h_mix and the cap is a no-op there (h_mix cancels algebraically between
+# the hazard numerator and geom_base's denominator -- see
+# specs/Odour_v3_changes.md's short-distance caveat). This fixture is
+# deliberately engineered so the cap DOES bind: a shallow, low-wind, warm/
+# humid/cloudy night keeps pool_top pinned near the Venkatram mechanical
+# floor (~22 m) -- well below Briggs class F's OWN asymptotic sigma_z ceiling
+# (0.016/0.0003 ~= 53 m, the ceiling class F's sigma_z(x) approaches as
+# x -> infinity, so class F alone could never produce this crossover at any
+# distance from a deeper pool). An 8 km on-axis receptor gives
+# sigma_z(F, 8 km) ~= 37.6 m: bigger than the capped pool (so the pool
+# becomes the binding lid) but well below the uncapped BLH (150 m, so the
+# uncapped run is governed purely by sigma_z, unaffected by h_mix at all).
+# Ground-truthed against the current (unchanged) .pool_top() and the Briggs
+# class-F sigma_z formula before writing this test.
+
+describe("odour_exposure(): v3 nocturnal cold-pool cap as the reflecting lid", {
+
+  it("pool_cap = TRUE (default) exceeds pool_cap = FALSE when the shallow capped pool -- not sigma_z -- sets the vertical lid", {
+    site <- .make_odour_site(rec_bearing = 0, rec_distance = 8000)
+    d <- .make_odour_met(
+      wind_direction_10m = 180, wind_speed_10m = 0.5,
+      direct_radiation = 0, cloud_cover = 85, boundary_layer_height = 150,
+      temperature_2m = 18, relative_humidity_2m = 75
+    )
+    e_on  <- .worst(odour_exposure(d, site))                    # pool_cap = TRUE (default)
+    e_off <- .worst(odour_exposure(d, site, pool_cap = FALSE))
+    expect_gt(e_on, e_off)
+  })
+
 })
 
 

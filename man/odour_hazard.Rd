@@ -10,7 +10,9 @@ odour_hazard(
   datetime = NULL,
   terrain = NULL,
   shelter = FALSE,
-  shelter_h_mix = FALSE
+  shelter_h_mix = FALSE,
+  pool_cap = TRUE,
+  odorant_solubility = ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT
 )
 }
 \arguments{
@@ -44,6 +46,14 @@ to reduce the effective wind speed.}
 
 \item{shelter_h_mix}{Logical (default \code{FALSE}). If \code{TRUE}, also reduce the
 mixing depth via M3 shelter.}
+
+\item{pool_cap}{Logical (default \code{TRUE}). Passed to \code{\link[=ventilation_state]{ventilation_state()}};
+caps \code{h_mix} at the nocturnal cold-pool depth on stable nights.}
+
+\item{odorant_solubility}{Number in \verb{[0, 1]} (default
+\code{ODOUR_CONSTANTS$ODORANT_SOLUBILITY_DEFAULT}, 0.5). Passed to
+\code{\link[=ventilation_state]{ventilation_state()}}; blends \code{W_rain} between no washout (0) and the
+soluble-limit tiers (1).}
 }
 \value{
 A numeric vector of length \code{nrow(met_data)}: the relative odour
@@ -54,6 +64,11 @@ bounded 0--100 indices, this is an \emph{unbounded relative} index: a ventilatio
 index has no natural ceiling, and the 0--100 framing is applied downstream
 by \code{\link[=odour_exposure]{odour_exposure()}}. Whether to unify all hazards onto one scale is a
 deferred modelling/API decision (GitHub issue #11).
+
+\strong{\verb{H approx 1} is no longer the worst baseline.} With the v3 nocturnal
+cold-pool cap (\code{pool_cap = TRUE}, default) an actively-trapped inversion
+night can push \code{h_mix} well below the calm-stable reference depth used to
+normalise \code{H}, so trapped nights now routinely exceed 1.0.
 }
 \description{
 Computes an hourly \strong{relative odour hazard} for a landfill site: given the
@@ -92,15 +107,20 @@ hazard -- without baking in any receptor distance or direction. See
 
 \describe{
 \item{\eqn{G}}{Source generation modifier
-\eqn{1 + \Delta P_{mod} + R_{mod} + S_{seal} + H_{mod} + V_{mod}}
+\eqn{(1 + \Delta P_{mod})(1 + R_{mod})(1 + S_{seal})(1 + H_{mod})(1 + V_{mod})}
 (barometric pumping, post-rain piston, soil sealing, humidity, surface
-volatilisation), range about 0.80 to 1.95.}
+volatilisation), combined multiplicatively -- independent fractional
+modifiers compound rather than add -- range about 0.80 to 2.33.}
 \item{\eqn{PM(s)}}{Peak-to-mean ratio, rising with stability from
 \code{PM_MIN} (unstable) to \code{PM_MAX} (very stable); odour annoyance is driven
 by sub-minute peaks that hourly-average dispersion smooths out.}
-\item{\eqn{W_{rain}}}{Below-cloud scavenging of soluble odorants.}
+\item{\eqn{W_{rain}}}{Below-cloud scavenging, blended between no washout
+and the soluble-limit tiers by \code{odorant_solubility} (Henry's-law
+solubility, default 0.5 = mixed sulfur/soluble profile).}
 \item{\eqn{u_{eff}, h_{mix}, s}}{Effective wind, mixing depth, and stability
-from the shared dispersion state (see Details / \code{stability}).}
+from the shared dispersion state (see Details / \code{stability}). By default
+(\code{pool_cap = TRUE}) \code{h_mix} is capped at the nocturnal cold-pool depth on
+stable nights -- see \code{\link[=ventilation_state]{ventilation_state()}}.}
 }
 }
 
