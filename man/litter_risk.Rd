@@ -34,7 +34,10 @@ drying litter-wetness state (\code{\link[=litter_wetness]{litter_wetness()}}) in
 
 \item{reach_per_ms}{Optional positive scalar (metres per m/s). When supplied,
 \code{\link[=litter_exposure]{litter_exposure()}} runs in refined distance-reach mode with
-\code{mean_wind = met_data$wind_speed_10m}.}
+\code{mean_wind = met_data$wind_speed_10m}. Because the mean wind then drives
+both the hazard's transport multiplier and the exposure reach test, the
+transport ramp and \code{reach_per_ms} should be calibrated jointly — see
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} and \code{\link[=litter_exposure]{litter_exposure()}}.}
 
 \item{...}{Additional hazard calibration parameters forwarded to
 \code{\link[=litter_hazard]{litter_hazard()}} (e.g. \code{rain_threshold}, \code{material}, \code{gust_threshold}).}

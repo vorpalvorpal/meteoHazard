@@ -1,3 +1,33 @@
+# meteoHazard (development version)
+
+## Litter hazard v3.2
+
+Follow-up to the v3.1 review: four design corrections plus a documentation item.
+
+* **Smooth material-saturation ramp** (WP1): the wet penalty now ramps linearly
+  from `saturation_onset` (0.8 normalised wetness) to full at wetness 1, removing
+  the interior discontinuity at the saturation mark. Shared by the soil-moisture
+  and wetness-state paths.
+* **Material-resolved mobilization thresholds** (WP2): `gust_threshold`,
+  `gust_reference`, and `saturation_penalty` now default per `material` from the
+  new internal `LITTER_CONSTANTS$MATERIALS` (`NULL` formals; explicit values
+  still override). A new `material = "rigid"` (bottles/cans) makes `material`
+  affect dry mobility, matching the Mellink (2024) bags-vs-bottles evidence; its
+  numbers are uncalibrated placeholders. `paper_veto_wetness` is replaced by
+  `saturation_onset`.
+* **Consistent gap-bearing semantics** (WP3): a downwind bearing in a sector gap
+  now derives `leaves_site` from the same `default_permeability` the exposure
+  magnitude uses (previously the boundary was treated as both passable and not).
+  `sensitive_receptor` stays `FALSE` for gaps, so a gap can never be off-site.
+* **Robust concave barriers** (WP4): `litter_exposure()` densifies each barrier
+  boundary before extracting bearings, fixing a largest-gap inversion that could
+  report a bearing pointing straight at a coarse concave (C-shaped) barrier as a
+  miss.
+* **Transport/reach coupling documented** (WP5): the refined-mode reach test and
+  the hazard transport multiplier are both driven by the mean wind and must be
+  calibrated jointly; noted in `litter_hazard_vec()`, `litter_exposure()`, and
+  `litter_risk()`.
+
 # meteoHazard 0.3.0
 
 ## Odour hazard physics corrections (v3)

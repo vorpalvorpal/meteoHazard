@@ -79,7 +79,11 @@
 #'     over 2.3--3.2 m/s), supporting a monotone transport-vs-mean-wind ramp;
 #'     the onset/reference wind speeds are uncalibrated engineering placeholders
 #'     (carried from v2), not fitted constants, and the reach/geometry mapping
-#'     of this potential is deferred to [litter_exposure()].}
+#'     of this potential is deferred to [litter_exposure()]. In combined use with
+#'     [litter_exposure()]'s refined mode, `T` amplifies the mobilized flux while
+#'     the reach test gates the destination; both are driven by the mean wind, so
+#'     the transport ramp and `reach_per_ms` must be calibrated **jointly**
+#'     (issues #11/#26).}
 #'   \item{Rainfall gate `R`}{A smooth ramp, not a hard cutoff: `R = 1`
 #'     at or below `rain_onset`, `R = 0` at or above `rain_threshold`, linear
 #'     between. Windblown/aeolian transport only — this package does not model

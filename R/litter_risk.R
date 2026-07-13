@@ -23,7 +23,10 @@
 #'   Exposure-layer parameters, passed to [litter_exposure()].
 #' @param reach_per_ms Optional positive scalar (metres per m/s). When supplied,
 #'   [litter_exposure()] runs in refined distance-reach mode with
-#'   `mean_wind = met_data$wind_speed_10m`.
+#'   `mean_wind = met_data$wind_speed_10m`. Because the mean wind then drives
+#'   both the hazard's transport multiplier and the exposure reach test, the
+#'   transport ramp and `reach_per_ms` should be calibrated jointly — see
+#'   [litter_hazard_vec()] and [litter_exposure()].
 #' @param ... Additional hazard calibration parameters forwarded to
 #'   [litter_hazard()] (e.g. `rain_threshold`, `material`, `gust_threshold`).
 #'

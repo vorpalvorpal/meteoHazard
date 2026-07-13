@@ -211,7 +211,11 @@ macroplastic transport velocity rising with wind speed (~141 to 219 m/h
 over 2.3--3.2 m/s), supporting a monotone transport-vs-mean-wind ramp;
 the onset/reference wind speeds are uncalibrated engineering placeholders
 (carried from v2), not fitted constants, and the reach/geometry mapping
-of this potential is deferred to \code{\link[=litter_exposure]{litter_exposure()}}.}
+of this potential is deferred to \code{\link[=litter_exposure]{litter_exposure()}}. In combined use with
+\code{\link[=litter_exposure]{litter_exposure()}}'s refined mode, \code{T} amplifies the mobilized flux while
+the reach test gates the destination; both are driven by the mean wind, so
+the transport ramp and \code{reach_per_ms} must be calibrated \strong{jointly}
+(issues #11/#26).}
 \item{Rainfall gate \code{R}}{A smooth ramp, not a hard cutoff: \code{R = 1}
 at or below \code{rain_onset}, \code{R = 0} at or above \code{rain_threshold}, linear
 between. Windblown/aeolian transport only — this package does not model

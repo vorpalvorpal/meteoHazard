@@ -71,7 +71,11 @@
 #'   distance-reach mode.
 #' @param reach_per_ms Optional positive scalar (metres per m/s): the calibrated
 #'   characteristic reach `c_L`. In refined mode a barrier is "reached" when
-#'   `reach_per_ms * mean_wind >= distance_m` for that barrier.
+#'   `reach_per_ms * mean_wind >= distance_m` for that barrier. Note the mean
+#'   wind also drives the hazard's transport multiplier `T`
+#'   ([litter_hazard_vec()]); `T` amplifies the mobilized flux while this reach
+#'   test gates the destination, so the two must be calibrated **jointly**
+#'   (issues #11/#26).
 #'
 #' @return A data frame with `length(hazard)` rows and columns:
 #'   \describe{
