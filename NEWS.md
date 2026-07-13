@@ -1,5 +1,23 @@
 # meteoHazard (development version)
 
+## Dust hazard v4
+
+Follow-up to the dust v3 review: operationalises the T8/T10 idealisation
+TODOs, the smooth-surface/no-drag-partition gap, and clock-driven crust decay.
+`dust_exposure()`/`dust_risk()` (v3's T9) remain out of scope for this PR —
+deferred to their own follow-up against a design-note/contract-test skeleton.
+
+* **Met-driven air density + direct grain-size interface** (WP1): new optional
+  `temperature_2m`/`surface_pressure` args on `dust_flux()` (and
+  `air_density = c("reference", "met")` on `dust_hazard()`) compute a per-hour
+  air density via the ideal gas law instead of the fixed
+  `DUST_CONSTANTS$RHO_A_REF`; cold, dense air both lowers the entrainment
+  threshold and raises the flux (-5 degC / 1013.25 hPa raises a 20 m/s-gust
+  flux ~1.375x). New `d50` arg (m) bypasses the Tyler sieve table for sites
+  with a measured grain size; `tyler_sieve_no` is now `NULL`-default and
+  exactly one of `tyler_sieve_no`/`d50` is required (supplying both warns,
+  `d50` wins). New constants `R_D`, `KELVIN_OFFSET`.
+
 ## Litter hazard v3.2
 
 Follow-up to the v3.1 review: four design corrections plus a documentation item.

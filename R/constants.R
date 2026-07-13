@@ -206,6 +206,10 @@ ODOUR_CONSTANTS <- list(
 #'     log-alpha intercept, -6.}
 #'   \item{MB95_CLAY_CAP}{Clay fraction (%) above which the MB95 alpha fit is
 #'     no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
+#'   \item{R_D}{Specific gas constant for dry air (J kg^-1 K^-1), 287.05. Used
+#'     with `KELVIN_OFFSET` to compute a met-driven air density from
+#'     `temperature_2m`/`surface_pressure` (see `dust_flux()`'s Design).}
+#'   \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
 #' }
 #' @keywords internal
 DUST_CONSTANTS <- list(
@@ -223,7 +227,9 @@ DUST_CONSTANTS <- list(
   FECAN_B               = 0.68,     # Fecan (1999) correction exponent b'
   MB95_ALPHA_SLOPE      = 0.134,    # MB95 sandblasting log-alpha slope (cm^-1)
   MB95_ALPHA_INTERCEPT  = -6,       # MB95 sandblasting log-alpha intercept
-  MB95_CLAY_CAP         = 20        # % clay; MB95 alpha validity ceiling
+  MB95_CLAY_CAP         = 20,       # % clay; MB95 alpha validity ceiling
+  R_D                   = 287.05,   # J/(kg*K), dry-air specific gas constant
+  KELVIN_OFFSET         = 273.15    # K, Celsius -> Kelvin offset
 )
 
 #' Constants for the litter hazard model

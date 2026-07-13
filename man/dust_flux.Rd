@@ -5,21 +5,25 @@
 \title{Vertical dust flux for an exposed landfill surface}
 \usage{
 dust_flux(
-  tyler_sieve_no,
+  tyler_sieve_no = NULL,
   clay_percent,
   wind_speed_10m,
   wind_gusts_10m,
   soil_moisture,
+  d50 = NULL,
   z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
-  threshold_multiplier = 1
+  threshold_multiplier = 1,
+  temperature_2m = NULL,
+  surface_pressure = NULL
 )
 }
 \arguments{
 \item{tyler_sieve_no}{Integer Tyler Standard Sieve number for the modal
-aggregate size of the erodible surface. Must be one of the tabulated values
-(see \code{TYLER_SIEVE_DIAMETERS_M}).}
+aggregate size of the erodible surface, or \code{NULL} (default). Must be one
+of the tabulated values (see \code{TYLER_SIEVE_DIAMETERS_M}). Exactly one of
+\code{tyler_sieve_no} or \code{d50} must be supplied; see \code{d50}.}
 
 \item{clay_percent}{Clay fraction of the surface material (\% by mass), in
 \code{0}–\code{100}. Values above \code{DUST_CONSTANTS$MB95_CLAY_CAP} (20\%) are capped
@@ -34,10 +38,18 @@ moisture correction still uses the true \code{clay_percent}.}
 \item{soil_moisture}{Numeric vector. Volumetric water content of the top
 0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}
 
+\item{d50}{Modal grain diameter of the erodible surface (m), or \code{NULL}
+(default). A direct alternative to \code{tyler_sieve_no} for sites with a
+measured grain size, bypassing the Tyler sieve table; assert in
+\verb{[1e-5, 0.02]}. Exactly one of \code{tyler_sieve_no} or \code{d50} must be
+supplied; if both are supplied (non-\code{NULL}), \code{d50} supersedes and a
+warning is issued (\code{meteoHazard_dust_d50_supersedes}) — mirroring the
+\code{soil_moisture_0_to_1cm}/\code{wetness} seam in \code{litter_hazard_vec()}.}
+
 \item{z0}{Aerodynamic roughness length for the wind profile (m). Default
 \code{NULL}, which derives the smooth-bed value \code{d/30} (Nikuradse
 equivalent-sand roughness; the MB95 \code{z0s} convention) from the modal
-grain diameter implied by \code{tyler_sieve_no}. A caller-supplied \code{z0} larger
+grain diameter (\code{tyler_sieve_no} or \code{d50}). A caller-supplied \code{z0} larger
 than this smooth-bed value warns, because larger roughness is not
 sheltering the bed here (no drag partition is modelled) and so instead
 biases u*, and hence the flux, high.}
@@ -50,6 +62,19 @@ fastest-mile driving wind. Default 0.84 (Durst).}
 \item{threshold_multiplier}{Multiplier on the threshold friction velocity,
 length 1 or matching the met vectors. Used by \code{\link[=dust_hazard]{dust_hazard()}}
 to inject the crust-persistence factor; defaults to 1 (no effect).}
+
+\item{temperature_2m}{Numeric vector or \code{NULL} (default). Air temperature
+at 2 m (deg C), Open-Meteo \code{temperature_2m}. Together with
+\code{surface_pressure}, drives a per-hour air density via the ideal gas law
+(\code{rho_a = 100 * surface_pressure / (R_D * (temperature_2m + KELVIN_OFFSET))}); supplying only one of the pair is a classed error.
+Neither supplied (the default) uses the fixed
+\code{DUST_CONSTANTS$RHO_A_REF}. The computed density is sanity-asserted in
+\verb{[0.8, 1.6]} kg/m^3 (classed error otherwise — catches Pa-vs-hPa
+mistakes).}
+
+\item{surface_pressure}{Numeric vector or \code{NULL} (default). Surface
+(station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
+\code{surface_pressure}. See \code{temperature_2m}.}
 }
 \value{
 Numeric vector, one value per hour, proportional to the
@@ -106,9 +131,6 @@ kept in its native cm^-1 units (see @section Units) and is clamped at
 the clay \% where the Marticorena & Bergametti (1995) fit was validated
 (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 and emit less than a naive extrapolation would predict.
-\item \strong{Fixed reference air density.} \code{rho_a} is a constant
-(\code{DUST_CONSTANTS$RHO_A_REF}), not adjusted for site temperature or
-pressure (see the T10 TODO below).
 \item \strong{Smooth surface, no drag partition.} \code{z0} defaults to the
 smooth-bed value \code{d/30}; non-erodible roughness elements (gravel,
 vegetation, stockpiles) are not represented, so u* — and hence the flux

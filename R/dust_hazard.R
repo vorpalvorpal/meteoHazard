@@ -44,9 +44,6 @@
 #'     the clay % where the Marticorena & Bergametti (1995) fit was validated
 #'     (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 #'     and emit less than a naive extrapolation would predict.
-#'   \item **Fixed reference air density.** `rho_a` is a constant
-#'     (`DUST_CONSTANTS$RHO_A_REF`), not adjusted for site temperature or
-#'     pressure (see the T10 TODO below).
 #'   \item **Smooth surface, no drag partition.** `z0` defaults to the
 #'     smooth-bed value `d/30`; non-erodible roughness elements (gravel,
 #'     vegetation, stockpiles) are not represented, so u* — and hence the flux
@@ -62,8 +59,9 @@
 #' }
 #'
 #' @param tyler_sieve_no Integer Tyler Standard Sieve number for the modal
-#'   aggregate size of the erodible surface. Must be one of the tabulated values
-#'   (see `TYLER_SIEVE_DIAMETERS_M`).
+#'   aggregate size of the erodible surface, or `NULL` (default). Must be one
+#'   of the tabulated values (see `TYLER_SIEVE_DIAMETERS_M`). Exactly one of
+#'   `tyler_sieve_no` or `d50` must be supplied; see `d50`.
 #' @param clay_percent Clay fraction of the surface material (% by mass), in
 #'   `0`–`100`. Values above `DUST_CONSTANTS$MB95_CLAY_CAP` (20%) are capped
 #'   for the MB95 sandblasting efficiency only (with a warning); the Fecan
@@ -73,10 +71,17 @@
 #'   `>= wind_speed_10m` at every hour.
 #' @param soil_moisture Numeric vector. Volumetric water content of the top
 #'   0--1 cm layer (m^3/m^3), in `0`–`1`.
+#' @param d50 Modal grain diameter of the erodible surface (m), or `NULL`
+#'   (default). A direct alternative to `tyler_sieve_no` for sites with a
+#'   measured grain size, bypassing the Tyler sieve table; assert in
+#'   `[1e-5, 0.02]`. Exactly one of `tyler_sieve_no` or `d50` must be
+#'   supplied; if both are supplied (non-`NULL`), `d50` supersedes and a
+#'   warning is issued (`meteoHazard_dust_d50_supersedes`) — mirroring the
+#'   `soil_moisture_0_to_1cm`/`wetness` seam in `litter_hazard_vec()`.
 #' @param z0 Aerodynamic roughness length for the wind profile (m). Default
 #'   `NULL`, which derives the smooth-bed value `d/30` (Nikuradse
 #'   equivalent-sand roughness; the MB95 `z0s` convention) from the modal
-#'   grain diameter implied by `tyler_sieve_no`. A caller-supplied `z0` larger
+#'   grain diameter (`tyler_sieve_no` or `d50`). A caller-supplied `z0` larger
 #'   than this smooth-bed value warns, because larger roughness is not
 #'   sheltering the bed here (no drag partition is modelled) and so instead
 #'   biases u*, and hence the flux, high.
@@ -86,6 +91,18 @@
 #' @param threshold_multiplier Multiplier on the threshold friction velocity,
 #'   length 1 or matching the met vectors. Used by [dust_hazard()]
 #'   to inject the crust-persistence factor; defaults to 1 (no effect).
+#' @param temperature_2m Numeric vector or `NULL` (default). Air temperature
+#'   at 2 m (deg C), Open-Meteo `temperature_2m`. Together with
+#'   `surface_pressure`, drives a per-hour air density via the ideal gas law
+#'   (`rho_a = 100 * surface_pressure / (R_D * (temperature_2m +
+#'   KELVIN_OFFSET))`); supplying only one of the pair is a classed error.
+#'   Neither supplied (the default) uses the fixed
+#'   `DUST_CONSTANTS$RHO_A_REF`. The computed density is sanity-asserted in
+#'   `[0.8, 1.6]` kg/m^3 (classed error otherwise — catches Pa-vs-hPa
+#'   mistakes).
+#' @param surface_pressure Numeric vector or `NULL` (default). Surface
+#'   (station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
+#'   `surface_pressure`. See `temperature_2m`.
 #'
 #' @return Numeric vector, one value per hour, proportional to the
 #'   instantaneous vertical dust mass-flux rate (relative units, unscaled;
@@ -121,15 +138,18 @@
 #' @seealso [dust_hazard()] for the bounded operational index.
 #' @export
 dust_flux <- function(
-  tyler_sieve_no,
+  tyler_sieve_no       = NULL,
   clay_percent,
   wind_speed_10m,
   wind_gusts_10m,
   soil_moisture,
+  d50                  = NULL,
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
-  threshold_multiplier = 1
+  threshold_multiplier = 1,
+  temperature_2m       = NULL,
+  surface_pressure     = NULL
 ) {
   # ---- Normalise dimensional inputs (bare = documented unit; units = converted) #
   # clay_percent, soil_moisture (m^3/m^3 ratio) and gust_factor are dimensionless
@@ -141,15 +161,56 @@ dust_flux <- function(
   if (!is.null(z0)) {
     z0 <- .drop_to(z0, "m", arg = "z0")
   }
+  if (!is.null(d50)) {
+    d50 <- .drop_to(d50, "m", arg = "d50")
+  }
+  if (!is.null(temperature_2m)) {
+    temperature_2m <- .drop_to(temperature_2m, "degree_C", arg = "temperature_2m")
+  }
+  if (!is.null(surface_pressure)) {
+    surface_pressure <- .drop_to(surface_pressure, "hPa", arg = "surface_pressure")
+  }
   bulk_density   <- .drop_to(bulk_density,   "Mg/m^3", arg = "bulk_density")
 
   # ---- Validation ---------------------------------------------------------- #
-  if (!as.character(tyler_sieve_no) %in% names(TYLER_SIEVE_DIAMETERS_M)) {
-    cli::cli_abort(c(
-      "Invalid {.arg tyler_sieve_no}: {tyler_sieve_no}.",
-      "i" = "Valid Tyler Sieve numbers are: {.val {as.integer(names(TYLER_SIEVE_DIAMETERS_M))}}."
-    ), class = "meteoHazard_input_error")
+
+  # ---- tyler_sieve_no / d50 grain-size seam --------------------------------- #
+  # Exactly one of the two grain-size inputs is required. d50 is a direct,
+  # measured-diameter alternative to the Tyler sieve table. If both are
+  # supplied, d50 wins (a caller-specified physical measurement outranks a
+  # sieve lookup) and the caller is warned so a stray leftover argument
+  # doesn't silently get ignored -- mirrors the litter
+  # soil_moisture_0_to_1cm/wetness seam (R/litter_hazard.R).
+  have_tyler <- !is.null(tyler_sieve_no)
+  have_d50   <- !is.null(d50)
+  if (!have_tyler && !have_d50) {
+    cli::cli_abort(
+      c("Exactly one of {.arg tyler_sieve_no} or {.arg d50} must be supplied.",
+        "i" = "Use {.arg tyler_sieve_no} (Tyler Standard Sieve number) or {.arg d50} (measured modal grain diameter, m)."),
+      class = "meteoHazard_input_error"
+    )
   }
+  if (have_tyler && have_d50) {
+    cli::cli_warn(
+      c("Both {.arg tyler_sieve_no} and {.arg d50} were supplied.",
+        "i" = "{.arg d50} supersedes {.arg tyler_sieve_no} for this call."),
+      class = "meteoHazard_dust_d50_supersedes"
+    )
+    have_tyler <- FALSE
+  }
+  if (have_d50) {
+    checkmate::assert_number(d50, lower = 1e-5, upper = 0.02)
+    d <- d50
+  } else {
+    if (!as.character(tyler_sieve_no) %in% names(TYLER_SIEVE_DIAMETERS_M)) {
+      cli::cli_abort(c(
+        "Invalid {.arg tyler_sieve_no}: {tyler_sieve_no}.",
+        "i" = "Valid Tyler Sieve numbers are: {.val {as.integer(names(TYLER_SIEVE_DIAMETERS_M))}}."
+      ), class = "meteoHazard_input_error")
+    }
+    d <- TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
+  }
+
   checkmate::assert_number(clay_percent, lower = 0, upper = 100)
   n <- length(wind_speed_10m)
   checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, min.len = 1)
@@ -177,17 +238,43 @@ dust_flux <- function(
     ), class = "meteoHazard_input_error")
   }
 
+  # ---- temperature_2m / surface_pressure air-density seam ------------------- #
+  # Both supplied -> per-hour rho_a from the ideal gas law (`* 100` is
+  # hPa -> Pa); neither -> the fixed DUST_CONSTANTS$RHO_A_REF (behaviour
+  # preserving); exactly one is a classed error (an incomplete pair is more
+  # likely a caller mistake than an intentional partial spec).
+  have_temp  <- !is.null(temperature_2m)
+  have_press <- !is.null(surface_pressure)
+  if (have_temp != have_press) {
+    cli::cli_abort(
+      c("{.arg temperature_2m} and {.arg surface_pressure} must be supplied together, or neither.",
+        "x" = "Only {.arg {if (have_temp) 'temperature_2m' else 'surface_pressure'}} was supplied."),
+      class = "meteoHazard_input_error"
+    )
+  }
+  if (have_temp && have_press) {
+    checkmate::assert_numeric(temperature_2m, any.missing = FALSE, len = n)
+    checkmate::assert_numeric(surface_pressure, lower = 0, any.missing = FALSE, len = n)
+    rho_a <- 100 * surface_pressure /
+      (DUST_CONSTANTS$R_D * (temperature_2m + DUST_CONSTANTS$KELVIN_OFFSET))
+    if (any(rho_a < 0.8 | rho_a > 1.6)) {
+      cli::cli_abort(
+        c("Air density computed from {.arg temperature_2m}/{.arg surface_pressure} is outside the plausible range [0.8, 1.6] kg/m^3.",
+          "x" = "Computed range: [{signif(min(rho_a), 4)}, {signif(max(rho_a), 4)}] kg/m^3.",
+          "i" = "Check units -- {.arg surface_pressure} is expected in hPa, not Pa."),
+        class = "meteoHazard_input_error"
+      )
+    }
+  } else {
+    rho_a <- DUST_CONSTANTS$RHO_A_REF
+  }
+
   # ---- Physical constants (DUST_CONSTANTS; see R/constants.R) -------------- #
   rho_p <- DUST_CONSTANTS$RHO_P     # particle density (kg/m^3, quartz)
-  # Reference air density; not yet temperature/pressure adjusted (T10 TODO
-  # below).
-  rho_a <- DUST_CONSTANTS$RHO_A_REF
   g     <- DUST_CONSTANTS$G
   gamma <- DUST_CONSTANTS$GAMMA     # interparticle cohesion parameter (N/m)
   kappa <- DUST_CONSTANTS$KAPPA     # von Karman constant
   z     <- DUST_CONSTANTS$Z_REF     # reference height (m)
-
-  d <- TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
 
   # ---- Smooth-bed roughness (Nikuradse; MB95 z0s convention) --------------- #
   # z0 = NULL (default) derives the smooth erodible-bed roughness d/30, i.e.
@@ -261,10 +348,6 @@ dust_flux <- function(
     ), class = "meteoHazard_dust_clay_capped")
   }
 
-  # TODO(dust-v3): T10 — add a direct diameter/d50 interface (bypassing
-  # tyler_sieve_no) and a temperature-dependent air density (from
-  # temperature_2m/pressure_msl via the ideal gas law) rather than the fixed
-  # DUST_CONSTANTS$RHO_A_REF used above. Not implemented in this iteration.
   # TODO(dust-v3): T8 — integrate a within-hour Weibull wind-speed
   # distribution (Stout & Zobeck 1997; Cakmur et al. 2004) rather than the
   # steady hourly-gust forcing above, exposed via a future
@@ -321,9 +404,19 @@ dust_flux <- function(
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
 #'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
-#'   `crust = TRUE`.
-#' @param tyler_sieve_no,clay_percent,z0,bulk_density,gust_factor
-#'   Site and model parameters forwarded to [dust_flux()].
+#'   `crust = TRUE`; plus `temperature_2m` (deg C) and `surface_pressure` (hPa)
+#'   when `air_density = "met"`.
+#' @param tyler_sieve_no,clay_percent,d50,z0,bulk_density,gust_factor
+#'   Site and model parameters forwarded to [dust_flux()]. `d50` (m), if
+#'   supplied, supersedes `tyler_sieve_no` (with a warning if both are
+#'   non-`NULL`) -- see [dust_flux()].
+#' @param air_density `"reference"` (default) or `"met"`. `"reference"` uses
+#'   the fixed `DUST_CONSTANTS$RHO_A_REF` and ignores any `temperature_2m`/
+#'   `surface_pressure` columns in `met_data`, even if present (an explicit
+#'   flag, not auto-detection, so a caller never gets a silent behaviour
+#'   change from adding those columns). `"met"` requires both columns and
+#'   forwards them to [dust_flux()] for a per-hour, temperature/pressure-driven
+#'   air density.
 #' @param crust Logical. Enable the precipitation-driven crust-persistence gate.
 #'   Default `FALSE`. When `TRUE`, `met_data$precipitation` is required.
 #' @param rain_crust_threshold Precipitation (mm) at or above which an hour is
@@ -350,9 +443,11 @@ dust_hazard <- function(
   met_data,
   tyler_sieve_no       = 20L,
   clay_percent         = 10,
+  d50                  = NULL,
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
+  air_density          = c("reference", "met"),
   crust                = FALSE,
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
@@ -364,6 +459,8 @@ dust_hazard <- function(
   # crust_decay_hours are dimensionless / in hours and taken as-is.
   rain_crust_threshold <- .drop_to(rain_crust_threshold, "mm", arg = "rain_crust_threshold")
 
+  air_density <- match.arg(air_density)
+
   checkmate::assert_data_frame(met_data, min.rows = 1)
   checkmate::assert_flag(crust)
   checkmate::assert_number(rain_crust_threshold, lower = 0)
@@ -373,12 +470,14 @@ dust_hazard <- function(
 
   required_cols <- c("wind_speed_10m", "wind_gusts_10m", "soil_moisture_0_to_1cm")
   if (crust) required_cols <- c(required_cols, "precipitation")
+  if (air_density == "met") required_cols <- c(required_cols, "temperature_2m", "surface_pressure")
   .assert_required_cols(
     met_data, required_cols, arg = "met_data",
     info = paste0(
       "Required: wind_speed_10m (m/s), wind_gusts_10m (m/s), ",
       "soil_moisture_0_to_1cm (m³/m³)",
-      if (crust) ", precipitation (mm)." else "."
+      if (crust) ", precipitation (mm)" else "",
+      if (air_density == "met") ", temperature_2m (degC), surface_pressure (hPa)." else "."
     )
   )
 
@@ -392,16 +491,25 @@ dust_hazard <- function(
   }
 
   common <- list(
-    tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent,
+    tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent, d50 = d50,
     z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
   )
 
-  do.call(dust_flux, c(common, list(
+  met_args <- list(
     wind_speed_10m       = met_data$wind_speed_10m,
     wind_gusts_10m       = met_data$wind_gusts_10m,
     soil_moisture        = met_data$soil_moisture_0_to_1cm,
     threshold_multiplier = crust_mult
-  )))
+  )
+  # air_density = "met" forwards the raw met_data columns; dust_flux()
+  # normalises units and computes the per-hour density itself. Not
+  # auto-detected -- "reference" ignores these columns even if present.
+  if (air_density == "met") {
+    met_args$temperature_2m   <- met_data$temperature_2m
+    met_args$surface_pressure <- met_data$surface_pressure
+  }
+
+  do.call(dust_flux, c(common, met_args))
 }
 
 # TODO(dust-v3): T9 — add a receptor-aware dust_exposure() layer, mirroring

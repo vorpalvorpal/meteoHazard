@@ -5,7 +5,7 @@
 \alias{DUST_CONSTANTS}
 \title{Constants for the dust hazard model}
 \format{
-An object of class \code{list} of length 15.
+An object of class \code{list} of length 17.
 }
 \usage{
 DUST_CONSTANTS
@@ -48,6 +48,10 @@ log-alpha slope on clay \% (cm^-1), 0.134.}
 log-alpha intercept, -6.}
 \item{MB95_CLAY_CAP}{Clay fraction (\%) above which the MB95 alpha fit is
 no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
+\item{R_D}{Specific gas constant for dry air (J kg^-1 K^-1), 287.05. Used
+with \code{KELVIN_OFFSET} to compute a met-driven air density from
+\code{temperature_2m}/\code{surface_pressure} (see \code{dust_flux()}'s Design).}
+\item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
 }
 }
 \keyword{internal}

@@ -212,6 +212,83 @@ describe("dust_flux() [v2]", {
 })
 
 
+describe("dust_flux() [v4 WP1: met-driven air density + d50 interface]", {
+
+  it("met-driven air density: -5 degC / 1013.25 hPa raises the gust-20 flux by ~1.375x", {
+    skip_if_no_dust_v2()
+    base <- dust_flux(20L, 10, 0, 20, 0.02)
+    cold <- dust_flux(20L, 10, 0, 20, 0.02,
+                      temperature_2m = -5, surface_pressure = 1013.25)
+    expect_equal(base, 7.86633315e-08, tolerance = 1e-4)   # new smooth-bed KAT
+    expect_equal(cold, 1.08192029e-07, tolerance = 1e-4)
+    expect_equal(cold / base, 1.37538, tolerance = 1e-3)
+  })
+
+  it("supplying only one of temperature_2m/surface_pressure errors (classed)", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, temperature_2m = -5),
+                 class = "meteoHazard_input_error")
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, surface_pressure = 1013.25),
+                 class = "meteoHazard_input_error")
+  })
+
+  it("temperature_2m/surface_pressure vectorise per-hour (rho_a length-n through the chain)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = rep(0, 2), wind_gusts_10m = rep(20, 2),
+                   soil_moisture = rep(0.02, 2),
+                   temperature_2m = c(15, -5), surface_pressure = c(1013.25, 1013.25))
+    expect_length(f, 2)
+    # Colder hour (index 2) is denser air -> larger flux at the same gust.
+    expect_gt(f[2], f[1])
+  })
+
+  it("an implausible computed air density is a classed error (catches Pa-vs-hPa mistakes)", {
+    skip_if_no_dust_v2()
+    # surface_pressure supplied in Pa instead of hPa -> rho_a ~100x too high.
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, temperature_2m = 15, surface_pressure = 101325),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("d50 equal to the sieve-20 opening reproduces the sieve-20 flux exactly", {
+    skip_if_no_dust_v2()
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02),
+                 dust_flux(clay_percent = 10, wind_speed_10m = 0,
+                           wind_gusts_10m = 20, soil_moisture = 0.02,
+                           d50 = 0.000833))
+  })
+
+  it("rejects an out-of-range d50", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 1e-6))
+    expect_error(dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 0.03))
+  })
+
+  it("requires exactly one of tyler_sieve_no or d50 (classed error when neither supplied)", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20, soil_moisture = 0.02),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("warns (classed) when both tyler_sieve_no and d50 are supplied; d50 supersedes", {
+    skip_if_no_dust_v2()
+    expect_warning(
+      dust_flux(20L, 10, 0, 20, 0.02, d50 = 0.000701),   # sieve-24 diameter
+      class = "meteoHazard_dust_d50_supersedes"
+    )
+    with_both <- suppressWarnings(dust_flux(20L, 10, 0, 20, 0.02, d50 = 0.000701))
+    d50_only  <- dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 0.000701)
+    expect_equal(with_both, d50_only)
+  })
+})
+
+
 describe("dust_hazard() [v2]", {
 
   dust_met <- function(gust = c(12, 16, 20), wind = 0, sm = 0.02, precip = NULL, n = NULL) {
@@ -308,6 +385,45 @@ describe("dust_hazard() [v2]", {
     coarse <- dust_hazard(dust_met(gust = 14), tyler_sieve_no = 20L)
     fine   <- dust_hazard(dust_met(gust = 14), tyler_sieve_no = 60L)
     expect_gte(fine, coarse)
+  })
+
+  # ---- WP1: air_density = "met" ------------------------------------------- #
+
+  it("air_density = 'met' requires temperature_2m/surface_pressure columns", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_hazard(dust_met(gust = 20), air_density = "met"),
+      regexp = "temperature_2m|surface_pressure"
+    )
+  })
+
+  it("air_density = 'reference' (default) ignores temperature_2m/surface_pressure columns even if present", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20)
+    met$temperature_2m   <- -5
+    met$surface_pressure <- 1013.25
+    with_cols    <- dust_hazard(met, air_density = "reference")
+    without_cols <- dust_hazard(dust_met(gust = 20))
+    expect_equal(with_cols, without_cols)
+  })
+
+  it("air_density = 'met' forwards temperature_2m/surface_pressure and raises the flux for cold dense air", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20)
+    met$temperature_2m   <- -5
+    met$surface_pressure <- 1013.25
+    met_out <- dust_hazard(met, air_density = "met")
+    ref_out <- dust_hazard(dust_met(gust = 20), air_density = "reference")
+    expect_true(all(met_out >= ref_out))
+    expect_true(any(met_out > ref_out))
+  })
+
+  it("dust_hazard() default path (air_density = 'reference') is bit-identical to pre-WP1 behaviour", {
+    skip_if_no_dust_v2()
+    out <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)))
+    ref <- dust_flux(20L, 10, wind_speed_10m = rep(0, 4), wind_gusts_10m = c(8, 14, 18, 25),
+                     soil_moisture = rep(0.02, 4))
+    expect_equal(out, ref)
   })
 })
 

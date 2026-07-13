@@ -8,9 +8,11 @@ dust_hazard(
   met_data,
   tyler_sieve_no = 20L,
   clay_percent = 10,
+  d50 = NULL,
   z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
+  air_density = c("reference", "met"),
   crust = FALSE,
   rain_crust_threshold = 2,
   crust_factor_max = 3,
@@ -22,9 +24,20 @@ dust_hazard(
 \item{met_data}{A tibble (or data frame), one row per hourly timestep, with at
 least \code{wind_speed_10m} (m/s), \code{wind_gusts_10m} (m/s), and
 \code{soil_moisture_0_to_1cm} (m^3/m^3); plus \code{precipitation} (mm) when
-\code{crust = TRUE}.}
+\code{crust = TRUE}; plus \code{temperature_2m} (deg C) and \code{surface_pressure} (hPa)
+when \code{air_density = "met"}.}
 
-\item{tyler_sieve_no, clay_percent, z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_flux]{dust_flux()}}.}
+\item{tyler_sieve_no, clay_percent, d50, z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_flux]{dust_flux()}}. \code{d50} (m), if
+supplied, supersedes \code{tyler_sieve_no} (with a warning if both are
+non-\code{NULL}) -- see \code{\link[=dust_flux]{dust_flux()}}.}
+
+\item{air_density}{\code{"reference"} (default) or \code{"met"}. \code{"reference"} uses
+the fixed \code{DUST_CONSTANTS$RHO_A_REF} and ignores any \code{temperature_2m}/
+\code{surface_pressure} columns in \code{met_data}, even if present (an explicit
+flag, not auto-detection, so a caller never gets a silent behaviour
+change from adding those columns). \code{"met"} requires both columns and
+forwards them to \code{\link[=dust_flux]{dust_flux()}} for a per-hour, temperature/pressure-driven
+air density.}
 
 \item{crust}{Logical. Enable the precipitation-driven crust-persistence gate.
 Default \code{FALSE}. When \code{TRUE}, \code{met_data$precipitation} is required.}
