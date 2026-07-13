@@ -5,7 +5,7 @@
 \alias{DUST_CONSTANTS}
 \title{Constants for the dust hazard model}
 \format{
-An object of class \code{list} of length 17.
+An object of class \code{list} of length 21.
 }
 \usage{
 DUST_CONSTANTS
@@ -52,6 +52,18 @@ no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
 with \code{KELVIN_OFFSET} to compute a met-driven air density from
 \code{temperature_2m}/\code{surface_pressure} (see \code{dust_flux()}'s Design).}
 \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
+\item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
+(1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
+and internal-boundary-layer height (10 cm; lengths in this formula are
+in cm). Applying this fit as a general screening treatment (rather than
+for the specific vegetation-canopy roughness elements MB95 fit it to)
+is an UNCALIBRATED placeholder use — see \code{dust_flux()}'s Idealisations.}
+\item{FEFF_MIN}{Efficient-fraction floor below which the surface is
+treated as fully sheltered (zero flux, with a warning, rather than an
+ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
+placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+ratios, which is a fit artefact, not physics.}
 }
 }
 \keyword{internal}

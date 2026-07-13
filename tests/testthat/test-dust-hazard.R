@@ -116,16 +116,19 @@ describe("dust_flux() [v2]", {
     )
   })
 
-  it("warns when z0 exceeds the smooth-bed roughness (drag partition not modelled) [CC-1b]", {
+  it("a z0 that fully shelters the bed under the MB95 drag partition returns all-zero flux and warns [CC-1b, v4 re-pin]", {
     skip_if_no_dust_v2()
+    # z0 = 0.05 -> feff ~ -0.21 (negative, fully sheltered) at sieve 20/clay 10.
     expect_warning(
       dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
-      regexp = "roughness|drag partition"
+      regexp = "shelter"
     )
     expect_warning(
       dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
-      class = "meteoHazard_dust_z0_rough"
+      class = "meteoHazard_dust_fully_sheltered"
     )
+    expect_equal(suppressWarnings(dust_flux(20L, 10, c(0, 0), c(20, 40), c(0.02, 0.02), z0 = 0.05)),
+                 c(0, 0))
   })
 
   it("z0 = NULL matches the explicit smooth-bed z0 exactly, without a warning [CC-1c]", {
@@ -140,12 +143,16 @@ describe("dust_flux() [v2]", {
 
   # ---- T2: clamp MB95 sandblasting alpha at the clay validity ceiling ------ #
 
-  it("caps the MB95 sandblasting alpha at the clay validity ceiling [CC-2a]", {
+  it("caps the MB95 sandblasting alpha at the clay validity ceiling [CC-2a, v4 re-pin: z0 = NULL]", {
     skip_if_no_dust_v2()
-    f_over_cap <- suppressWarnings(dust_flux(20L, 50, 0, 20, 0.02, z0 = 0.005))
-    f_at_cap   <- suppressWarnings(dust_flux(20L, 20, 0, 20, 0.02, z0 = 0.005))
+    # Re-pinned under WP2 (MB95 drag partition): the old z0 = 0.005 fixture is
+    # now sub-threshold at gust 20 (partition threshold ~65.8 m/s), so this
+    # moves to the smooth bed (z0 = NULL), matching the WP1 oracle values.
+    f_over_cap <- suppressWarnings(dust_flux(20L, 50, 0, 20, 0.02))
+    f_at_cap   <- suppressWarnings(dust_flux(20L, 20, 0, 20, 0.02))
     expect_equal(f_over_cap, f_at_cap)
-    expect_equal(f_over_cap, 2.96222398e-05, tolerance = 1e-4)
+    expect_equal(f_at_cap, 7.86633315e-08 * 10^(0.134 * 10), tolerance = 1e-4)
+    expect_equal(f_over_cap, 1.72096e-06, tolerance = 1e-4)
   })
 
   it("warns when clay_percent exceeds the MB95 validity ceiling [CC-2b]", {
@@ -193,22 +200,72 @@ describe("dust_flux() [v2]", {
     )
   })
 
-  # ---- T5: known-answer values (KAT), z0 = 0.005 explicit ------------------ #
+  # ---- T5: known-answer values (KAT) ---------------------------------------- #
+  # v4 re-pin (WP2): the pre-partition z0 = 0.005 fixtures assumed z0 raised u*
+  # without sheltering the bed; under the MB95 drag partition the same z0
+  # instead raises the threshold (~65.8 m/s at gust 20), making the old
+  # fixtures sub-threshold and unreproducible by design. CC-5a moves to the
+  # smooth bed; CC-5b moves to the z0 = 5e-4 partition threshold (~25.98 m/s).
 
-  it("matches the hand-computed known-answer flux at z0 = 0.005 (KAT) [CC-5a]", {
+  it("matches the hand-computed known-answer flux at the smooth bed (KAT) [CC-5a, v4 re-pin]", {
     skip_if_no_dust_v2()
     expect_equal(
-      suppressWarnings(dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.005)),
-      1.35399760e-06,
+      dust_flux(20L, 10, 0, 20, 0.02),
+      7.86633315e-08,
       tolerance = 1e-4
     )
   })
 
-  it("known-answer: gust 10.5 sub-threshold zero, gust 10.75 supra-threshold positive at z0 = 0.005 [CC-5b]", {
+  it("known-answer: the MB95 partition threshold at z0 = 5e-4 sits between gust 25.5 (zero) and 26.5 (positive) [CC-5b, v4 re-pin]", {
     skip_if_no_dust_v2()
-    expect_equal(suppressWarnings(dust_flux(20L, 10, 0, 10.5, 0.02, z0 = 0.005)), 0)
-    expect_gt(suppressWarnings(dust_flux(20L, 10, 0, 10.75, 0.02, z0 = 0.005)), 0)
+    expect_equal(dust_flux(20L, 10, 0, 25.5, 0.02, z0 = 5e-4), 0)
+    expect_gt(dust_flux(20L, 10, 0, 26.5, 0.02, z0 = 5e-4), 0)
   })
+
+  # ---- WP2: MB95 drag partition -------------------------------------------- #
+
+  it("feff = 1 (no drag-partition threshold effect) for any z0 <= the smooth-bed value", {
+    skip_if_no_dust_v2()
+    # At z0 == z0_smooth (or NULL) the flux is bit-identical to the smooth-bed
+    # KAT. Below z0_smooth, feff is still 1 (no partition), but u* itself still
+    # depends on the caller's smaller z0 through the log law -- so the overall
+    # flux legitimately differs from the z0_smooth value; verify against a
+    # feff = 1 (unpartitioned) reference computation instead.
+    z0_smooth <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]] * (1 / 30)
+    smooth  <- dust_flux(20L, 10, 0, 20, 0.02)
+    at_val  <- dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_smooth)
+    expect_equal(at_val, smooth)
+
+    z0_below <- z0_smooth / 2
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    u_star_t_dry <- sqrt(DC$A_N * (DC$RHO_P / DC$RHO_A_REF * DC$G * d + DC$GAMMA / (DC$RHO_A_REF * d)))
+    u_star       <- DC$KAPPA * (0.84 * 20) / log(DC$Z_REF / z0_below)
+    excess       <- 1 - (u_star_t_dry / u_star)^2
+    alpha        <- 10^(DC$MB95_ALPHA_SLOPE * 10 + DC$MB95_ALPHA_INTERCEPT)
+    expected     <- alpha * (DC$RHO_A_REF / DC$G) * u_star^3 * excess
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_below), expected, tolerance = 1e-8)
+  })
+
+  it("the partition threshold gust at 10 m is strictly increasing across z0", {
+    skip_if_no_dust_v2()
+    # Reference table (sieve 20, clay 10, dry, verified during planning):
+    # z0 = 2.78e-5 -> 17.90, 1e-4 -> 20.31, 5e-4 -> 25.98, 1e-3 -> 30.58,
+    # 5e-3 -> 65.80 m/s. Bisect the zero/nonzero boundary for each.
+    threshold_gust <- function(z0) {
+      lo <- 0; hi <- 200
+      for (i in 1:40) {
+        mid <- (lo + hi) / 2
+        if (dust_flux(20L, 10, 0, mid, 0.02, z0 = z0) > 0) hi <- mid else lo <- mid
+      }
+      (lo + hi) / 2
+    }
+    z0s <- c(2.78e-5, 1e-4, 5e-4, 1e-3, 5e-3)
+    gusts <- vapply(z0s, threshold_gust, numeric(1))
+    expect_true(all(diff(gusts) > 0))
+    expect_equal(gusts, c(17.90, 20.31, 25.98, 30.58, 65.80), tolerance = 1e-2)
+  })
+
 })
 
 

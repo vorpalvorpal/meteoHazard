@@ -4,8 +4,8 @@
 #' surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 #' threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
 #' an Owen (1964) / White (1979) saltation flux, and the Marticorena &
-#' Bergametti (1995, "MB95") sandblasting efficiency. The erodible surface is
-#' assumed smooth (no non-erodible roughness drag partition; see `z0`). The
+#' Bergametti (1995, "MB95") sandblasting efficiency and drag partition
+#' (non-erodible roughness sheltering the erodible bed; see `z0`). The
 #' returned value is proportional to the instantaneous vertical dust
 #' mass-flux rate, returned **unscaled** for relative ranking; for an
 #' operational, bounded index use [dust_hazard()].
@@ -44,11 +44,17 @@
 #'     the clay % where the Marticorena & Bergametti (1995) fit was validated
 #'     (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 #'     and emit less than a naive extrapolation would predict.
-#'   \item **Smooth surface, no drag partition.** `z0` defaults to the
-#'     smooth-bed value `d/30`; non-erodible roughness elements (gravel,
-#'     vegetation, stockpiles) are not represented, so u* — and hence the flux
-#'     — is not sheltered the way a drag-partition model would predict
-#'     (Raupach et al. 1993; Okin 2008; Webb et al. 2014).
+#'   \item **Drag partition is a highly z0s-sensitive fit, not global
+#'     physics.** `z0` defaults to the smooth-bed value `d/30` (`feff = 1`
+#'     exactly). A caller-supplied `z0` above that engages the Marticorena &
+#'     Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+#'     the entrainment threshold to represent non-erodible roughness (gravel,
+#'     vegetation, stockpiles) sharing the shear stress with the erodible bed
+#'     (Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
+#'     sensitive to the assumed erodible-element roughness `z0s = d/30` and
+#'     goes negative (fully sheltered) at large `z0/z0s`; treat it as an
+#'     UNCALIBRATED screening treatment, not a validated site-specific
+#'     prediction — screening users should keep `z0 = NULL`.
 #'   \item **Transport-limited, not supply-limited.** The Owen/White saltation
 #'     flux assumes an unlimited erodible reservoir. Real surfaces can be
 #'     supply-limited (surface armouring, prior deflation), which this model
@@ -81,10 +87,17 @@
 #' @param z0 Aerodynamic roughness length for the wind profile (m). Default
 #'   `NULL`, which derives the smooth-bed value `d/30` (Nikuradse
 #'   equivalent-sand roughness; the MB95 `z0s` convention) from the modal
-#'   grain diameter (`tyler_sieve_no` or `d50`). A caller-supplied `z0` larger
-#'   than this smooth-bed value warns, because larger roughness is not
-#'   sheltering the bed here (no drag partition is modelled) and so instead
-#'   biases u*, and hence the flux, high.
+#'   grain diameter (`tyler_sieve_no` or `d50`); this (or any `z0 <=` the
+#'   smooth-bed value) makes the MB95 drag-partition efficient fraction
+#'   `feff = 1` exactly (bit-identical smooth-bed behaviour). A caller-supplied
+#'   `z0` above the smooth-bed value engages the drag partition (Marticorena &
+#'   Bergametti 1995 Eqs 18-19): `feff` falls below 1, raising the threshold
+#'   (`u_star_t / feff`) to represent shear stress shared with non-erodible
+#'   roughness. If `feff <= DUST_CONSTANTS$FEFF_MIN` the bed is fully
+#'   sheltered: the flux is zero for every hour, with a warning
+#'   (`meteoHazard_dust_fully_sheltered`) rather than an ever more extreme (or
+#'   sign-flipped) threshold. u* itself always uses the caller's `z0` in the
+#'   log law. See @section Idealisations for the fit's sensitivity to `z0s`.
 #' @param bulk_density Dry bulk density (Mg/m^3). Default 1.6.
 #' @param gust_factor Gust-duration factor converting the 3-second gust to the
 #'   fastest-mile driving wind. Default 0.84 (Durst).
@@ -115,8 +128,8 @@
 #' Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 #' \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 #' Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-#' partition and sandblasting efficiency (`z0s = d/30`,
-#' `alpha = 10^(0.134*clay - 6)` cm^-1).
+#' partition efficient fraction (Eqs 18-19, `MB95_DP_COEF/EXP/X_CM`) and
+#' sandblasting efficiency (`z0s = d/30`, `alpha = 10^(0.134*clay - 6)` cm^-1).
 #' Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 #' Res. 84:4643 — saltation flux forms.
 #' Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}
@@ -276,23 +289,37 @@ dust_flux <- function(
   kappa <- DUST_CONSTANTS$KAPPA     # von Karman constant
   z     <- DUST_CONSTANTS$Z_REF     # reference height (m)
 
-  # ---- Smooth-bed roughness (Nikuradse; MB95 z0s convention) --------------- #
+  # ---- Smooth-bed roughness + MB95 drag partition (Eqs 18-19) -------------- #
   # z0 = NULL (default) derives the smooth erodible-bed roughness d/30, i.e.
-  # no non-erodible-element drag partition. A caller-supplied z0 greater than
-  # this raises u* (rather than sheltering the bed via a drag partition, which
-  # is not modelled here), biasing the flux high — warn instead of silently
-  # trusting an unmodelled sheltering effect (Raupach et al. 1993; Okin 2008;
-  # Webb et al. 2014). The guard is strict `>` so the exact smooth-bed value
-  # itself never warns.
+  # no non-erodible-element drag partition (feff = 1 exactly, bit-identical to
+  # the smooth-bed path). A caller-supplied z0 at or below z0_smooth is treated
+  # the same way. A z0 *above* z0_smooth represents non-erodible roughness
+  # sharing the shear stress with the erodible bed: only the efficient
+  # fraction feff of u* reaches the bed, raised here as a threshold divisor
+  # (Marticorena & Bergametti 1995, Eqs 18-19; lengths in cm; z0s = z0_smooth
+  # is the erodible-element roughness, X = MB95_DP_X_CM the internal
+  # boundary-layer height). The fit is not global physics -- feff can go
+  # negative at large z0/z0s (screening only; see @section Idealisations) --
+  # so feff <= FEFF_MIN is treated as fully sheltered: zero flux, with a
+  # warning, rather than an ever-more-extreme (or sign-flipped) threshold.
   z0_smooth <- d * DUST_CONSTANTS$Z0_SMOOTH_RATIO
   if (is.null(z0)) {
     z0 <- z0_smooth
-  } else if (z0 > z0_smooth) {
+    feff <- 1
+  } else if (z0 <= z0_smooth) {
+    feff <- 1
+  } else {
+    z0s_cm <- z0_smooth * 100
+    feff <- 1 - log(z0 / z0_smooth) /
+      log(DUST_CONSTANTS$MB95_DP_COEF * (DUST_CONSTANTS$MB95_DP_X_CM / z0s_cm)^DUST_CONSTANTS$MB95_DP_EXP)
+  }
+  fully_sheltered <- feff <= DUST_CONSTANTS$FEFF_MIN
+  if (fully_sheltered) {
     cli::cli_warn(c(
-      "Supplied {.arg z0} ({z0} m) exceeds the smooth-bed roughness d/30 ({signif(z0_smooth, 3)} m).",
-      "!" = "Non-erodible roughness is not represented (the drag partition is not modelled), so a larger z0 raises u* rather than sheltering the bed; the flux may be biased high.",
-      "i" = "Leave {.arg z0} = NULL to use the smooth-bed value, or characterise roughness for a drag-partition treatment."
-    ), class = "meteoHazard_dust_z0_rough")
+      "Supplied {.arg z0} ({z0} m) fully shelters the erodible bed under the MB95 drag partition (feff = {signif(feff, 3)} <= {DUST_CONSTANTS$FEFF_MIN}).",
+      "!" = "Returning zero flux for all hours.",
+      "i" = "The MB95 partition fit is not global physics and can go negative at large z0/z0s; reduce {.arg z0} or leave it {.code NULL} for the smooth bed."
+    ), class = "meteoHazard_dust_fully_sheltered")
   }
 
   # ---- Dry threshold friction velocity (Shao & Lu 2000) -------------------- #
@@ -311,22 +338,24 @@ dust_flux <- function(
     1
   )
 
-  # ---- Combined threshold: wetness vs crust hand off via the maximum ------- #
-  u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier)
+  # ---- Combined threshold: wetness/crust hand off via max, then drag partition #
+  u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier) / feff
 
   # ---- Effective friction velocity (gust-driven, fastest-mile proxy) ------- #
   U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
-  # Log law over the smooth-bed z0; the gust is applied as an hourly-steady
-  # forcing (idealisation — see @section Idealisations: biases high near
-  # threshold; T8 TODO below covers within-hour intermittency).
+  # Log law over the caller's (or smooth-bed) z0; the gust is applied as an
+  # hourly-steady forcing (idealisation — see @section Idealisations: biases
+  # high near threshold; T8 TODO below covers within-hour intermittency).
   u_star <- kappa * U_fm / log(z / z0)
 
   # ---- Saltation flux (Owen 1964 / White 1979) ----------------------------- #
   # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess factor
   # is computed only where u* exceeds the threshold, so it is never negative.
   # This is transport-limited (unlimited erodible reservoir assumed); see
-  # @section Idealisations for the supply-limited caveat.
-  excess  <- ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
+  # @section Idealisations for the supply-limited caveat. A fully sheltered
+  # surface (feff <= FEFF_MIN) is forced to zero regardless of u_star_t's
+  # (possibly sign-flipped, feff-divided) value.
+  excess  <- if (fully_sheltered) rep(0, n) else ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
   Q       <- (rho_a / g) * u_star^3 * excess
 
   # ---- Vertical dust flux: MB95 sandblasting efficiency -------------------- #

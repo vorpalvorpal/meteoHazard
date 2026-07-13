@@ -210,6 +210,18 @@ ODOUR_CONSTANTS <- list(
 #'     with `KELVIN_OFFSET` to compute a met-driven air density from
 #'     `temperature_2m`/`surface_pressure` (see `dust_flux()`'s Design).}
 #'   \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
+#'   \item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
+#'     (1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+#'     coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
+#'     and internal-boundary-layer height (10 cm; lengths in this formula are
+#'     in cm). Applying this fit as a general screening treatment (rather than
+#'     for the specific vegetation-canopy roughness elements MB95 fit it to)
+#'     is an UNCALIBRATED placeholder use — see `dust_flux()`'s Idealisations.}
+#'   \item{FEFF_MIN}{Efficient-fraction floor below which the surface is
+#'     treated as fully sheltered (zero flux, with a warning, rather than an
+#'     ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
+#'     placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+#'     ratios, which is a fit artefact, not physics.}
 #' }
 #' @keywords internal
 DUST_CONSTANTS <- list(
@@ -229,7 +241,11 @@ DUST_CONSTANTS <- list(
   MB95_ALPHA_INTERCEPT  = -6,       # MB95 sandblasting log-alpha intercept
   MB95_CLAY_CAP         = 20,       # % clay; MB95 alpha validity ceiling
   R_D                   = 287.05,   # J/(kg*K), dry-air specific gas constant
-  KELVIN_OFFSET         = 273.15    # K, Celsius -> Kelvin offset
+  KELVIN_OFFSET         = 273.15,   # K, Celsius -> Kelvin offset
+  MB95_DP_COEF          = 0.7,      # MB95 Eq. 19 drag-partition fit coefficient (uncalibrated screening use)
+  MB95_DP_EXP           = 0.8,      # MB95 Eq. 19 drag-partition fit exponent (uncalibrated screening use)
+  MB95_DP_X_CM          = 10,       # cm, MB95 Eq. 19 internal-boundary-layer height
+  FEFF_MIN              = 0.01      # efficient-fraction floor -> fully sheltered below this (uncalibrated)
 )
 
 #' Constants for the litter hazard model

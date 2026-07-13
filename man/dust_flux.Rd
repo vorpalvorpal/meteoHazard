@@ -49,10 +49,17 @@ warning is issued (\code{meteoHazard_dust_d50_supersedes}) — mirroring the
 \item{z0}{Aerodynamic roughness length for the wind profile (m). Default
 \code{NULL}, which derives the smooth-bed value \code{d/30} (Nikuradse
 equivalent-sand roughness; the MB95 \code{z0s} convention) from the modal
-grain diameter (\code{tyler_sieve_no} or \code{d50}). A caller-supplied \code{z0} larger
-than this smooth-bed value warns, because larger roughness is not
-sheltering the bed here (no drag partition is modelled) and so instead
-biases u*, and hence the flux, high.}
+grain diameter (\code{tyler_sieve_no} or \code{d50}); this (or any \verb{z0 <=} the
+smooth-bed value) makes the MB95 drag-partition efficient fraction
+\code{feff = 1} exactly (bit-identical smooth-bed behaviour). A caller-supplied
+\code{z0} above the smooth-bed value engages the drag partition (Marticorena &
+Bergametti 1995 Eqs 18-19): \code{feff} falls below 1, raising the threshold
+(\code{u_star_t / feff}) to represent shear stress shared with non-erodible
+roughness. If \code{feff <= DUST_CONSTANTS$FEFF_MIN} the bed is fully
+sheltered: the flux is zero for every hour, with a warning
+(\code{meteoHazard_dust_fully_sheltered}) rather than an ever more extreme (or
+sign-flipped) threshold. u* itself always uses the caller's \code{z0} in the
+log law. See @section Idealisations for the fit's sensitivity to \code{z0s}.}
 
 \item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
 
@@ -87,8 +94,8 @@ Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
 surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
 an Owen (1964) / White (1979) saltation flux, and the Marticorena &
-Bergametti (1995, "MB95") sandblasting efficiency. The erodible surface is
-assumed smooth (no non-erodible roughness drag partition; see \code{z0}). The
+Bergametti (1995, "MB95") sandblasting efficiency and drag partition
+(non-erodible roughness sheltering the erodible bed; see \code{z0}). The
 returned value is proportional to the instantaneous vertical dust
 mass-flux rate, returned \strong{unscaled} for relative ranking; for an
 operational, bounded index use \code{\link[=dust_hazard]{dust_hazard()}}.
@@ -131,11 +138,17 @@ kept in its native cm^-1 units (see @section Units) and is clamped at
 the clay \% where the Marticorena & Bergametti (1995) fit was validated
 (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 and emit less than a naive extrapolation would predict.
-\item \strong{Smooth surface, no drag partition.} \code{z0} defaults to the
-smooth-bed value \code{d/30}; non-erodible roughness elements (gravel,
-vegetation, stockpiles) are not represented, so u* — and hence the flux
-— is not sheltered the way a drag-partition model would predict
-(Raupach et al. 1993; Okin 2008; Webb et al. 2014).
+\item \strong{Drag partition is a highly z0s-sensitive fit, not global
+physics.} \code{z0} defaults to the smooth-bed value \code{d/30} (\code{feff = 1}
+exactly). A caller-supplied \code{z0} above that engages the Marticorena &
+Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+the entrainment threshold to represent non-erodible roughness (gravel,
+vegetation, stockpiles) sharing the shear stress with the erodible bed
+(Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
+sensitive to the assumed erodible-element roughness \code{z0s = d/30} and
+goes negative (fully sheltered) at large \code{z0/z0s}; treat it as an
+UNCALIBRATED screening treatment, not a validated site-specific
+prediction — screening users should keep \code{z0 = NULL}.
 \item \strong{Transport-limited, not supply-limited.} The Owen/White saltation
 flux assumes an unlimited erodible reservoir. Real surfaces can be
 supply-limited (surface armouring, prior deflation), which this model
@@ -152,8 +165,8 @@ velocity (\code{A_N}, \code{gamma}).
 Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-partition and sandblasting efficiency (\code{z0s = d/30},
-\code{alpha = 10^(0.134*clay - 6)} cm^-1).
+partition efficient fraction (Eqs 18-19, \code{MB95_DP_COEF/EXP/X_CM}) and
+sandblasting efficiency (\code{z0s = d/30}, \code{alpha = 10^(0.134*clay - 6)} cm^-1).
 Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 Res. 84:4643 — saltation flux forms.
 Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}

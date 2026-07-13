@@ -17,6 +17,22 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   with a measured grain size; `tyler_sieve_no` is now `NULL`-default and
   exactly one of `tyler_sieve_no`/`d50` is required (supplying both warns,
   `d50` wins). New constants `R_D`, `KELVIN_OFFSET`.
+* **MB95 drag partition** (WP2): a caller-supplied `z0` above the smooth-bed
+  value now engages the Marticorena & Bergametti (1995, Eqs 18-19)
+  efficient-fraction drag partition -- roughness shelters the erodible bed by
+  raising the entrainment threshold (`u_star_t / feff`) instead of just
+  raising u* unsheltered. `z0 <= z0_smooth` (including the `NULL` default)
+  still gives `feff = 1` exactly (bit-identical smooth-bed path). A `z0` large
+  enough to fully shelter the bed (`feff <= DUST_CONSTANTS$FEFF_MIN`) now
+  returns all-zero flux with a new classed warning
+  (`meteoHazard_dust_fully_sheltered`), replacing the removed
+  `meteoHazard_dust_z0_rough` warning. New constants `MB95_DP_COEF`,
+  `MB95_DP_EXP`, `MB95_DP_X_CM`, `FEFF_MIN` (uncalibrated screening use).
+  **Breaking (re-pin):** the two `z0 = 0.005` known-answer fixtures move to
+  the smooth bed (`7.86633315e-08` clay-10, `1.72096e-06` clay-50 capped) and
+  the `z0 = 5e-4` partition threshold (gust 25.5 -> 0, 26.5 -> positive)
+  respectively -- the old fixtures assumed no partition and are
+  unreproducible by design once roughness shelters the bed.
 
 ## Litter hazard v3.2
 
