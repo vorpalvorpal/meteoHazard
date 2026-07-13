@@ -5,7 +5,7 @@
 \alias{DUST_CONSTANTS}
 \title{Constants for the dust hazard model}
 \format{
-An object of class \code{list} of length 21.
+An object of class \code{list} of length 22.
 }
 \usage{
 DUST_CONSTANTS
@@ -25,9 +25,9 @@ sandblasting efficiency.
 3.0e-4 (their tabulated range is 1.65e-4-5e-4; 3e-4 is their
 recommended best estimate).}
 \item{RHO_P}{Particle density (kg/m^3), 2650 (quartz).}
-\item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level,
-15 degC standard atmosphere; not yet temperature/pressure adjusted,
-see T10 TODO).}
+\item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level, 15 degC
+standard atmosphere). Used when \code{dust_flux()}'s \code{temperature_2m}/
+\code{surface_pressure} are not supplied (the default).}
 \item{G}{Gravitational acceleration, 9.81 m/s^2.}
 \item{KAPPA}{von Karman constant, 0.40.}
 \item{Z_REF}{Reference height (m) for the 10 m wind used in the
@@ -64,6 +64,10 @@ treated as fully sheltered (zero flux, with a warning, rather than an
 ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
 placeholder: the MB95 fit legitimately goes negative at large z0/z0s
 ratios, which is a fit artefact, not physics.}
+\item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
+parameter \code{k} for \code{dust_flux(forcing = "weibull")}, 2.0. UNCALIBRATED
+placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+within-hour intermittency treatment but not this specific \code{k}).}
 }
 }
 \keyword{internal}

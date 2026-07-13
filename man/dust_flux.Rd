@@ -14,6 +14,8 @@ dust_flux(
   z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
+  forcing = c("gust", "weibull"),
+  weibull_shape = DUST_CONSTANTS$WEIBULL_SHAPE,
   threshold_multiplier = 1,
   temperature_2m = NULL,
   surface_pressure = NULL
@@ -64,7 +66,23 @@ log law. See @section Idealisations for the fit's sensitivity to \code{z0s}.}
 \item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
 
 \item{gust_factor}{Gust-duration factor converting the 3-second gust to the
-fastest-mile driving wind. Default 0.84 (Durst).}
+fastest-mile driving wind. Default 0.84 (Durst). Unused when
+\code{forcing = "weibull"}.}
+
+\item{forcing}{\code{"gust"} (default) or \code{"weibull"}. \code{"gust"} applies
+\code{wind_gusts_10m}/\code{gust_factor} as a constant hourly-steady forcing (the
+pre-v4 behaviour, bit-identical). \code{"weibull"} instead treats the within-hour
+10 m wind as \code{Weibull(weibull_shape, c)} with \code{c} set so the mean equals
+\code{wind_speed_10m}, and returns the closed-form hourly-expected flux;
+\code{wind_gusts_10m} and \code{gust_factor} are unused on this path (still
+validated for shape, just not used in the flux calculation). See
+@section Idealisations.}
+
+\item{weibull_shape}{Weibull shape parameter \code{k} for \code{forcing = "weibull"}
+(ignored otherwise). Default \code{DUST_CONSTANTS$WEIBULL_SHAPE} (2.0,
+uncalibrated placeholder). Larger \code{k} concentrates the within-hour wind
+more tightly around its mean (converging to the steady-forcing flux at
+the mean as \code{k -> Inf}).}
 
 \item{threshold_multiplier}{Multiplier on the threshold friction velocity,
 length 1 or matching the met vectors. Used by \code{\link[=dust_hazard]{dust_hazard()}}
@@ -127,12 +145,20 @@ This engine makes several simplifying assumptions, in decreasing order of
 expected impact on absolute accuracy (the relative ranking across hours is
 more robust than the absolute value):
 \itemize{
-\item \strong{Steady hourly gust forcing.} The gust is applied as a constant
-hourly-steady friction velocity rather than integrated over a
-within-hour wind-speed distribution. Because saltation flux is a
-convex (odd-power, threshold-gated) function of wind speed, this biases
-the flux high near the threshold and is a placeholder for a future
-within-hour intermittency treatment (see the T8 TODO below).
+\item \strong{Steady hourly gust forcing, by default.} With \code{forcing = "gust"}
+(default) the gust is applied as a constant hourly-steady friction
+velocity rather than integrated over a within-hour wind-speed
+distribution. Because saltation flux is a convex (odd-power,
+threshold-gated) function of wind speed, this biases the flux high near
+the threshold. \code{forcing = "weibull"} replaces the steady gust with a
+within-hour \code{Weibull(weibull_shape, c)} wind distribution (mean
+\code{wind_speed_10m}-preserving; \code{wind_gusts_10m}/\code{gust_factor} unused) and
+a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
+2004); \code{weibull_shape} (\code{DUST_CONSTANTS$WEIBULL_SHAPE}, 2.0) is an
+UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+\emph{time-averaged} saltation flux under intermittency scales closer to
+u*^2 than the instantaneous u*^3 used in both forcing modes here — a
+further refinement this closed form does not capture.
 \item \strong{MB95 alpha not SI-converted, and capped at 20\% clay.} \code{alpha} is
 kept in its native cm^-1 units (see @section Units) and is clamped at
 the clay \% where the Marticorena & Bergametti (1995) fit was validated
@@ -184,6 +210,14 @@ commonly capped at 0.2 in dust-emission schemes.
 Gillette, D.A. et al. (1982) J. Geophys. Res. 87:9003 — supply limitation
 and crust rupture by saltation impact.
 Nikuradse, J. (1933); Sherman, D.J. (1992) — smooth-bed \code{z0 = d/30}.
+Stout, J.E. & Zobeck, T.M. (1997) \doi{10.1097/00010694-199710000-00003} —
+within-hour wind-speed intermittency in aeolian saltation.
+Cakmur, R.V. et al. (2004) \doi{10.1029/2003JD004067} — sub-daily wind
+variability (Weibull-shaped) in dust-emission modelling.
+Martin, R.L. & Kok, J.F. (2017) \doi{10.1126/sciadv.1602569} — time-averaged
+saltation flux under intermittent wind scales closer to u*^2 than the
+instantaneous u*^3 used here (a further refinement not captured by
+\code{forcing = "weibull"}).
 }
 \seealso{
 \code{\link[=dust_hazard]{dust_hazard()}} for the bounded operational index.

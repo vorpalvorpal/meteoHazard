@@ -33,6 +33,15 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   the `z0 = 5e-4` partition threshold (gust 25.5 -> 0, 26.5 -> positive)
   respectively -- the old fixtures assumed no partition and are
   unreproducible by design once roughness shelters the bed.
+* **Within-hour Weibull intermittency** (WP3): new
+  `forcing = c("gust", "weibull")` on `dust_flux()`/`dust_hazard()` (default
+  `"gust"`, bit-identical). `"weibull"` replaces the steady hourly-gust
+  forcing with a within-hour `Weibull(weibull_shape, c)` wind distribution
+  (mean-preserving on `wind_speed_10m`; `wind_gusts_10m`/`gust_factor` unused)
+  and a closed-form hourly-expected flux, correcting the steady-forcing bias
+  near threshold and emitting where the hourly mean is sub-threshold but the
+  within-hour tail is not. New `weibull_shape` argument (default
+  `DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0, uncalibrated placeholder).
 
 ## Litter hazard v3.2
 

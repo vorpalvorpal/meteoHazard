@@ -33,12 +33,20 @@
 #' expected impact on absolute accuracy (the relative ranking across hours is
 #' more robust than the absolute value):
 #' \itemize{
-#'   \item **Steady hourly gust forcing.** The gust is applied as a constant
-#'     hourly-steady friction velocity rather than integrated over a
-#'     within-hour wind-speed distribution. Because saltation flux is a
-#'     convex (odd-power, threshold-gated) function of wind speed, this biases
-#'     the flux high near the threshold and is a placeholder for a future
-#'     within-hour intermittency treatment (see the T8 TODO below).
+#'   \item **Steady hourly gust forcing, by default.** With `forcing = "gust"`
+#'     (default) the gust is applied as a constant hourly-steady friction
+#'     velocity rather than integrated over a within-hour wind-speed
+#'     distribution. Because saltation flux is a convex (odd-power,
+#'     threshold-gated) function of wind speed, this biases the flux high near
+#'     the threshold. `forcing = "weibull"` replaces the steady gust with a
+#'     within-hour `Weibull(weibull_shape, c)` wind distribution (mean
+#'     `wind_speed_10m`-preserving; `wind_gusts_10m`/`gust_factor` unused) and
+#'     a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
+#'     2004); `weibull_shape` (`DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0) is an
+#'     UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+#'     *time-averaged* saltation flux under intermittency scales closer to
+#'     u*^2 than the instantaneous u*^3 used in both forcing modes here — a
+#'     further refinement this closed form does not capture.
 #'   \item **MB95 alpha not SI-converted, and capped at 20% clay.** `alpha` is
 #'     kept in its native cm^-1 units (see @section Units) and is clamped at
 #'     the clay % where the Marticorena & Bergametti (1995) fit was validated
@@ -100,7 +108,21 @@
 #'   log law. See @section Idealisations for the fit's sensitivity to `z0s`.
 #' @param bulk_density Dry bulk density (Mg/m^3). Default 1.6.
 #' @param gust_factor Gust-duration factor converting the 3-second gust to the
-#'   fastest-mile driving wind. Default 0.84 (Durst).
+#'   fastest-mile driving wind. Default 0.84 (Durst). Unused when
+#'   `forcing = "weibull"`.
+#' @param forcing `"gust"` (default) or `"weibull"`. `"gust"` applies
+#'   `wind_gusts_10m`/`gust_factor` as a constant hourly-steady forcing (the
+#'   pre-v4 behaviour, bit-identical). `"weibull"` instead treats the within-hour
+#'   10 m wind as `Weibull(weibull_shape, c)` with `c` set so the mean equals
+#'   `wind_speed_10m`, and returns the closed-form hourly-expected flux;
+#'   `wind_gusts_10m` and `gust_factor` are unused on this path (still
+#'   validated for shape, just not used in the flux calculation). See
+#'   @section Idealisations.
+#' @param weibull_shape Weibull shape parameter `k` for `forcing = "weibull"`
+#'   (ignored otherwise). Default `DUST_CONSTANTS$WEIBULL_SHAPE` (2.0,
+#'   uncalibrated placeholder). Larger `k` concentrates the within-hour wind
+#'   more tightly around its mean (converging to the steady-forcing flux at
+#'   the mean as `k -> Inf`).
 #' @param threshold_multiplier Multiplier on the threshold friction velocity,
 #'   length 1 or matching the met vectors. Used by [dust_hazard()]
 #'   to inject the crust-persistence factor; defaults to 1 (no effect).
@@ -147,6 +169,14 @@
 #' Gillette, D.A. et al. (1982) J. Geophys. Res. 87:9003 — supply limitation
 #' and crust rupture by saltation impact.
 #' Nikuradse, J. (1933); Sherman, D.J. (1992) — smooth-bed `z0 = d/30`.
+#' Stout, J.E. & Zobeck, T.M. (1997) \doi{10.1097/00010694-199710000-00003} —
+#' within-hour wind-speed intermittency in aeolian saltation.
+#' Cakmur, R.V. et al. (2004) \doi{10.1029/2003JD004067} — sub-daily wind
+#' variability (Weibull-shaped) in dust-emission modelling.
+#' Martin, R.L. & Kok, J.F. (2017) \doi{10.1126/sciadv.1602569} — time-averaged
+#' saltation flux under intermittent wind scales closer to u*^2 than the
+#' instantaneous u*^3 used here (a further refinement not captured by
+#' `forcing = "weibull"`).
 #'
 #' @seealso [dust_hazard()] for the bounded operational index.
 #' @export
@@ -160,6 +190,8 @@ dust_flux <- function(
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
+  forcing              = c("gust", "weibull"),
+  weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
   threshold_multiplier = 1,
   temperature_2m       = NULL,
   surface_pressure     = NULL
@@ -237,6 +269,8 @@ dust_flux <- function(
   }
   checkmate::assert_number(bulk_density, lower = 1e-9)
   checkmate::assert_number(gust_factor, lower = 0, upper = 1)
+  forcing <- match.arg(forcing)
+  checkmate::assert_number(weibull_shape, lower = 1e-9)
   checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = FALSE)
   if (!length(threshold_multiplier) %in% c(1L, n)) {
     cli::cli_abort(
@@ -341,22 +375,45 @@ dust_flux <- function(
   # ---- Combined threshold: wetness/crust hand off via max, then drag partition #
   u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier) / feff
 
-  # ---- Effective friction velocity (gust-driven, fastest-mile proxy) ------- #
-  U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
-  # Log law over the caller's (or smooth-bed) z0; the gust is applied as an
-  # hourly-steady forcing (idealisation — see @section Idealisations: biases
-  # high near threshold; T8 TODO below covers within-hour intermittency).
-  u_star <- kappa * U_fm / log(z / z0)
+  # ---- Saltation forcing: hourly-steady gust, or within-hour Weibull ------- #
+  # a: the log-law slope (u* = a * U over the caller's, or smooth-bed, z0).
+  a <- kappa / log(z / z0)
 
-  # ---- Saltation flux (Owen 1964 / White 1979) ----------------------------- #
-  # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess factor
-  # is computed only where u* exceeds the threshold, so it is never negative.
-  # This is transport-limited (unlimited erodible reservoir assumed); see
-  # @section Idealisations for the supply-limited caveat. A fully sheltered
-  # surface (feff <= FEFF_MIN) is forced to zero regardless of u_star_t's
-  # (possibly sign-flipped, feff-divided) value.
-  excess  <- if (fully_sheltered) rep(0, n) else ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
-  Q       <- (rho_a / g) * u_star^3 * excess
+  if (forcing == "gust") {
+    # Gust-driven, fastest-mile proxy, applied as an hourly-steady forcing
+    # (idealisation — see @section Idealisations: biases high near threshold;
+    # "weibull" below is the within-hour alternative).
+    U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
+    u_star <- a * U_fm
+
+    # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess
+    # factor is computed only where u* exceeds the threshold, so it is never
+    # negative. Transport-limited (unlimited erodible reservoir assumed); see
+    # @section Idealisations for the supply-limited caveat.
+    excess <- ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
+    Q      <- (rho_a / g) * u_star^3 * excess
+  } else {
+    # Within-hour wind U ~ Weibull(k, c), mean-preserving
+    # (c = wind_speed_10m / gamma(1 + 1/k)); wind_gusts_10m and gust_factor are
+    # UNUSED on this path (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+    # within-hour intermittency treatment; see @section Idealisations and
+    # dev/dust-v4-plan.md WP3 for the closed-form derivation). The hourly
+    # expectation of Q = (rho_a/g)(aU)^3(1 - (u*t/(aU))^2) over the active
+    # (U > Ut = u_star_t/a) tail uses the truncated Weibull raw moments
+    # E[U^m; U > Ut] = c^m * Gamma(1 + m/k) * P(U > Ut) in the shifted gamma
+    # family (pgamma with shape = 1 + m/k is the standard closed form).
+    k  <- weibull_shape
+    cc <- wind_speed_10m / gamma(1 + 1 / k)
+    Ut <- u_star_t / a
+    e_trunc <- function(m) {
+      cc^m * gamma(1 + m / k) *
+        pgamma((Ut / cc)^k, shape = 1 + m / k, rate = 1, lower.tail = FALSE)
+    }
+    Q <- (rho_a / g) * (a^3 * e_trunc(3) - a * u_star_t^2 * e_trunc(1))
+  }
+  # A fully sheltered surface (feff <= FEFF_MIN) is forced to zero regardless
+  # of u_star_t's (possibly sign-flipped, feff-divided) value, in either mode.
+  if (fully_sheltered) Q <- rep(0, n)
 
   # ---- Vertical dust flux: MB95 sandblasting efficiency -------------------- #
   # alpha depends only on clay, so for a fixed site it scales the flux without
@@ -376,14 +433,6 @@ dust_flux <- function(
       "i" = "alpha capped at its {DUST_CONSTANTS$MB95_CLAY_CAP}% value; the MB95 fit is not calibrated for higher clay (real high-clay soils aggregate and emit less)."
     ), class = "meteoHazard_dust_clay_capped")
   }
-
-  # TODO(dust-v3): T8 — integrate a within-hour Weibull wind-speed
-  # distribution (Stout & Zobeck 1997; Cakmur et al. 2004) rather than the
-  # steady hourly-gust forcing above, exposed via a future
-  # `forcing = c("gust", "weibull")` argument (Comola et al. 2019 quantify the
-  # intermittency bias this would correct; Martin & Kok 2017 note flux
-  # scales ~u*^2 for the time-averaged saltation flux under intermittency,
-  # vs. the instantaneous u*^3 used here). Not implemented in this iteration.
 
   alpha * Q
 }
@@ -435,10 +484,11 @@ dust_flux <- function(
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
 #'   `crust = TRUE`; plus `temperature_2m` (deg C) and `surface_pressure` (hPa)
 #'   when `air_density = "met"`.
-#' @param tyler_sieve_no,clay_percent,d50,z0,bulk_density,gust_factor
+#' @param tyler_sieve_no,clay_percent,d50,z0,bulk_density,gust_factor,forcing,weibull_shape
 #'   Site and model parameters forwarded to [dust_flux()]. `d50` (m), if
 #'   supplied, supersedes `tyler_sieve_no` (with a warning if both are
-#'   non-`NULL`) -- see [dust_flux()].
+#'   non-`NULL`); `forcing = "weibull"` ignores `wind_gusts_10m`/`gust_factor`
+#'   -- see [dust_flux()].
 #' @param air_density `"reference"` (default) or `"met"`. `"reference"` uses
 #'   the fixed `DUST_CONSTANTS$RHO_A_REF` and ignores any `temperature_2m`/
 #'   `surface_pressure` columns in `met_data`, even if present (an explicit
@@ -476,6 +526,8 @@ dust_hazard <- function(
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
+  forcing              = c("gust", "weibull"),
+  weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
   air_density          = c("reference", "met"),
   crust                = FALSE,
   rain_crust_threshold = 2,
@@ -521,7 +573,8 @@ dust_hazard <- function(
 
   common <- list(
     tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent, d50 = d50,
-    z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
+    z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor,
+    forcing = forcing, weibull_shape = weibull_shape
   )
 
   met_args <- list(

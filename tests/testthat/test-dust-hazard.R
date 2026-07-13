@@ -346,6 +346,71 @@ describe("dust_flux() [v4 WP1: met-driven air density + d50 interface]", {
 })
 
 
+describe("dust_flux() [v4 WP3: within-hour Weibull intermittency]", {
+
+  it("weibull forcing matches the closed-form oracle (mean 12, k = 2, dry, smooth bed)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
+                   soil_moisture = 0.02, forcing = "weibull")
+    expect_equal(f, 1.062634e-07, tolerance = 1e-4)
+  })
+
+  it("weibull forcing emits where the steady mean is sub-threshold (intermittency tail)", {
+    skip_if_no_dust_v2()
+    steady <- dust_flux(20L, 10, 12, 12 / 0.84, 0.02)          # U_fm = 12 -> 0
+    weib   <- dust_flux(20L, 10, 12, 12 / 0.84, 0.02, forcing = "weibull")
+    expect_equal(steady, 0)
+    expect_gt(weib, 0)
+  })
+
+  it("a near-degenerate Weibull (k large) converges to the steady flux at the mean", {
+    skip_if_no_dust_v2()
+    # k = 200: c ~ mean (gamma(1 + 1/k) -> 1), so weibull mode should converge
+    # to the deterministic gust-mode flux with U_fm forced exactly equal to
+    # the mean (wind_speed_10m = wind_gusts_10m * gust_factor = mean).
+    mean_u <- 20
+    steady <- dust_flux(20L, 10, wind_speed_10m = mean_u,
+                        wind_gusts_10m = mean_u / 0.84, soil_moisture = 0.02,
+                        forcing = "gust")
+    weib_k200 <- dust_flux(20L, 10, wind_speed_10m = mean_u,
+                           wind_gusts_10m = mean_u / 0.84, soil_moisture = 0.02,
+                           forcing = "weibull", weibull_shape = 200)
+    expect_equal(weib_k200, steady, tolerance = 1e-3)
+  })
+
+  it("forcing = 'gust' (default) is bit-identical to the pre-WP3 gust path", {
+    skip_if_no_dust_v2()
+    explicit <- dust_flux(20L, 10, 0, 20, 0.02, forcing = "gust")
+    default  <- dust_flux(20L, 10, 0, 20, 0.02)
+    expect_equal(explicit, default)
+    expect_equal(default, 7.86633315e-08, tolerance = 1e-4)
+  })
+
+  it("weibull forcing vectorises per-hour (one mean per hour)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = c(5, 12, 20), wind_gusts_10m = rep(30, 3),
+                   soil_moisture = rep(0.02, 3), forcing = "weibull")
+    expect_length(f, 3)
+    expect_true(all(diff(f) >= 0))   # monotone in the mean
+  })
+
+  it("rejects a non-positive weibull_shape", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, forcing = "weibull", weibull_shape = 0)
+    )
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, forcing = "weibull", weibull_shape = -1)
+    )
+  })
+
+  it("rejects an invalid forcing value", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, forcing = "bogus"))
+  })
+})
+
+
 describe("dust_hazard() [v2]", {
 
   dust_met <- function(gust = c(12, 16, 20), wind = 0, sm = 0.02, precip = NULL, n = NULL) {
@@ -481,6 +546,26 @@ describe("dust_hazard() [v2]", {
     ref <- dust_flux(20L, 10, wind_speed_10m = rep(0, 4), wind_gusts_10m = c(8, 14, 18, 25),
                      soil_moisture = rep(0.02, 4))
     expect_equal(out, ref)
+  })
+
+  # ---- WP3: forcing = "weibull" -------------------------------------------- #
+
+  it("forwards forcing/weibull_shape to the engine", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20, wind = 12, sm = 0.02)
+    steady  <- dust_hazard(met, forcing = "gust")
+    weibull <- dust_hazard(met, forcing = "weibull")
+    ref <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
+                     soil_moisture = 0.02, forcing = "weibull")
+    expect_equal(weibull, ref, tolerance = DUST_TOL)
+    expect_false(isTRUE(all.equal(weibull, steady)))
+  })
+
+  it("default forcing = 'gust' is bit-identical to pre-WP3 dust_hazard() output", {
+    skip_if_no_dust_v2()
+    out <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)))
+    explicit <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)), forcing = "gust")
+    expect_equal(out, explicit)
   })
 })
 

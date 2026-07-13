@@ -12,6 +12,8 @@ dust_hazard(
   z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
+  forcing = c("gust", "weibull"),
+  weibull_shape = DUST_CONSTANTS$WEIBULL_SHAPE,
   air_density = c("reference", "met"),
   crust = FALSE,
   rain_crust_threshold = 2,
@@ -27,9 +29,10 @@ least \code{wind_speed_10m} (m/s), \code{wind_gusts_10m} (m/s), and
 \code{crust = TRUE}; plus \code{temperature_2m} (deg C) and \code{surface_pressure} (hPa)
 when \code{air_density = "met"}.}
 
-\item{tyler_sieve_no, clay_percent, d50, z0, bulk_density, gust_factor}{Site and model parameters forwarded to \code{\link[=dust_flux]{dust_flux()}}. \code{d50} (m), if
+\item{tyler_sieve_no, clay_percent, d50, z0, bulk_density, gust_factor, forcing, weibull_shape}{Site and model parameters forwarded to \code{\link[=dust_flux]{dust_flux()}}. \code{d50} (m), if
 supplied, supersedes \code{tyler_sieve_no} (with a warning if both are
-non-\code{NULL}) -- see \code{\link[=dust_flux]{dust_flux()}}.}
+non-\code{NULL}); \code{forcing = "weibull"} ignores \code{wind_gusts_10m}/\code{gust_factor}
+-- see \code{\link[=dust_flux]{dust_flux()}}.}
 
 \item{air_density}{\code{"reference"} (default) or \code{"met"}. \code{"reference"} uses
 the fixed \code{DUST_CONSTANTS$RHO_A_REF} and ignores any \code{temperature_2m}/

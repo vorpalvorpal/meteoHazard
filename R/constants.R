@@ -183,9 +183,9 @@ ODOUR_CONSTANTS <- list(
 #'     3.0e-4 (their tabulated range is 1.65e-4-5e-4; 3e-4 is their
 #'     recommended best estimate).}
 #'   \item{RHO_P}{Particle density (kg/m^3), 2650 (quartz).}
-#'   \item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level,
-#'     15 degC standard atmosphere; not yet temperature/pressure adjusted,
-#'     see T10 TODO).}
+#'   \item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level, 15 degC
+#'     standard atmosphere). Used when `dust_flux()`'s `temperature_2m`/
+#'     `surface_pressure` are not supplied (the default).}
 #'   \item{G}{Gravitational acceleration, 9.81 m/s^2.}
 #'   \item{KAPPA}{von Karman constant, 0.40.}
 #'   \item{Z_REF}{Reference height (m) for the 10 m wind used in the
@@ -222,6 +222,10 @@ ODOUR_CONSTANTS <- list(
 #'     ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
 #'     placeholder: the MB95 fit legitimately goes negative at large z0/z0s
 #'     ratios, which is a fit artefact, not physics.}
+#'   \item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
+#'     parameter `k` for `dust_flux(forcing = "weibull")`, 2.0. UNCALIBRATED
+#'     placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+#'     within-hour intermittency treatment but not this specific `k`).}
 #' }
 #' @keywords internal
 DUST_CONSTANTS <- list(
@@ -245,7 +249,8 @@ DUST_CONSTANTS <- list(
   MB95_DP_COEF          = 0.7,      # MB95 Eq. 19 drag-partition fit coefficient (uncalibrated screening use)
   MB95_DP_EXP           = 0.8,      # MB95 Eq. 19 drag-partition fit exponent (uncalibrated screening use)
   MB95_DP_X_CM          = 10,       # cm, MB95 Eq. 19 internal-boundary-layer height
-  FEFF_MIN              = 0.01      # efficient-fraction floor -> fully sheltered below this (uncalibrated)
+  FEFF_MIN              = 0.01,     # efficient-fraction floor -> fully sheltered below this (uncalibrated)
+  WEIBULL_SHAPE         = 2.0       # within-hour Weibull shape k (uncalibrated placeholder)
 )
 
 #' Constants for the litter hazard model
