@@ -615,7 +615,8 @@ dust_hazard <- function(
     } else {
       DUST_CONSTANTS$RHO_A_REF
     }
-    w_gate       <- met_data$soil_moisture_0_to_1cm / bulk_density * 100
+    w_gate       <- met_data$soil_moisture_0_to_1cm /
+      .drop_to(bulk_density, "Mg/m^3", arg = "bulk_density") * 100
     w_prime_gate <- DUST_CONSTANTS$FECAN_WP_QUAD * clay_percent^2 + DUST_CONSTANTS$FECAN_WP_LIN * clay_percent
     f_moist_gate <- ifelse(
       w_gate > w_prime_gate,
@@ -623,8 +624,11 @@ dust_hazard <- function(
       1
     )
     u_star_t_moist_gate <- .dust_u_star_t_dry(d_gate, rho_a_gate) * f_moist_gate
-    u_star_gate <- .dust_u_star(met_data$wind_speed_10m, met_data$wind_gusts_10m,
-                                gust_factor, z0_gate)
+    u_star_gate <- .dust_u_star(
+      .drop_to(met_data$wind_speed_10m, "m/s", arg = "wind_speed_10m"),
+      .drop_to(met_data$wind_gusts_10m, "m/s", arg = "wind_gusts_10m"),
+      gust_factor, z0_gate
+    )
 
     .dust_crust_factor_saltation(
       precipitation  = .drop_to(met_data$precipitation, "mm", arg = "precipitation"),

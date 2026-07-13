@@ -707,6 +707,26 @@ describe("dust_hazard() [v4 WP4: crust_decay = 'saltation']", {
     met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = 20, soil_moisture_0_to_1cm = 0.02)
     expect_error(dust_hazard(met, crust_decay = "bogus"))
   })
+
+  it("saltation gate normalises units-tagged wind columns to m/s (not just dust_flux()'s own path)", {
+    skip_if_no_dust_v2()
+    n <- 5
+    bare <- data.frame(
+      wind_speed_10m         = rep(0, n),
+      wind_gusts_10m         = c(0, rep(60, n - 1)),
+      soil_moisture_0_to_1cm = rep(0.02, n),
+      precipitation          = c(5, rep(0, n - 1))
+    )
+    tagged <- bare
+    tagged$wind_speed_10m <- units::set_units(bare$wind_speed_10m, "m/s")
+    tagged$wind_gusts_10m <- units::set_units(bare$wind_gusts_10m * 3.6, "km/h")
+
+    salt_bare   <- dust_hazard(bare, crust = TRUE, crust_decay_hours = 24,
+                               crust_decay = "saltation")
+    salt_tagged <- dust_hazard(tagged, crust = TRUE, crust_decay_hours = 24,
+                               crust_decay = "saltation")
+    expect_equal(salt_tagged, salt_bare, tolerance = DUST_TOL)
+  })
 })
 
 
