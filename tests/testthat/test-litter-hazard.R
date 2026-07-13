@@ -1,23 +1,22 @@
 # Behaviour specification for the v3.1 Litter Hazard Index.
 #
-# Encodes scratchpad/tdd/PLAN.md (Litter pipeline v3.1). v3.1 replaces the
-# friction-velocity parameterisation (kappa, z0, ustar_t0, ustar_ref) with an
-# identifiable gust-only parameterisation (gust_threshold, gust_reference),
-# algebraically identical at the pinned defaults (R-B2); adds a `material`-
-# aware graded saturation treatment (R-B3a / ADJ-2 / ADJ-3); adds an optional
-# precomputed `wetness` input that supersedes soil moisture (R-B3b / ADJ-4);
-# smooths the hard rain gate into a ramp (R-B4 / ADJ-5); and drops the
-# `<=100` claim in favour of an unbounded relative index (R-A3).
+# v3.1 replaces the friction-velocity parameterisation (kappa, z0, ustar_t0,
+# ustar_ref) with an identifiable gust-only parameterisation (gust_threshold,
+# gust_reference), algebraically identical at the pinned defaults; adds a
+# `material`-aware graded saturation treatment; adds an optional precomputed
+# `wetness` input that supersedes soil moisture; smooths the hard rain gate
+# into a ramp; and drops the `<=100` claim in favour of an unbounded relative
+# index.
 #
 # Detection: the v3.1 `litter_hazard_vec()` introduces the `gust_threshold`
 # formal (absent in v2/v3.0, which used `z0`); presence of that formal is the
-# "v3.1 is implemented" signal (R-B2).
+# "v3.1 is implemented" signal.
 #
 # Wind inputs are in m/s (Open-Meteo fetched with &wind_speed_unit=ms),
 # matching the rest of the package.
 #
-# Pinned gust-space constants (spec S0.2), derived so the reparameterisation
-# is algebraically identical to the old friction-velocity form at defaults:
+# Pinned gust-space constants, derived so the reparameterisation is
+# algebraically identical to the old friction-velocity form at defaults:
 #   gust_threshold = 0.30 / (0.40 / ln(200)) = 3.9737355 m/s
 #   gust_reference  = 1.05 / (0.40 / ln(200)) = 13.9080743 m/s
 
@@ -52,10 +51,10 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_length(out, 3)
     })
 
-    it("R-A3: is always non-negative and finite (the <=100 claim is dropped)", {
+    it("is always non-negative and finite (the <=100 claim is dropped)", {
       skip_if_no_litter_v3()
       # Sweep a wide grid at default parameters; only the lower bound and
-      # finiteness are contractual now (issue #11 / R-A3).
+      # finiteness are contractual now (issue #11).
       g <- expand.grid(
         gust = c(0, 4, 11, 22, 42),
         wind = c(0, 6, 17, 33),
@@ -66,10 +65,9 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_true(all(out >= 0 & is.finite(out)))
     })
 
-    it("R-A3 / R-A2: an inflated entrainment_max pushes the output past the historical 100 cap", {
+    it("an inflated entrainment_max pushes the output past the historical 100 cap", {
       skip_if_no_litter_v3()
       # entrainment_max=60 -> E0=60 (saturated), T(15)=2 -> 120 (> 100 allowed).
-      # This is also the litter_hazard_vec CRIT enumerated under R-A2.
       out <- litter_hazard_vec(16, 15, 0, 0.02, entrainment_max = 60)
       expect_equal(out, 120, tolerance = LRI_TOL)
       expect_gt(out, 100)
@@ -103,7 +101,7 @@ describe("litter_hazard_vec() [v3.1]", {
       ))
     })
 
-    it("R-B2: exposes gust_threshold/gust_reference and no longer exposes z0", {
+    it("exposes gust_threshold/gust_reference and no longer exposes z0", {
       skip_if_no_litter_v3()
       fmls <- names(formals(litter_hazard_vec))
       expect_true("gust_threshold" %in% fmls)
@@ -115,7 +113,7 @@ describe("litter_hazard_vec() [v3.1]", {
     })
   })
 
-  describe("ADJ-4: soil moisture / wetness contract seam", {
+  describe("soil moisture / wetness contract seam", {
 
     it("soil_moisture_0_to_1cm defaults to NULL (optional when wetness is supplied)", {
       skip_if_no_litter_v3()
@@ -171,7 +169,7 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_equal(out, c(0, 0, 0))
     })
 
-    it("R-B2: dry threshold gust 3.9 gives 0, gust 4.1 gives > 0", {
+    it("dry threshold gust 3.9 gives 0, gust 4.1 gives > 0", {
       skip_if_no_litter_v3()
       out_below <- litter_hazard_vec(3.9, 12, 0, 0.02)
       out_above <- litter_hazard_vec(4.1, 12, 0, 0.02)
@@ -190,7 +188,7 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_true(all(diff(out) >= 0))
     })
 
-    it("R-B2: saturates above the reference gust (14/18/35 all equal, dry, W=12)", {
+    it("saturates above the reference gust (14/18/35 all equal, dry, W=12)", {
       skip_if_no_litter_v3()
       out <- litter_hazard_vec(
         wind_gusts_10m = c(14, 18, 35), wind_speed_10m = rep(12, 3),
@@ -210,7 +208,7 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_true(all(diff(incr) > 0))
     })
 
-    it("R-B2: errors (classed) when gust_reference does not exceed gust_threshold", {
+    it("errors (classed) when gust_reference does not exceed gust_threshold", {
       skip_if_no_litter_v3()
       expect_error(
         litter_hazard_vec(12, 8, 0, 0.1, gust_threshold = 5, gust_reference = 5),
@@ -253,9 +251,9 @@ describe("litter_hazard_vec() [v3.1]", {
     })
   })
 
-  describe("R-B3a: material-aware graded saturation (ADJ-2 / ADJ-3)", {
+  describe("material-aware graded saturation", {
 
-    it("ADJ-3: default material is film -- an unspecified material gives the graded residual, not a hard veto", {
+    it("default material is film -- an unspecified material gives the graded residual, not a hard veto", {
       skip_if_no_litter_v3()
       # entrainment_max*(1-saturation_penalty)*T(15) = 50*0.3*2 = 30.
       out <- litter_hazard_vec(35, 15, 0, 0.30)
@@ -283,7 +281,7 @@ describe("litter_hazard_vec() [v3.1]", {
       expect_equal(out, c(0, 0))
     })
 
-    it("ADJ-2: the graded penalty does not touch the unsaturated ramp, for either material", {
+    it("the graded penalty does not touch the unsaturated ramp, for either material", {
       skip_if_no_litter_v3()
       # G=10, W=7, P=0, SM=0.10 (damp, not saturated) -> 1.212686 regardless
       # of material; the film/paper split only applies at s == 1.
@@ -299,7 +297,7 @@ describe("litter_hazard_vec() [v3.1]", {
     })
   })
 
-  describe("R-B4: smooth rain ramp (replaces the hard gate; ADJ-5)", {
+  describe("smooth rain ramp (replaces the hard gate)", {
 
     it("P <= rain_onset (0.2 mm) is fully ungated", {
       skip_if_no_litter_v3()
@@ -403,7 +401,7 @@ describe("litter_hazard_vec() [v3.1]", {
     })
   })
 
-  describe("worked examples (spec S5.2, preserved unchanged under the R-B2 reparameterisation)", {
+  describe("worked examples (preserved unchanged under the gust-space reparameterisation)", {
 
     it("Example 1 -- strong gust, strong wind, dry -> 86.8421 (EXTREME)", {
       skip_if_no_litter_v3()
@@ -516,7 +514,7 @@ describe("litter_hazard() [v3.1, basic mode: use_wetness_state = FALSE]", {
 })
 
 
-describe("litter_hazard() [R-B3b integration: use_wetness_state = TRUE]", {
+describe("litter_hazard() [wetness-state integration: use_wetness_state = TRUE]", {
 
   # precip = 0.5 (>= default wetness_set_precip) forces wetness = 1 on this
   # single hour regardless of T/RH/wind/SW; rain_onset/rain_threshold are
@@ -575,10 +573,10 @@ describe("litter_hazard() [R-B3b integration: use_wetness_state = TRUE]", {
 })
 
 
-describe("citation hygiene (R-A1)", {
+describe("citation hygiene", {
 
-  # Grep-style check on the built .Rd source (acceptable per plan section 1,
-  # R-A1). Reads relative to the working directory testthat sets during
+  # Grep-style check on the built .Rd source. Reads relative to the working
+  # directory testthat sets during
   # devtools::test()/test_check() (tests/testthat/), i.e. two levels up to
   # the package root's man/ directory.
   .litter_hazard_rd_text <- function() {

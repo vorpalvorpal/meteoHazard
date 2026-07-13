@@ -1,16 +1,15 @@
 # Behaviour specification for the litter exposure layer (litter_exposure()).
 #
-# Encodes scratchpad/tdd/PLAN.md (Litter pipeline v3.1). Basic-mode behaviour
-# (specs/Litter_exposure.md, issue #18/C4) is preserved as regression
-# fixtures (plan section 2); on top of that this file adds:
-#   R-A2 - hazard contract seam (no upper bound; lower=0 only)
-#   R-A5 - enclosure (a barrier that fully surrounds the source)
-#   R-A6 - zero-barrier warning
-#   R-C1 - refined distance-reach mode (mean_wind + reach_per_ms)
-#   R-C2 - destination x sensitivity split (leaves_site / sensitive_receptor)
-#   R-C3 - multiple sources, worst-case aggregation
+# Basic-mode behaviour (issue #18) is preserved as regression fixtures; on
+# top of that this file adds tests for:
+#   - hazard contract seam (no upper bound; lower=0 only)
+#   - enclosure (a barrier that fully surrounds the source)
+#   - zero-barrier warning
+#   - refined distance-reach mode (mean_wind + reach_per_ms)
+#   - destination x sensitivity split (leaves_site / sensitive_receptor)
+#   - multiple sources, worst-case aggregation
 #
-# Return schema (spec S0.3): exposure, zone, directional_factor, leaves_site,
+# Return schema: exposure, zone, directional_factor, leaves_site,
 # sensitive_receptor.
 
 # Fixture: create an mh_site equivalent to the old demo_site() compass-sector
@@ -38,7 +37,7 @@ LITTER_EXPOSURE_COLS <- c(
   "exposure", "zone", "directional_factor", "leaves_site", "sensitive_receptor"
 )
 
-describe("litter_exposure() on the mh_site model (basic-mode regression, plan section 2)", {
+describe("litter_exposure() on the mh_site model (basic-mode regression)", {
 
   it("returns a data frame with one row per hour, the five documented columns, and correct exposure + zone", {
     site    <- .make_demo_mh_site()
@@ -272,7 +271,7 @@ describe("litter_exposure() on the mh_site model (basic-mode regression, plan se
 })
 
 
-describe("R-A2: hazard contract seam (litter_exposure accepts any non-negative hazard)", {
+describe("hazard contract seam (litter_exposure accepts any non-negative hazard)", {
 
   it("accepts hazard = 120 without error, scaled by the hit sector's permeability", {
     site <- .make_demo_mh_site()
@@ -285,17 +284,18 @@ describe("R-A2: hazard contract seam (litter_exposure accepts any non-negative h
     expect_no_error(litter_exposure(101, 270, site))
   })
 
-  it("errors (classed) on a negative hazard", {
+  it("errors on a negative hazard", {
     site <- .make_demo_mh_site()
-    expect_error(
-      litter_exposure(-1, 270, site),
-      class = "meteoHazard_input_error"
-    )
+    # Rejected by the checkmate lower-bound assertion, the package convention for
+    # numeric-input validation (cf. litter_hazard_vec()'s negative-input tests);
+    # the classed meteoHazard_input_error is reserved for structural/semantic
+    # errors (bad site, mis-ordered thresholds).
+    expect_error(litter_exposure(-1, 270, site))
   })
 })
 
 
-describe("R-A5: enclosure (a barrier polygon that fully surrounds the source)", {
+describe("enclosure (a barrier polygon that fully surrounds the source)", {
 
   it("is hit from every one of the 8 principal wind directions; none fall through to the default", {
     cx <- 335000; cy <- 6250000
@@ -337,7 +337,7 @@ describe("R-A5: enclosure (a barrier polygon that fully surrounds the source)", 
 })
 
 
-describe("R-A6: zero-barrier warning", {
+describe("zero-barrier warning", {
 
   it("warns meteoHazard_litter_no_barriers when the site has zero litter barriers, and still returns a valid frame", {
     feats <- sf::st_sf(
@@ -362,7 +362,7 @@ describe("R-A6: zero-barrier warning", {
 })
 
 
-describe("R-C1: refined distance-reach mode (mean_wind + reach_per_ms)", {
+describe("refined distance-reach mode (mean_wind + reach_per_ms)", {
 
   .refined_site <- function() {
     ctr <- sf::st_sf(
@@ -418,7 +418,7 @@ describe("R-C1: refined distance-reach mode (mean_wind + reach_per_ms)", {
 })
 
 
-describe("R-C2: destination x sensitivity split (leaves_site vs sensitive_receptor)", {
+describe("destination x sensitivity split (leaves_site vs sensitive_receptor)", {
 
   .single_sector_site <- function(perm, sensitive) {
     ctr <- sf::st_sf(
@@ -467,7 +467,7 @@ describe("R-C2: destination x sensitivity split (leaves_site vs sensitive_recept
 })
 
 
-describe("R-C3: multiple sources aggregate worst-case", {
+describe("multiple sources aggregate worst-case", {
 
   it("directional_factor = max over sources, leaves_site/sensitive_receptor = any (source A hits open, source B hits closed)", {
     base_x <- 335000; base_y <- 6250000

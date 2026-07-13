@@ -49,11 +49,11 @@ threshold and supplies the saturation mark.}
 litter-surface wetness in \verb{[0, 1]} from \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} (a faster,
 litter-specific alternative to the gridded soil-moisture proxy — see
 \code{use_wetness_state} in \code{\link[=litter_hazard]{litter_hazard()}}). When supplied it \strong{supersedes}
-\code{soil_moisture_0_to_1cm} (ADJ-6); supplying both warns
+\code{soil_moisture_0_to_1cm}; supplying both warns
 (\code{meteoHazard_litter_wetness_supersedes}).}
 
 \item{material}{Character. \code{"film"} (default) or \code{"paper"}. Governs how a
-saturated surface is treated — see @section Model, R-B3a.}
+saturated surface is treated — see @section Model.}
 
 \item{gust_threshold}{Dry threshold gust (m/s) below which entrainment is
 zero. Default \code{3.9737355}. Replaces the v3.0 \code{kappa}/\code{z0}/\code{ustar_t0}
@@ -181,7 +181,7 @@ rises with normalised surface wetness, \eqn{G_t = G_{t0}(1 + \gamma
     s^{\beta})}, where \code{s} is \code{wetness} directly when supplied, else the
 Fecan-style clamp of \code{soil_moisture_0_to_1cm} (see
 \code{soil_dry}/\code{soil_wet}).}
-\item{Material-aware graded saturation (R-B3a)}{At or above the
+\item{Material-aware graded saturation}{At or above the
 saturation mark (\code{s == 1}) the surface is treated as fully wet. Loose
 film/thin plastic (\code{material = "film"}, the default — Mellink et al.
 2024 identify film/bags as the dominant landfill-escape material) can
@@ -200,7 +200,7 @@ over 2.3--3.2 m/s), supporting a monotone transport-vs-mean-wind ramp;
 the onset/reference wind speeds are uncalibrated engineering placeholders
 (carried from v2), not fitted constants, and the reach/geometry mapping
 of this potential is deferred to \code{\link[=litter_exposure]{litter_exposure()}}.}
-\item{Rainfall gate \code{R}}{A smooth ramp (R-B4), not a hard cutoff: \code{R = 1}
+\item{Rainfall gate \code{R}}{A smooth ramp, not a hard cutoff: \code{R = 1}
 at or below \code{rain_onset}, \code{R = 0} at or above \code{rain_threshold}, linear
 between. Windblown/aeolian transport only — this package does not model
 rain-driven runoff transport of litter (Mellink et al. 2024 show runoff
@@ -209,7 +209,7 @@ is a materially different, non-aeolian mobilisation pathway).}
 Any single suppressor (rain, saturated + paper, sub-threshold gust) drives
 the index to zero. The maximum attainable value is
 \code{entrainment_max * transport_max} (= 100 with the defaults 50 and 2); this
-is not a fixed cap (R-A3) — an inflated \code{entrainment_max} legitimately
+is not a fixed cap — an inflated \code{entrainment_max} legitimately
 exceeds it.
 }
 

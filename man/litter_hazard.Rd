@@ -18,12 +18,12 @@ required above).}
 \item{use_wetness_state}{Logical. Default \code{FALSE} (uses
 \code{soil_moisture_0_to_1cm} directly, as in earlier package versions). When
 \code{TRUE}, the litter-specific wetness state (\code{\link[=litter_wetness_vec]{litter_wetness_vec()}}, run
-with its own defaults -- see ADJ-8) is computed from \code{met_data} first and
+with its own defaults) is computed from \code{met_data} first and
 passed through as \code{wetness}, in place of \code{soil_moisture_0_to_1cm}.}
 
 \item{...}{Additional calibration parameters forwarded to
 \code{\link[=litter_hazard_vec]{litter_hazard_vec()}} ONLY (e.g. \code{rain_threshold}, \code{soil_wet},
-\code{gust_threshold}, \code{material}). ADJ-8: \code{...} is not forwarded to the
+\code{gust_threshold}, \code{material}). \code{...} is not forwarded to the
 internal \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} call in the \code{use_wetness_state = TRUE}
 path -- that call always uses its own defaults, so a hazard-side
 calibration override (e.g. a custom \code{rain_threshold} for the hazard's

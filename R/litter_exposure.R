@@ -7,9 +7,9 @@
 #' litter moved within the working face is minor, across the site is bad, and
 #' off site is very bad.
 #'
-#' Basic mode is the coarse arc-containment band of `specs/Litter_exposure.md`.
+#' Basic mode is the coarse arc-containment band.
 #' Supplying `mean_wind` and `reach_per_ms` activates the **refined
-#' distance-reach mode** (`specs/Litter_exposure.md` S5): the off-site decision
+#' distance-reach mode**: the off-site decision
 #' then compares a characteristic downwind reach to the boundary distance rather
 #' than thresholding the hazard magnitude.
 #'
@@ -107,7 +107,7 @@ litter_exposure <- function(
   }
 
   # ---- Validate hazard / direction vectors --------------------------------- #
-  # R-A2 contract seam: the hazard is a RELATIVE index (issue #11 removed the
+  # Contract seam: the hazard is a RELATIVE index (issue #11 removed the
   # fixed 0-100 scale), so only non-negativity is asserted here. Imposing an
   # upper bound of 100 would make the exposure layer reject legitimate hazard
   # values produced with a non-default entrainment_max.
@@ -137,7 +137,7 @@ litter_exposure <- function(
   }
   checkmate::assert_number(default_permeability, lower = 0, upper = 1)
 
-  # ---- Refined distance-reach mode (specs/Litter_exposure.md S5) ------------ #
+  # ---- Refined distance-reach mode ------------------------------------------ #
   # Active only when BOTH mean_wind and reach_per_ms are supplied. It replaces
   # the hazard-magnitude off-site test with a geometric reach test: a
   # characteristic downwind reach L = reach_per_ms * mean_wind is compared to the
@@ -220,10 +220,10 @@ litter_exposure <- function(
 
       # Downwind distance to this barrier (refined mode only). Use the barrier
       # feature's distance_m attribute (site_from_sectors sets it to the ring
-      # radius); absent/NA -> Inf, i.e. never reached. (ADJ-1: st_distance() to a
+      # radius); absent/NA -> Inf, i.e. never reached. (st_distance() to a
       # wedge polygon is 0 because the polygon includes the source vertex, so the
       # configured distance_m attribute is the reliable source of the reach
-      # distance, per specs/Litter_exposure.md S3.1.)
+      # distance.)
       dist_k <- if ("distance_m" %in% names(barrier_k) &&
                     !is.na(barrier_k$distance_m[1])) {
         barrier_k$distance_m[1]
@@ -290,8 +290,7 @@ LITTER_COMPASS_DEGREES <- c(
 
 # Does bearing theta (degrees) fall within the arc [alpha, beta] (clockwise),
 # expanded by tol on each edge? Branches on the *expanded* edges so the
-# tolerance band is handled correctly even when it crosses north (the corrected
-# rule from specs/Litter.md S3.2).
+# tolerance band is handled correctly even when it crosses north.
 .litter_arc_contains <- function(theta, alpha, beta, tol) {
   # Full-circle sentinel: .barrier_bearing_range() returns (alpha = 0,
   # beta = 360) for a barrier that ENCLOSES the source, meaning every bearing is

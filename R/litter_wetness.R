@@ -111,7 +111,7 @@ litter_wetness_vec <- function(
   shortwave_radiation <- .drop_to(shortwave_radiation, "W/m^2", arg = "shortwave_radiation")
 
   # ---- Validate meteorological inputs (complete, in-range, aligned) -------- #
-  # ADJ-9: precipitation/wind/shortwave are physically >= 0; RH is a
+  # precipitation/wind/shortwave are physically >= 0; RH is a
   # percentage in [0, 100]; temperature_2m is intentionally unrestricted
   # (sub-zero air temperatures are physically valid and litter can still be
   # present on a frozen/damp surface).

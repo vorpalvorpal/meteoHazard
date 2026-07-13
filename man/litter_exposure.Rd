@@ -79,9 +79,9 @@ litter moved within the working face is minor, across the site is bad, and
 off site is very bad.
 }
 \details{
-Basic mode is the coarse arc-containment band of \code{specs/Litter_exposure.md}.
+Basic mode is the coarse arc-containment band.
 Supplying \code{mean_wind} and \code{reach_per_ms} activates the \strong{refined
-distance-reach mode} (\code{specs/Litter_exposure.md} S5): the off-site decision
+distance-reach mode}: the off-site decision
 then compares a characteristic downwind reach to the boundary distance rather
 than thresholding the hazard magnitude.
 }

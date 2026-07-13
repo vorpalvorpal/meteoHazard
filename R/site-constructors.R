@@ -4,7 +4,7 @@
 # tabular descriptions and construct the corresponding sf geometry + roles,
 # then delegate to mh_site() for all validation.
 #
-# C4 Stage 1 (issue #18).
+# See issue #18.
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
@@ -82,8 +82,8 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
   checkmate::assert_logical(sectors$sensitive, any.missing = FALSE,
                             .var.name = "sectors$sensitive")
 
-  # ---- Optional distance_m (spec S3.4): reach distance for the refined ----
-  # distance-reach exposure mode (R-C1, owned by litter_exposure()). Absent ->
+  # ---- Optional distance_m: reach distance for the refined ----------------
+  # distance-reach exposure mode (owned by litter_exposure()). Absent ->
   # every row defaults to ring_radius below (once ring_radius is validated).
   has_distance_m <- "distance_m" %in% names(sectors)
   if (has_distance_m) {
@@ -119,7 +119,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
   # ---- Build geometries ----------------------------------------------------
   n_sectors <- nrow(sectors)
 
-  # distance_m (spec S3.4): defaults to ring_radius per row when the sectors
+  # distance_m: defaults to ring_radius per row when the sectors
   # data frame does not supply its own distance_m column.
   distance_vals <- if (has_distance_m) sectors$distance_m else rep(ring_radius, n_sectors)
 
@@ -144,7 +144,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     bearing_end_vals[k]   <- beta
 
     # Generate arc angles (clockwise from north).
-    # When alpha == beta: full-circle sector (R-A4). arc_start == arc_end
+    # When alpha == beta: full-circle sector. arc_start == arc_end
     # names a ring enclosing the source, not a zero-area sliver, so sweep a
     # whole turn starting from alpha rather than collapsing to a point.
     # When alpha < beta: simple range. When alpha > beta: wraps through north.
@@ -169,7 +169,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
 
     # Polygon geometry differs for full-circle vs wedge sectors.
     if (alpha == beta) {
-      # Full-circle (R-A4): close the swept ring into a DISK with NO centroid
+      # Full-circle: close the swept ring into a DISK with NO centroid
       # vertex, so the litter source sits in the polygon INTERIOR. This is what
       # lets the enclosure guard in .barrier_bearing_range() (sf::st_within())
       # recognise the barrier as surrounding the source. A centroid apex would
@@ -192,11 +192,11 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
 
   barrier_sfc <- sf::st_sfc(barrier_geoms, crs = as.integer(epsg))
 
-  # ---- Sector-coverage-gap warning (R-A7) ----------------------------------
+  # ---- Sector-coverage-gap warning -----------------------------------------
   # Sample every whole degree of bearing and mark it covered if any RAW
   # (pre-direction_tol, i.e. tol=0) sector arc contains it, using the same
   # wrap-aware containment rule as litter_exposure()'s .litter_arc_contains()
-  # (R/litter_exposure.R). A full-circle sector (alpha == beta, R-A4) covers
+  # (R/litter_exposure.R). A full-circle sector (alpha == beta) covers
   # every bearing by construction, since .litter_arc_contains(theta,a,a,0) is
   # only TRUE at theta==a otherwise. If any sampled bearing is uncovered, the
   # supplied sectors leave a real gap where litter_exposure() would silently
@@ -230,7 +230,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
 
   # ---- Assemble sf feature collection -------------------------------------
   # Source row (distance_m: NA -- distance_m is a barrier-only reach
-  # attribute; see spec S3.4)
+  # attribute)
   source_sf <- sf::st_sf(
     id            = "source",
     bearing_start = NA_real_,

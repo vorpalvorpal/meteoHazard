@@ -60,7 +60,7 @@
 #'     s^{\beta})}, where `s` is `wetness` directly when supplied, else the
 #'     Fecan-style clamp of `soil_moisture_0_to_1cm` (see
 #'     `soil_dry`/`soil_wet`).}
-#'   \item{Material-aware graded saturation (R-B3a)}{At or above the
+#'   \item{Material-aware graded saturation}{At or above the
 #'     saturation mark (`s == 1`) the surface is treated as fully wet. Loose
 #'     film/thin plastic (`material = "film"`, the default — Mellink et al.
 #'     2024 identify film/bags as the dominant landfill-escape material) can
@@ -79,7 +79,7 @@
 #'     the onset/reference wind speeds are uncalibrated engineering placeholders
 #'     (carried from v2), not fitted constants, and the reach/geometry mapping
 #'     of this potential is deferred to [litter_exposure()].}
-#'   \item{Rainfall gate `R`}{A smooth ramp (R-B4), not a hard cutoff: `R = 1`
+#'   \item{Rainfall gate `R`}{A smooth ramp, not a hard cutoff: `R = 1`
 #'     at or below `rain_onset`, `R = 0` at or above `rain_threshold`, linear
 #'     between. Windblown/aeolian transport only — this package does not model
 #'     rain-driven runoff transport of litter (Mellink et al. 2024 show runoff
@@ -88,7 +88,7 @@
 #' Any single suppressor (rain, saturated + paper, sub-threshold gust) drives
 #' the index to zero. The maximum attainable value is
 #' `entrainment_max * transport_max` (= 100 with the defaults 50 and 2); this
-#' is not a fixed cap (R-A3) — an inflated `entrainment_max` legitimately
+#' is not a fixed cap — an inflated `entrainment_max` legitimately
 #' exceeds it.
 #'
 #' @param wind_gusts_10m Numeric vector. Peak wind gust at 10 m (m/s),
@@ -107,10 +107,10 @@
 #'   litter-surface wetness in `[0, 1]` from [litter_wetness_vec()] (a faster,
 #'   litter-specific alternative to the gridded soil-moisture proxy — see
 #'   `use_wetness_state` in [litter_hazard()]). When supplied it **supersedes**
-#'   `soil_moisture_0_to_1cm` (ADJ-6); supplying both warns
+#'   `soil_moisture_0_to_1cm`; supplying both warns
 #'   (`meteoHazard_litter_wetness_supersedes`).
 #' @param material Character. `"film"` (default) or `"paper"`. Governs how a
-#'   saturated surface is treated — see @section Model, R-B3a.
+#'   saturated surface is treated — see @section Model.
 #' @param gust_threshold Dry threshold gust (m/s) below which entrainment is
 #'   zero. Default `3.9737355`. Replaces the v3.0 `kappa`/`z0`/`ustar_t0`
 #'   friction-velocity parameterisation: `u*` is a linear rescaling of the
@@ -220,9 +220,9 @@ litter_hazard_vec <- function(
 
   material <- match.arg(material)
 
-  # ---- ADJ-4/ADJ-6: soil_moisture_0_to_1cm / wetness contract seam --------- #
+  # ---- soil_moisture_0_to_1cm / wetness contract seam ----------------------- #
   # Exactly one of the two surface-wetness inputs is required. wetness is the
-  # faster litter-specific state (R-B3b); soil_moisture_0_to_1cm is the
+  # faster litter-specific state; soil_moisture_0_to_1cm is the
   # gridded (multi-day-memory) proxy used historically. If both are supplied,
   # wetness wins -- it is the more physically appropriate driver for a litter
   # surface -- and the caller is warned so a stray leftover argument doesn't
@@ -239,7 +239,7 @@ litter_hazard_vec <- function(
   if (have_sm && have_wet) {
     cli::cli_warn(
       c("Both {.arg soil_moisture_0_to_1cm} and {.arg wetness} were supplied.",
-        "i" = "{.arg wetness} supersedes {.arg soil_moisture_0_to_1cm} for this call (ADJ-6)."),
+        "i" = "{.arg wetness} supersedes {.arg soil_moisture_0_to_1cm} for this call."),
       class = "meteoHazard_litter_wetness_supersedes"
     )
     have_sm <- FALSE
@@ -294,7 +294,7 @@ litter_hazard_vec <- function(
   }
 
   # ---- Normalised surface wetness `s` and the saturation mark -------------- #
-  # R-B2/entrainment computed directly in gust units (see @param gust_threshold):
+  # Entrainment is computed directly in gust units (see @param gust_threshold):
   # u* is a linear rescaling of the gust under the neutral log wind profile
   # (u* = kappa*G/ln(z/z0)), so re-deriving u*t/u*ref from kappa/z0/ustar_t0/
   # ustar_ref and then dividing back out is equivalent to working in gust
@@ -303,11 +303,10 @@ litter_hazard_vec <- function(
   # w_norm = wetness directly when supplied (already normalised [0,1]);
   # otherwise the Fecan-style clamp of soil_moisture_0_to_1cm onto [0,1]
   # between soil_dry and soil_wet. "saturated" marks the region where the
-  # material-aware graded-saturation treatment (R-B3a) applies: wetness >=
+  # material-aware graded-saturation treatment applies: wetness >=
   # paper_veto_wetness on the wetness path (a dedicated, independently
-  # calibratable mark), or SM >= soil_wet on the soil-moisture path (ADJ-2:
-  # reusing soil_wet keeps the pre-existing soil-moisture worked oracles
-  # unchanged).
+  # calibratable mark), or SM >= soil_wet on the soil-moisture path (reusing
+  # soil_wet keeps the pre-existing soil-moisture worked oracles unchanged).
   if (have_wet) {
     w_norm    <- wetness
     saturated <- wetness >= paper_veto_wetness
@@ -330,11 +329,11 @@ litter_hazard_vec <- function(
   excess <- pmax(0, wind_gusts_10m - gust_t)
   E0 <- entrainment_max * pmin(1, (excess / denom)^excess_exponent)
 
-  # ---- R-B3a/ADJ-2/ADJ-3: material-aware graded saturation ----------------- #
+  # ---- Material-aware graded saturation ------------------------------------- #
   # Only touches the saturated region (s == 1); the unsaturated threshold-rise
   # ramp above is identical for both materials. paper: hard veto (it has
-  # absorbed the water, not just sat under a film). film (default -- ADJ-3,
-  # the dominant landfill-escape material per Mellink et al. 2024): a graded
+  # absorbed the water, not just sat under a film). film (default, the
+  # dominant landfill-escape material per Mellink et al. 2024): a graded
   # residual, entrainment_max scaled down by saturation_penalty rather than
   # zeroed, because a film can still be picked up off a wet surface.
   E <- E0
@@ -355,7 +354,7 @@ litter_hazard_vec <- function(
     pmin(1, pmax(0, wind_speed_10m - wind_transport_onset) /
            (wind_transport_ref - wind_transport_onset))
 
-  # ---- R-B4/ADJ-5: smooth rainfall gate ------------------------------------- #
+  # ---- Smooth rainfall gate -------------------------------------------------- #
   # A linear ramp from fully open (R=1, at/below rain_onset) to fully closed
   # (R=0, at/above rain_threshold), replacing the v3.0 hard cutoff at a single
   # rain_threshold -- a light shower does not instantaneously suppress litter
@@ -368,7 +367,7 @@ litter_hazard_vec <- function(
   # E in [0, entrainment_max], transport in [1, transport_max], rain_gate in
   # [0, 1]: a bounded-by-construction relative screening index (with the
   # default entrainment_max=50 / transport_max=2 it spans ~0-100), but NOT a
-  # fixed 0-100 cap (R-A3/issue #11) -- an inflated entrainment_max legitimately
+  # fixed 0-100 cap (issue #11) -- an inflated entrainment_max legitimately
   # exceeds 100. Site-specific tiers come from calibration tooling (issues
   # #11/#8).
   E * transport * rain_gate
@@ -393,11 +392,11 @@ litter_hazard_vec <- function(
 #' @param use_wetness_state Logical. Default `FALSE` (uses
 #'   `soil_moisture_0_to_1cm` directly, as in earlier package versions). When
 #'   `TRUE`, the litter-specific wetness state ([litter_wetness_vec()], run
-#'   with its own defaults -- see ADJ-8) is computed from `met_data` first and
+#'   with its own defaults) is computed from `met_data` first and
 #'   passed through as `wetness`, in place of `soil_moisture_0_to_1cm`.
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_hazard_vec()] ONLY (e.g. `rain_threshold`, `soil_wet`,
-#'   `gust_threshold`, `material`). ADJ-8: `...` is not forwarded to the
+#'   `gust_threshold`, `material`). `...` is not forwarded to the
 #'   internal [litter_wetness_vec()] call in the `use_wetness_state = TRUE`
 #'   path -- that call always uses its own defaults, so a hazard-side
 #'   calibration override (e.g. a custom `rain_threshold` for the hazard's
@@ -430,7 +429,7 @@ litter_hazard <- function(met_data, use_wetness_state = FALSE, ...) {
       )
     )
 
-    # ADJ-8: litter_wetness_vec() runs with its own defaults here; `...` below
+    # litter_wetness_vec() runs with its own defaults here; `...` below
     # is forwarded to litter_hazard_vec() only.
     wetness <- litter_wetness_vec(
       precipitation         = met_data$precipitation,

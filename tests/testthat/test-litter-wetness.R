@@ -1,17 +1,12 @@
-# Behaviour specification for the litter-wetness state subsystem (R-B3b).
+# Behaviour specification for the litter-wetness state subsystem.
 #
-# Encodes scratchpad/tdd/PLAN.md section 3.2. `litter_wetness_vec()` is a
-# sequential (hourly) surface-wetness model for windblown litter: an hour with
-# enough rain resets the surface to fully wet (w=1); otherwise the surface
-# dries exponentially at a rate driven by vapour-pressure deficit (VPD), wind,
-# and insolation. `litter_wetness()` is the met-tibble wrapper (mirrors
-# `litter_hazard()`).
+# `litter_wetness_vec()` is a sequential (hourly) surface-wetness model for
+# windblown litter: an hour with enough rain resets the surface to fully wet
+# (w=1); otherwise the surface dries exponentially at a rate driven by
+# vapour-pressure deficit (VPD), wind, and insolation. `litter_wetness()` is
+# the met-tibble wrapper (mirrors `litter_hazard()`).
 #
-# R/litter_wetness.R does not exist yet (new file, R-B3b): every test below is
-# expected to fail with "could not find function" until it is created --
-# that is the intended TDD-red state, so none of these tests are skip-gated.
-#
-# Pinned formulas (spec S3.2):
+# Pinned formulas:
 #   .litter_vpd(T, RH): es = 0.6108*exp(17.27*T/(T+237.3)); vpd = pmax(0, es*(1-RH/100))
 #   dry_rate = dry_rate_base*(1+vpd_coef*vpd)*(1+wind_coef*U)*(1+sw_coef*SW/sw_ref)
 #   w[1] = if precip[1] >= wetness_set_precip 1 else w0*exp(-dry_rate[1])
@@ -29,7 +24,7 @@ describe("litter_wetness_vec()", {
 
   describe("rain reset", {
 
-    it("R-B3b: an hour with precipitation >= wetness_set_precip sets w == 1, regardless of w0", {
+    it("an hour with precipitation >= wetness_set_precip sets w == 1, regardless of w0", {
       out_dry_start <- litter_wetness_vec(
         precipitation = 0.5, temperature_2m = 25, relative_humidity_2m = 40,
         wind_speed_10m = 5, shortwave_radiation = 600, w0 = 0
@@ -68,7 +63,7 @@ describe("litter_wetness_vec()", {
 
   describe("dry-down", {
 
-    it("R-B3b: is monotone non-increasing across a dry spell (constant met, no rain)", {
+    it("is monotone non-increasing across a dry spell (constant met, no rain)", {
       out <- litter_wetness_vec(
         precipitation = rep(0, 5), temperature_2m = rep(20, 5),
         relative_humidity_2m = rep(50, 5), wind_speed_10m = rep(3, 5),
@@ -77,7 +72,7 @@ describe("litter_wetness_vec()", {
       expect_true(all(diff(out) <= 0))
     })
 
-    it("R-B3b: worked oracle -- T=25, RH=40, U=5, SW=600, w0=1 -> w ~ 0.007649", {
+    it("worked oracle -- T=25, RH=40, U=5, SW=600, w0=1 -> w ~ 0.007649", {
       out <- litter_wetness_vec(
         precipitation = 0, temperature_2m = 25, relative_humidity_2m = 40,
         wind_speed_10m = 5, shortwave_radiation = 600, w0 = 1
@@ -85,7 +80,7 @@ describe("litter_wetness_vec()", {
       expect_equal(out, 0.007649, tolerance = WET_TOL)
     })
 
-    it("R-B3b: stronger VPD/wind/insolation forcing each dry faster (smaller w after one hour, w0=1)", {
+    it("stronger VPD/wind/insolation forcing each dry faster (smaller w after one hour, w0=1)", {
       base <- litter_wetness_vec(0, 25, 40, 5, 600, w0 = 1)
 
       hotter  <- litter_wetness_vec(0, 35, 40, 5, 600, w0 = 1)   # higher VPD

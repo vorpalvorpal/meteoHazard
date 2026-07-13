@@ -1,8 +1,7 @@
-# Behaviour specification for litter_risk() (R-D1).
+# Behaviour specification for litter_risk().
 #
-# Encodes scratchpad/tdd/PLAN.md section 0.2/1 (R-D1). litter_risk() is the
-# convenience wrapper (mirroring odour_risk()) that computes the hazard and
-# maps it through litter_exposure() in one call:
+# litter_risk() is the convenience wrapper (mirroring odour_risk()) that
+# computes the hazard and maps it through litter_exposure() in one call:
 #   litter_risk(met_data, site) == litter_exposure(litter_hazard(met_data),
 #                                                   met_data$wind_direction_10m,
 #                                                   site)
@@ -40,7 +39,7 @@
 
 describe("litter_risk()", {
 
-  it("R-D1: equals the two-step litter_hazard() + litter_exposure() call, column for column", {
+  it("equals the two-step litter_hazard() + litter_exposure() call, column for column", {
     met  <- .risk_met()
     site <- .risk_site()
 
@@ -50,7 +49,7 @@ describe("litter_risk()", {
     expect_equal(combined, two_step)
   })
 
-  it("R-D1: forwards litter_exposure()'s named parameters (direction_tol etc.) identically to the two-step call", {
+  it("forwards litter_exposure()'s named parameters (direction_tol etc.) identically to the two-step call", {
     met  <- .risk_met()
     site <- .risk_site()
 
@@ -67,7 +66,7 @@ describe("litter_risk()", {
     expect_equal(combined, two_step)
   })
 
-  it("R-D1: errors, naming wind_direction_10m, when that column is absent", {
+  it("errors, naming wind_direction_10m, when that column is absent", {
     met <- .risk_met()
     met$wind_direction_10m <- NULL
     site <- .risk_site()
@@ -75,7 +74,7 @@ describe("litter_risk()", {
     expect_error(litter_risk(met, site), regexp = "wind_direction_10m")
   })
 
-  it("R-D1: use_wetness_state = TRUE runs the wetness path and matches the manual two-step call", {
+  it("use_wetness_state = TRUE runs the wetness path and matches the manual two-step call", {
     met <- data.frame(
       wind_gusts_10m        = 16,
       wind_speed_10m        = 15,
@@ -95,7 +94,7 @@ describe("litter_risk()", {
     expect_equal(combined, two_step)
   })
 
-  it("R-D1: reach_per_ms forwards mean_wind = met_data$wind_speed_10m to litter_exposure()", {
+  it("reach_per_ms forwards mean_wind = met_data$wind_speed_10m to litter_exposure()", {
     met <- data.frame(
       wind_gusts_10m         = 16,
       wind_speed_10m         = 12,

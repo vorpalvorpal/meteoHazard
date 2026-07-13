@@ -1,12 +1,11 @@
-# Behaviour spec for the site convenience constructors (C4, issue #18):
+# Behaviour spec for the site convenience constructors (issue #18):
 # site_from_sectors() — compass-sector descriptions -> features geometry.
-# Pending specs (skipped) are the checklist /implement turns green.
 #
-# Extended per scratchpad/tdd/PLAN.md (Litter pipeline v3.1) with:
-#   R-A4 - full-circle sector (arc_start == arc_end yields a real ring)
-#   R-A7 - sector-coverage-gap warning
-#   distance_m - optional per-sector reach distance (defaults to ring_radius),
-#                carried onto the barrier features/roles (spec S3.4)
+# Also covers:
+#   - full-circle sector (arc_start == arc_end yields a real ring)
+#   - sector-coverage-gap warning
+#   - distance_m - optional per-sector reach distance (defaults to ring_radius),
+#                  carried onto the barrier features/roles
 
 describe("site_from_sectors()", {
 
@@ -88,7 +87,7 @@ describe("site_from_sectors()", {
 })
 
 
-describe("site_from_sectors() full-circle sector (R-A4)", {
+describe("site_from_sectors() full-circle sector", {
 
   .full_circle_ctr <- function() {
     sf::st_sf(
@@ -127,7 +126,7 @@ describe("site_from_sectors() full-circle sector (R-A4)", {
 })
 
 
-describe("site_from_sectors() sector-coverage-gap warning (R-A7)", {
+describe("site_from_sectors() sector-coverage-gap warning", {
 
   .gap_ctr <- function() {
     sf::st_sf(
@@ -164,7 +163,7 @@ describe("site_from_sectors() sector-coverage-gap warning (R-A7)", {
 })
 
 
-describe("site_from_sectors() distance_m column (spec S3.4)", {
+describe("site_from_sectors() distance_m column", {
 
   .distance_ctr <- function() {
     sf::st_sf(
