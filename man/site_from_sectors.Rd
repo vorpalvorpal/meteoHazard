@@ -11,9 +11,13 @@ site_from_sectors(sectors, centroid, ring_radius = 1000, epsg)
 \describe{
 \item{\code{arc_start}, \code{arc_end}}{Compass labels (\code{N}, \code{NE}, \code{E}, \code{SE},
 \code{S}, \code{SW}, \code{W}, \code{NW}) giving the clockwise start and end of each
-boundary sector.}
+boundary sector. \code{arc_start == arc_end} names a full-circle sector
+(a ring enclosing the source), not a zero-area sliver.}
 \item{\code{permeability}}{Numeric \verb{[0, 1]}.}
 \item{\code{sensitive}}{Logical.}
+\item{\code{distance_m}}{Optional numeric \verb{> 0} (metres): the reach
+distance used by \code{\link[=litter_exposure]{litter_exposure()}}'s refined distance-reach mode.
+If absent, every row defaults to \code{ring_radius}.}
 }}
 
 \item{centroid}{An \code{sf} object containing a single POINT feature in any

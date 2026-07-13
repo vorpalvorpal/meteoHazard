@@ -5,7 +5,7 @@
 \alias{DUST_CONSTANTS}
 \title{Constants for the dust hazard model}
 \format{
-An object of class \code{list} of length 15.
+An object of class \code{list} of length 22.
 }
 \usage{
 DUST_CONSTANTS
@@ -25,9 +25,9 @@ sandblasting efficiency.
 3.0e-4 (their tabulated range is 1.65e-4-5e-4; 3e-4 is their
 recommended best estimate).}
 \item{RHO_P}{Particle density (kg/m^3), 2650 (quartz).}
-\item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level,
-15 degC standard atmosphere; not yet temperature/pressure adjusted,
-see T10 TODO).}
+\item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level, 15 degC
+standard atmosphere). Used when \code{dust_flux()}'s \code{temperature_2m}/
+\code{surface_pressure} are not supplied (the default).}
 \item{G}{Gravitational acceleration, 9.81 m/s^2.}
 \item{KAPPA}{von Karman constant, 0.40.}
 \item{Z_REF}{Reference height (m) for the 10 m wind used in the
@@ -48,6 +48,26 @@ log-alpha slope on clay \% (cm^-1), 0.134.}
 log-alpha intercept, -6.}
 \item{MB95_CLAY_CAP}{Clay fraction (\%) above which the MB95 alpha fit is
 no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
+\item{R_D}{Specific gas constant for dry air (J kg^-1 K^-1), 287.05. Used
+with \code{KELVIN_OFFSET} to compute a met-driven air density from
+\code{temperature_2m}/\code{surface_pressure} (see \code{dust_flux()}'s Design).}
+\item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
+\item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
+(1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
+and internal-boundary-layer height (10 cm; lengths in this formula are
+in cm). Applying this fit as a general screening treatment (rather than
+for the specific vegetation-canopy roughness elements MB95 fit it to)
+is an UNCALIBRATED placeholder use — see \code{dust_flux()}'s Idealisations.}
+\item{FEFF_MIN}{Efficient-fraction floor below which the surface is
+treated as fully sheltered (zero flux, with a warning, rather than an
+ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
+placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+ratios, which is a fit artefact, not physics.}
+\item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
+parameter \code{k} for \code{dust_flux(forcing = "weibull")}, 2.0. UNCALIBRATED
+placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+within-hour intermittency treatment but not this specific \code{k}).}
 }
 }
 \keyword{internal}

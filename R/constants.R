@@ -183,9 +183,9 @@ ODOUR_CONSTANTS <- list(
 #'     3.0e-4 (their tabulated range is 1.65e-4-5e-4; 3e-4 is their
 #'     recommended best estimate).}
 #'   \item{RHO_P}{Particle density (kg/m^3), 2650 (quartz).}
-#'   \item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level,
-#'     15 degC standard atmosphere; not yet temperature/pressure adjusted,
-#'     see T10 TODO).}
+#'   \item{RHO_A_REF}{Reference air density (kg/m^3), 1.225 (sea-level, 15 degC
+#'     standard atmosphere). Used when `dust_flux()`'s `temperature_2m`/
+#'     `surface_pressure` are not supplied (the default).}
 #'   \item{G}{Gravitational acceleration, 9.81 m/s^2.}
 #'   \item{KAPPA}{von Karman constant, 0.40.}
 #'   \item{Z_REF}{Reference height (m) for the 10 m wind used in the
@@ -206,6 +206,26 @@ ODOUR_CONSTANTS <- list(
 #'     log-alpha intercept, -6.}
 #'   \item{MB95_CLAY_CAP}{Clay fraction (%) above which the MB95 alpha fit is
 #'     no longer validated, 20 (Foroutan et al. 2017; Kok et al. 2014).}
+#'   \item{R_D}{Specific gas constant for dry air (J kg^-1 K^-1), 287.05. Used
+#'     with `KELVIN_OFFSET` to compute a met-driven air density from
+#'     `temperature_2m`/`surface_pressure` (see `dust_flux()`'s Design).}
+#'   \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
+#'   \item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
+#'     (1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+#'     coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
+#'     and internal-boundary-layer height (10 cm; lengths in this formula are
+#'     in cm). Applying this fit as a general screening treatment (rather than
+#'     for the specific vegetation-canopy roughness elements MB95 fit it to)
+#'     is an UNCALIBRATED placeholder use — see `dust_flux()`'s Idealisations.}
+#'   \item{FEFF_MIN}{Efficient-fraction floor below which the surface is
+#'     treated as fully sheltered (zero flux, with a warning, rather than an
+#'     ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
+#'     placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+#'     ratios, which is a fit artefact, not physics.}
+#'   \item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
+#'     parameter `k` for `dust_flux(forcing = "weibull")`, 2.0. UNCALIBRATED
+#'     placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+#'     within-hour intermittency treatment but not this specific `k`).}
 #' }
 #' @keywords internal
 DUST_CONSTANTS <- list(
@@ -223,5 +243,54 @@ DUST_CONSTANTS <- list(
   FECAN_B               = 0.68,     # Fecan (1999) correction exponent b'
   MB95_ALPHA_SLOPE      = 0.134,    # MB95 sandblasting log-alpha slope (cm^-1)
   MB95_ALPHA_INTERCEPT  = -6,       # MB95 sandblasting log-alpha intercept
-  MB95_CLAY_CAP         = 20        # % clay; MB95 alpha validity ceiling
+  MB95_CLAY_CAP         = 20,       # % clay; MB95 alpha validity ceiling
+  R_D                   = 287.05,   # J/(kg*K), dry-air specific gas constant
+  KELVIN_OFFSET         = 273.15,   # K, Celsius -> Kelvin offset
+  MB95_DP_COEF          = 0.7,      # MB95 Eq. 19 drag-partition fit coefficient (uncalibrated screening use)
+  MB95_DP_EXP           = 0.8,      # MB95 Eq. 19 drag-partition fit exponent (uncalibrated screening use)
+  MB95_DP_X_CM          = 10,       # cm, MB95 Eq. 19 internal-boundary-layer height
+  FEFF_MIN              = 0.01,     # efficient-fraction floor -> fully sheltered below this (uncalibrated)
+  WEIBULL_SHAPE         = 2.0       # within-hour Weibull shape k (uncalibrated placeholder)
+)
+
+#' Constants for the litter hazard model
+#'
+#' Tunable parameters for [litter_hazard_vec()]. The litter hazard is a
+#' phenomenological windblown-litter mobilization index (a threshold-gated,
+#' saturating gust ramp), **not** a soil-physics flux, so every value here is an
+#' UNCALIBRATED screening placeholder; calibration is owned by issues #11/#26.
+#'
+#' \describe{
+#'   \item{MATERIALS}{Per-material mobilization parameters. Each entry lists a
+#'     `gust_threshold` (dry threshold gust, m/s, below which nothing moves), a
+#'     `gust_reference` (gust at which the mobilized fraction saturates, m/s),
+#'     and a `saturation_penalty` (fractional entrainment loss on a fully wet
+#'     surface). `film` and `paper` share the same dry thresholds — carried over
+#'     from the v3.0 friction-velocity defaults `0.30` and `1.05` m/s divided by
+#'     `kappa / ln(z/z0) = 0.40 / ln(200)` — because dry paper is about as
+#'     mobile as dry film; they differ only in how water suppresses them (film
+#'     sheds surface water and keeps a residual, penalty 0.7; absorbent paper is
+#'     fully vetoed once soaked, penalty 1.0). `rigid` (bottles, cans) needs a
+#'     far stronger gust to move and is barely held down by water — Mellink et
+#'     al. (2024) found bottles ~0% mobile at winds that fully mobilize bags. The
+#'     `rigid` numbers (12/25 m/s, penalty 0.15) are UNCALIBRATED placeholders,
+#'     first estimates only.}
+#'   \item{SATURATION_ONSET}{Normalised surface wetness at which the material
+#'     saturation penalty begins to ramp in — full penalty lands at wetness 1.
+#'     0.8. Uncalibrated placeholder.}
+#' }
+#' @keywords internal
+LITTER_CONSTANTS <- list(
+  # Per-material dry thresholds and wet-saturation penalties (all uncalibrated).
+  MATERIALS = list(
+    film  = list(gust_threshold = 3.9737355, gust_reference = 13.9080743,
+                 saturation_penalty = 0.7),
+    paper = list(gust_threshold = 3.9737355, gust_reference = 13.9080743,
+                 saturation_penalty = 1.0),
+    # rigid: bottles/cans ~0% mobile at winds that mobilize bags (Mellink 2024);
+    # a wet surface barely holds a rigid item down. UNCALIBRATED placeholders.
+    rigid = list(gust_threshold = 12.0, gust_reference = 25.0,
+                 saturation_penalty = 0.15)
+  ),
+  SATURATION_ONSET = 0.8  # normalised wetness where the saturation penalty starts
 )

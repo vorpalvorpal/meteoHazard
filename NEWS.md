@@ -1,3 +1,87 @@
+# meteoHazard (development version)
+
+## Dust hazard v4
+
+Follow-up to the dust v3 review: operationalises the T8/T10 idealisation
+TODOs, the smooth-surface/no-drag-partition gap, and clock-driven crust decay.
+`dust_exposure()`/`dust_risk()` (v3's T9) remain out of scope for this PR —
+deferred to their own follow-up against a design-note/contract-test skeleton.
+
+* **Met-driven air density + direct grain-size interface** (WP1): new optional
+  `temperature_2m`/`surface_pressure` args on `dust_flux()` (and
+  `air_density = c("reference", "met")` on `dust_hazard()`) compute a per-hour
+  air density via the ideal gas law instead of the fixed
+  `DUST_CONSTANTS$RHO_A_REF`; cold, dense air both lowers the entrainment
+  threshold and raises the flux (-5 degC / 1013.25 hPa raises a 20 m/s-gust
+  flux ~1.375x). New `d50` arg (m) bypasses the Tyler sieve table for sites
+  with a measured grain size; `tyler_sieve_no` is now `NULL`-default and
+  exactly one of `tyler_sieve_no`/`d50` is required (supplying both warns,
+  `d50` wins). New constants `R_D`, `KELVIN_OFFSET`.
+* **MB95 drag partition** (WP2): a caller-supplied `z0` above the smooth-bed
+  value now engages the Marticorena & Bergametti (1995, Eqs 18-19)
+  efficient-fraction drag partition -- roughness shelters the erodible bed by
+  raising the entrainment threshold (`u_star_t / feff`) instead of just
+  raising u* unsheltered. `z0 <= z0_smooth` (including the `NULL` default)
+  still gives `feff = 1` exactly (bit-identical smooth-bed path). A `z0` large
+  enough to fully shelter the bed (`feff <= DUST_CONSTANTS$FEFF_MIN`) now
+  returns all-zero flux with a new classed warning
+  (`meteoHazard_dust_fully_sheltered`), replacing the removed
+  `meteoHazard_dust_z0_rough` warning. New constants `MB95_DP_COEF`,
+  `MB95_DP_EXP`, `MB95_DP_X_CM`, `FEFF_MIN` (uncalibrated screening use).
+  **Breaking (re-pin):** the two `z0 = 0.005` known-answer fixtures move to
+  the smooth bed (`7.86633315e-08` clay-10, `1.72096e-06` clay-50 capped) and
+  the `z0 = 5e-4` partition threshold (gust 25.5 -> 0, 26.5 -> positive)
+  respectively -- the old fixtures assumed no partition and are
+  unreproducible by design once roughness shelters the bed.
+* **Within-hour Weibull intermittency** (WP3): new
+  `forcing = c("gust", "weibull")` on `dust_flux()`/`dust_hazard()` (default
+  `"gust"`, bit-identical). `"weibull"` replaces the steady hourly-gust
+  forcing with a within-hour `Weibull(weibull_shape, c)` wind distribution
+  (mean-preserving on `wind_speed_10m`; `wind_gusts_10m`/`gust_factor` unused)
+  and a closed-form hourly-expected flux, correcting the steady-forcing bias
+  near threshold and emitting where the hourly mean is sub-threshold but the
+  within-hour tail is not. New `weibull_shape` argument (default
+  `DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0, uncalibrated placeholder).
+* **Saltation-gated crust decay** (WP4): new `crust_decay = c("clock",
+  "saltation")` on `dust_hazard()` (default `"clock"`, bit-identical). The
+  pure elapsed-time clock decays a crust through a calm week exactly as fast
+  as a windy one; `"saltation"` instead advances the crust age only during
+  hours when the (currently crusted) surface is actually being sandblasted
+  (rain resets it, calm/sub-threshold hours leave it untouched), so it
+  persists through a calm spell and decays once winds resume. Internally
+  refactors the u* chain into `.dust_u_star()`/`.dust_u_star_t_dry()` (pure,
+  no-behaviour-change) and adds `.dust_crust_factor_saltation()`; `u*` is
+  computed twice for the `"saltation"` gate (once in the gate, once in the
+  real flux) -- correctness over micro-perf.
+
+## Litter hazard v3.2
+
+Follow-up to the v3.1 review: four design corrections plus a documentation item.
+
+* **Smooth material-saturation ramp** (WP1): the wet penalty now ramps linearly
+  from `saturation_onset` (0.8 normalised wetness) to full at wetness 1, removing
+  the interior discontinuity at the saturation mark. Shared by the soil-moisture
+  and wetness-state paths.
+* **Material-resolved mobilization thresholds** (WP2): `gust_threshold`,
+  `gust_reference`, and `saturation_penalty` now default per `material` from the
+  new internal `LITTER_CONSTANTS$MATERIALS` (`NULL` formals; explicit values
+  still override). A new `material = "rigid"` (bottles/cans) makes `material`
+  affect dry mobility, matching the Mellink (2024) bags-vs-bottles evidence; its
+  numbers are uncalibrated placeholders. `paper_veto_wetness` is replaced by
+  `saturation_onset`.
+* **Consistent gap-bearing semantics** (WP3): a downwind bearing in a sector gap
+  now derives `leaves_site` from the same `default_permeability` the exposure
+  magnitude uses (previously the boundary was treated as both passable and not).
+  `sensitive_receptor` stays `FALSE` for gaps, so a gap can never be off-site.
+* **Robust concave barriers** (WP4): `litter_exposure()` densifies each barrier
+  boundary before extracting bearings, fixing a largest-gap inversion that could
+  report a bearing pointing straight at a coarse concave (C-shaped) barrier as a
+  miss.
+* **Transport/reach coupling documented** (WP5): the refined-mode reach test and
+  the hazard transport multiplier are both driven by the mean wind and must be
+  calibrated jointly; noted in `litter_hazard_vec()`, `litter_exposure()`, and
+  `litter_risk()`.
+
 # meteoHazard 0.3.0
 
 ## Odour hazard physics corrections (v3)

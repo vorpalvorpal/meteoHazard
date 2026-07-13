@@ -84,7 +84,14 @@ describe("dust_flux() [v2]", {
 
   it("rejects an invalid Tyler sieve number", {
     skip_if_no_dust_v2()
-    expect_error(dust_flux(7L, 10, 0, 16, 0.02))
+    expect_error(dust_flux(7L, 10, 0, 16, 0.02),
+                 class = "meteoHazard_input_error")
+  })
+
+  it("rejects z0 at or above the 10 m reference height (log-law singularity)", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, z0 = 10))
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, z0 = 12))
   })
 
   it("rejects out-of-range clay, soil moisture, and missing values", {
@@ -109,12 +116,19 @@ describe("dust_flux() [v2]", {
     )
   })
 
-  it("warns when z0 exceeds the smooth-bed roughness (drag partition not modelled) [CC-1b]", {
+  it("a z0 that fully shelters the bed under the MB95 drag partition returns all-zero flux and warns [CC-1b, v4 re-pin]", {
     skip_if_no_dust_v2()
+    # z0 = 0.05 -> feff ~ -0.21 (negative, fully sheltered) at sieve 20/clay 10.
     expect_warning(
       dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
-      regexp = "roughness|drag partition"
+      regexp = "shelter"
     )
+    expect_warning(
+      dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
+      class = "meteoHazard_dust_fully_sheltered"
+    )
+    expect_equal(suppressWarnings(dust_flux(20L, 10, c(0, 0), c(20, 40), c(0.02, 0.02), z0 = 0.05)),
+                 c(0, 0))
   })
 
   it("z0 = NULL matches the explicit smooth-bed z0 exactly, without a warning [CC-1c]", {
@@ -129,12 +143,16 @@ describe("dust_flux() [v2]", {
 
   # ---- T2: clamp MB95 sandblasting alpha at the clay validity ceiling ------ #
 
-  it("caps the MB95 sandblasting alpha at the clay validity ceiling [CC-2a]", {
+  it("caps the MB95 sandblasting alpha at the clay validity ceiling [CC-2a, v4 re-pin: z0 = NULL]", {
     skip_if_no_dust_v2()
-    f_over_cap <- suppressWarnings(dust_flux(20L, 50, 0, 20, 0.02, z0 = 0.005))
-    f_at_cap   <- suppressWarnings(dust_flux(20L, 20, 0, 20, 0.02, z0 = 0.005))
+    # Re-pinned under WP2 (MB95 drag partition): the old z0 = 0.005 fixture is
+    # now sub-threshold at gust 20 (partition threshold ~65.8 m/s), so this
+    # moves to the smooth bed (z0 = NULL), matching the WP1 oracle values.
+    f_over_cap <- suppressWarnings(dust_flux(20L, 50, 0, 20, 0.02))
+    f_at_cap   <- suppressWarnings(dust_flux(20L, 20, 0, 20, 0.02))
     expect_equal(f_over_cap, f_at_cap)
-    expect_equal(f_over_cap, 2.96222398e-05, tolerance = 1e-4)
+    expect_equal(f_at_cap, 7.86633315e-08 * 10^(0.134 * 10), tolerance = 1e-4)
+    expect_equal(f_over_cap, 1.72096e-06, tolerance = 1e-4)
   })
 
   it("warns when clay_percent exceeds the MB95 validity ceiling [CC-2b]", {
@@ -143,6 +161,8 @@ describe("dust_flux() [v2]", {
     # z0 > smooth-bed would add a second, order-dependent warning). The alpha
     # clamp/warning is independent of the entrainment threshold.
     expect_warning(dust_flux(20L, 50, 0, 20, 0.02), regexp = "clay")
+    expect_warning(dust_flux(20L, 50, 0, 20, 0.02),
+                   class = "meteoHazard_dust_clay_capped")
   })
 
   # ---- T3: input validation (threshold_multiplier length; gust >= wind) ---- #
@@ -151,7 +171,8 @@ describe("dust_flux() [v2]", {
     skip_if_no_dust_v2()
     expect_error(
       dust_flux(20L, 10, c(0, 0, 0), c(20, 20, 20), c(0.02, 0.02, 0.02),
-                threshold_multiplier = c(1, 2))
+                threshold_multiplier = c(1, 2)),
+      class = "meteoHazard_input_error"
     )
   })
 
@@ -173,23 +194,219 @@ describe("dust_flux() [v2]", {
       dust_flux(20L, 10, wind_speed_10m = 5, wind_gusts_10m = 3, soil_moisture = 0.02),
       regexp = "gust"
     )
+    expect_error(
+      dust_flux(20L, 10, wind_speed_10m = 5, wind_gusts_10m = 3, soil_moisture = 0.02),
+      class = "meteoHazard_input_error"
+    )
   })
 
-  # ---- T5: known-answer values (KAT), z0 = 0.005 explicit ------------------ #
+  # ---- T5: known-answer values (KAT) ---------------------------------------- #
+  # v4 re-pin (WP2): the pre-partition z0 = 0.005 fixtures assumed z0 raised u*
+  # without sheltering the bed; under the MB95 drag partition the same z0
+  # instead raises the threshold (~65.8 m/s at gust 20), making the old
+  # fixtures sub-threshold and unreproducible by design. CC-5a moves to the
+  # smooth bed; CC-5b moves to the z0 = 5e-4 partition threshold (~25.98 m/s).
 
-  it("matches the hand-computed known-answer flux at z0 = 0.005 (KAT) [CC-5a]", {
+  it("matches the hand-computed known-answer flux at the smooth bed (KAT) [CC-5a, v4 re-pin]", {
     skip_if_no_dust_v2()
     expect_equal(
-      suppressWarnings(dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.005)),
-      1.35399760e-06,
+      dust_flux(20L, 10, 0, 20, 0.02),
+      7.86633315e-08,
       tolerance = 1e-4
     )
   })
 
-  it("known-answer: gust 10.5 sub-threshold zero, gust 10.75 supra-threshold positive at z0 = 0.005 [CC-5b]", {
+  it("known-answer: the MB95 partition threshold at z0 = 5e-4 sits between gust 25.5 (zero) and 26.5 (positive) [CC-5b, v4 re-pin]", {
     skip_if_no_dust_v2()
-    expect_equal(suppressWarnings(dust_flux(20L, 10, 0, 10.5, 0.02, z0 = 0.005)), 0)
-    expect_gt(suppressWarnings(dust_flux(20L, 10, 0, 10.75, 0.02, z0 = 0.005)), 0)
+    expect_equal(dust_flux(20L, 10, 0, 25.5, 0.02, z0 = 5e-4), 0)
+    expect_gt(dust_flux(20L, 10, 0, 26.5, 0.02, z0 = 5e-4), 0)
+  })
+
+  # ---- WP2: MB95 drag partition -------------------------------------------- #
+
+  it("feff = 1 (no drag-partition threshold effect) for any z0 <= the smooth-bed value", {
+    skip_if_no_dust_v2()
+    # At z0 == z0_smooth (or NULL) the flux is bit-identical to the smooth-bed
+    # KAT. Below z0_smooth, feff is still 1 (no partition), but u* itself still
+    # depends on the caller's smaller z0 through the log law -- so the overall
+    # flux legitimately differs from the z0_smooth value; verify against a
+    # feff = 1 (unpartitioned) reference computation instead.
+    z0_smooth <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]] * (1 / 30)
+    smooth  <- dust_flux(20L, 10, 0, 20, 0.02)
+    at_val  <- dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_smooth)
+    expect_equal(at_val, smooth)
+
+    z0_below <- z0_smooth / 2
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    u_star_t_dry <- sqrt(DC$A_N * (DC$RHO_P / DC$RHO_A_REF * DC$G * d + DC$GAMMA / (DC$RHO_A_REF * d)))
+    u_star       <- DC$KAPPA * (0.84 * 20) / log(DC$Z_REF / z0_below)
+    excess       <- 1 - (u_star_t_dry / u_star)^2
+    alpha        <- 10^(DC$MB95_ALPHA_SLOPE * 10 + DC$MB95_ALPHA_INTERCEPT)
+    expected     <- alpha * (DC$RHO_A_REF / DC$G) * u_star^3 * excess
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02, z0 = z0_below), expected, tolerance = 1e-8)
+  })
+
+  it("the partition threshold gust at 10 m is strictly increasing across z0", {
+    skip_if_no_dust_v2()
+    # Reference table (sieve 20, clay 10, dry, verified during planning):
+    # z0 = 2.78e-5 -> 17.90, 1e-4 -> 20.31, 5e-4 -> 25.98, 1e-3 -> 30.58,
+    # 5e-3 -> 65.80 m/s. Bisect the zero/nonzero boundary for each.
+    threshold_gust <- function(z0) {
+      lo <- 0; hi <- 200
+      for (i in 1:40) {
+        mid <- (lo + hi) / 2
+        if (dust_flux(20L, 10, 0, mid, 0.02, z0 = z0) > 0) hi <- mid else lo <- mid
+      }
+      (lo + hi) / 2
+    }
+    z0s <- c(2.78e-5, 1e-4, 5e-4, 1e-3, 5e-3)
+    gusts <- vapply(z0s, threshold_gust, numeric(1))
+    expect_true(all(diff(gusts) > 0))
+    expect_equal(gusts, c(17.90, 20.31, 25.98, 30.58, 65.80), tolerance = 1e-2)
+  })
+
+})
+
+
+describe("dust_flux() [v4 WP1: met-driven air density + d50 interface]", {
+
+  it("met-driven air density: -5 degC / 1013.25 hPa raises the gust-20 flux by ~1.375x", {
+    skip_if_no_dust_v2()
+    base <- dust_flux(20L, 10, 0, 20, 0.02)
+    cold <- dust_flux(20L, 10, 0, 20, 0.02,
+                      temperature_2m = -5, surface_pressure = 1013.25)
+    expect_equal(base, 7.86633315e-08, tolerance = 1e-4)   # new smooth-bed KAT
+    expect_equal(cold, 1.08192029e-07, tolerance = 1e-4)
+    expect_equal(cold / base, 1.37538, tolerance = 1e-3)
+  })
+
+  it("supplying only one of temperature_2m/surface_pressure errors (classed)", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, temperature_2m = -5),
+                 class = "meteoHazard_input_error")
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, surface_pressure = 1013.25),
+                 class = "meteoHazard_input_error")
+  })
+
+  it("temperature_2m/surface_pressure vectorise per-hour (rho_a length-n through the chain)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = rep(0, 2), wind_gusts_10m = rep(20, 2),
+                   soil_moisture = rep(0.02, 2),
+                   temperature_2m = c(15, -5), surface_pressure = c(1013.25, 1013.25))
+    expect_length(f, 2)
+    # Colder hour (index 2) is denser air -> larger flux at the same gust.
+    expect_gt(f[2], f[1])
+  })
+
+  it("an implausible computed air density is a classed error (catches Pa-vs-hPa mistakes)", {
+    skip_if_no_dust_v2()
+    # surface_pressure supplied in Pa instead of hPa -> rho_a ~100x too high.
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, temperature_2m = 15, surface_pressure = 101325),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("d50 equal to the sieve-20 opening reproduces the sieve-20 flux exactly", {
+    skip_if_no_dust_v2()
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02),
+                 dust_flux(clay_percent = 10, wind_speed_10m = 0,
+                           wind_gusts_10m = 20, soil_moisture = 0.02,
+                           d50 = 0.000833))
+  })
+
+  it("rejects an out-of-range d50", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 1e-6))
+    expect_error(dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 0.03))
+  })
+
+  it("requires exactly one of tyler_sieve_no or d50 (classed error when neither supplied)", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20, soil_moisture = 0.02),
+      class = "meteoHazard_input_error"
+    )
+  })
+
+  it("warns (classed) when both tyler_sieve_no and d50 are supplied; d50 supersedes", {
+    skip_if_no_dust_v2()
+    expect_warning(
+      dust_flux(20L, 10, 0, 20, 0.02, d50 = 0.000701),   # sieve-24 diameter
+      class = "meteoHazard_dust_d50_supersedes"
+    )
+    with_both <- suppressWarnings(dust_flux(20L, 10, 0, 20, 0.02, d50 = 0.000701))
+    d50_only  <- dust_flux(clay_percent = 10, wind_speed_10m = 0, wind_gusts_10m = 20,
+                           soil_moisture = 0.02, d50 = 0.000701)
+    expect_equal(with_both, d50_only)
+  })
+})
+
+
+describe("dust_flux() [v4 WP3: within-hour Weibull intermittency]", {
+
+  it("weibull forcing matches the closed-form oracle (mean 12, k = 2, dry, smooth bed)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
+                   soil_moisture = 0.02, forcing = "weibull")
+    expect_equal(f, 1.062634e-07, tolerance = 1e-4)
+  })
+
+  it("weibull forcing emits where the steady mean is sub-threshold (intermittency tail)", {
+    skip_if_no_dust_v2()
+    steady <- dust_flux(20L, 10, 12, 12 / 0.84, 0.02)          # U_fm = 12 -> 0
+    weib   <- dust_flux(20L, 10, 12, 12 / 0.84, 0.02, forcing = "weibull")
+    expect_equal(steady, 0)
+    expect_gt(weib, 0)
+  })
+
+  it("a near-degenerate Weibull (k large) converges to the steady flux at the mean", {
+    skip_if_no_dust_v2()
+    # k = 200: c ~ mean (gamma(1 + 1/k) -> 1), so weibull mode should converge
+    # to the deterministic gust-mode flux with U_fm forced exactly equal to
+    # the mean (wind_speed_10m = wind_gusts_10m * gust_factor = mean).
+    mean_u <- 20
+    steady <- dust_flux(20L, 10, wind_speed_10m = mean_u,
+                        wind_gusts_10m = mean_u / 0.84, soil_moisture = 0.02,
+                        forcing = "gust")
+    weib_k200 <- dust_flux(20L, 10, wind_speed_10m = mean_u,
+                           wind_gusts_10m = mean_u / 0.84, soil_moisture = 0.02,
+                           forcing = "weibull", weibull_shape = 200)
+    expect_equal(weib_k200, steady, tolerance = 1e-3)
+  })
+
+  it("forcing = 'gust' (default) is bit-identical to the pre-WP3 gust path", {
+    skip_if_no_dust_v2()
+    explicit <- dust_flux(20L, 10, 0, 20, 0.02, forcing = "gust")
+    default  <- dust_flux(20L, 10, 0, 20, 0.02)
+    expect_equal(explicit, default)
+    expect_equal(default, 7.86633315e-08, tolerance = 1e-4)
+  })
+
+  it("weibull forcing vectorises per-hour (one mean per hour)", {
+    skip_if_no_dust_v2()
+    f <- dust_flux(20L, 10, wind_speed_10m = c(5, 12, 20), wind_gusts_10m = rep(30, 3),
+                   soil_moisture = rep(0.02, 3), forcing = "weibull")
+    expect_length(f, 3)
+    expect_true(all(diff(f) >= 0))   # monotone in the mean
+  })
+
+  it("rejects a non-positive weibull_shape", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, forcing = "weibull", weibull_shape = 0)
+    )
+    expect_error(
+      dust_flux(20L, 10, 0, 20, 0.02, forcing = "weibull", weibull_shape = -1)
+    )
+  })
+
+  it("rejects an invalid forcing value", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, forcing = "bogus"))
   })
 })
 
@@ -291,6 +508,91 @@ describe("dust_hazard() [v2]", {
     fine   <- dust_hazard(dust_met(gust = 14), tyler_sieve_no = 60L)
     expect_gte(fine, coarse)
   })
+
+  # ---- WP1: air_density = "met" ------------------------------------------- #
+
+  it("air_density = 'met' requires temperature_2m/surface_pressure columns", {
+    skip_if_no_dust_v2()
+    expect_error(
+      dust_hazard(dust_met(gust = 20), air_density = "met"),
+      regexp = "temperature_2m|surface_pressure"
+    )
+  })
+
+  it("air_density = 'reference' (default) ignores temperature_2m/surface_pressure columns even if present", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20)
+    met$temperature_2m   <- -5
+    met$surface_pressure <- 1013.25
+    with_cols    <- dust_hazard(met, air_density = "reference")
+    without_cols <- dust_hazard(dust_met(gust = 20))
+    expect_equal(with_cols, without_cols)
+  })
+
+  it("air_density = 'met' forwards temperature_2m/surface_pressure and raises the flux for cold dense air", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20)
+    met$temperature_2m   <- -5
+    met$surface_pressure <- 1013.25
+    met_out <- dust_hazard(met, air_density = "met")
+    ref_out <- dust_hazard(dust_met(gust = 20), air_density = "reference")
+    expect_true(all(met_out >= ref_out))
+    expect_true(any(met_out > ref_out))
+  })
+
+  it("dust_hazard() default path (air_density = 'reference') is bit-identical to pre-WP1 behaviour", {
+    skip_if_no_dust_v2()
+    out <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)))
+    ref <- dust_flux(20L, 10, wind_speed_10m = rep(0, 4), wind_gusts_10m = c(8, 14, 18, 25),
+                     soil_moisture = rep(0.02, 4))
+    expect_equal(out, ref)
+  })
+
+  # ---- WP3: forcing = "weibull" -------------------------------------------- #
+
+  it("forwards forcing/weibull_shape to the engine", {
+    skip_if_no_dust_v2()
+    met <- dust_met(gust = 20, wind = 12, sm = 0.02)
+    steady  <- dust_hazard(met, forcing = "gust")
+    weibull <- dust_hazard(met, forcing = "weibull")
+    ref <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
+                     soil_moisture = 0.02, forcing = "weibull")
+    expect_equal(weibull, ref, tolerance = DUST_TOL)
+    expect_false(isTRUE(all.equal(weibull, steady)))
+  })
+
+  it("default forcing = 'gust' is bit-identical to pre-WP3 dust_hazard() output", {
+    skip_if_no_dust_v2()
+    out <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)))
+    explicit <- dust_hazard(dust_met(gust = c(8, 14, 18, 25)), forcing = "gust")
+    expect_equal(out, explicit)
+  })
+})
+
+
+describe(".dust_u_star() / .dust_u_star_t_dry() [v4 WP4 refactor]", {
+
+  it(".dust_u_star_t_dry() reproduces the dry threshold used inside dust_flux()", {
+    skip_if_no_dust_v2()
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    expected <- sqrt(DC$A_N * (DC$RHO_P / DC$RHO_A_REF * DC$G * d + DC$GAMMA / (DC$RHO_A_REF * d)))
+    expect_equal(meteoHazard:::.dust_u_star_t_dry(d, DC$RHO_A_REF), expected)
+  })
+
+  it(".dust_u_star() reproduces the gust-driven friction velocity used inside dust_flux()", {
+    skip_if_no_dust_v2()
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    z0 <- d * DC$Z0_SMOOTH_RATIO
+    expected <- (DC$KAPPA / log(DC$Z_REF / z0)) * max(0, 0.84 * 20)
+    expect_equal(meteoHazard:::.dust_u_star(0, 20, 0.84, z0), expected)
+  })
+
+  it("dust_flux() is bit-identical after the WP4 refactor (smooth-bed KAT)", {
+    skip_if_no_dust_v2()
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02), 7.86633315e-08, tolerance = 1e-4)
+  })
 })
 
 
@@ -305,6 +607,125 @@ describe(".dust_crust_factor() [v3 cold-start]", {
     stale <- meteoHazard:::.dust_crust_factor(rep(0, 3), 2, 3, 24, age0 = Inf)
     expect_equal(fresh[1], 3, tolerance = 1e-6)
     expect_equal(stale[1], 1)
+  })
+})
+
+
+describe(".dust_crust_factor_saltation() [v4 WP4]", {
+
+  it("holds the crust age (and multiplier) through calm/sub-threshold hours", {
+    skip_if_no_dust_v2()
+    precip <- rep(0, 5)
+    u_star <- rep(0.1, 5)          # always below the crusted threshold
+    u_star_t_moist <- rep(1, 5)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = 0
+    )
+    expect_equal(mult, rep(3, 5))   # age stays 0 throughout -> full factor_max
+  })
+
+  it("advances the crust age only on hours where u_star exceeds the crusted threshold", {
+    skip_if_no_dust_v2()
+    precip <- rep(0, 5)
+    u_star <- rep(10, 5)           # always exceeds the threshold, even fully crusted
+    u_star_t_moist <- rep(1, 5)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = 0
+    )
+    expect_true(all(diff(mult) < 0))   # decays every hour once saltation occurs
+  })
+
+  it("a rain hour resets the age for the FOLLOWING hour, not retroactively", {
+    skip_if_no_dust_v2()
+    precip <- c(0, 5, 0, 0)
+    u_star <- rep(0, 4)             # never exceeds the threshold
+    u_star_t_moist <- rep(1, 4)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = Inf
+    )
+    expect_equal(mult[1], 1)                     # age0 = Inf -> no crust memory yet
+    expect_equal(mult[2], 1)                     # this hour's rain not yet reflected
+    expect_equal(mult[3], 3, tolerance = 1e-6)    # next hour: fresh crust
+    expect_equal(mult[4], 3, tolerance = 1e-6)    # held (calm, sub-threshold)
+  })
+})
+
+
+describe("dust_hazard() [v4 WP4: crust_decay = 'saltation']", {
+
+  it("saltation mode: crust persists through a calm week, clock mode decays it", {
+    skip_if_no_dust_v2()
+    # rain hour 1, then 167 dead-calm hours, then a strong hour 169
+    met <- data.frame(wind_speed_10m = c(0, rep(0, 167), 0),
+                      wind_gusts_10m = c(0, rep(2, 167), 25),
+                      soil_moisture_0_to_1cm = 0.02,
+                      precipitation = c(5, rep(0, 168)))
+    clock <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24)
+    salt  <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24,
+                         crust_decay = "saltation")
+    expect_lt(salt[169], clock[169])   # crust still fully fresh in saltation mode
+    expect_equal(salt[169], 0)         # still-elevated crust threshold -> zero flux
+  })
+
+  it("saltation mode: sustained supra-threshold wind decays the crust", {
+    skip_if_no_dust_v2()
+    n <- 200
+    met <- data.frame(wind_speed_10m = rep(0, n),
+                      wind_gusts_10m = c(0, rep(60, n - 1)),   # exceeds even the
+                      soil_moisture_0_to_1cm = 0.02,           # fully-crusted threshold
+                      precipitation = c(5, rep(0, n - 1)))
+    base <- dust_hazard(met, crust = FALSE)
+    salt <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24,
+                        crust_decay = "saltation")
+    expect_lt(salt[10], base[10])                       # still suppressed early on
+    expect_equal(salt[n], base[n], tolerance = 1e-3)     # decayed back to baseline
+  })
+
+  it("crust_decay = 'clock' is bit-identical to the current (pre-WP4) behaviour", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = c(20, 22, 25),
+                      soil_moisture_0_to_1cm = 0.02, precipitation = c(5, 0, 0))
+    implicit <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24)
+    explicit <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24, crust_decay = "clock")
+    expect_equal(implicit, explicit)
+  })
+
+  it("crust_decay is irrelevant when crust = FALSE", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = c(20, 22, 25),
+                      soil_moisture_0_to_1cm = 0.02)
+    clock_off <- dust_hazard(met, crust = FALSE, crust_decay = "clock")
+    salt_off  <- dust_hazard(met, crust = FALSE, crust_decay = "saltation")
+    expect_equal(clock_off, salt_off)
+  })
+
+  it("rejects an invalid crust_decay value", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = 20, soil_moisture_0_to_1cm = 0.02)
+    expect_error(dust_hazard(met, crust_decay = "bogus"))
+  })
+
+  it("saltation gate normalises units-tagged wind columns to m/s (not just dust_flux()'s own path)", {
+    skip_if_no_dust_v2()
+    n <- 5
+    bare <- data.frame(
+      wind_speed_10m         = rep(0, n),
+      wind_gusts_10m         = c(0, rep(60, n - 1)),
+      soil_moisture_0_to_1cm = rep(0.02, n),
+      precipitation          = c(5, rep(0, n - 1))
+    )
+    tagged <- bare
+    tagged$wind_speed_10m <- units::set_units(bare$wind_speed_10m, "m/s")
+    tagged$wind_gusts_10m <- units::set_units(bare$wind_gusts_10m * 3.6, "km/h")
+
+    salt_bare   <- dust_hazard(bare, crust = TRUE, crust_decay_hours = 24,
+                               crust_decay = "saltation")
+    salt_tagged <- dust_hazard(tagged, crust = TRUE, crust_decay_hours = 24,
+                               crust_decay = "saltation")
+    expect_equal(salt_tagged, salt_bare, tolerance = DUST_TOL)
   })
 })
 

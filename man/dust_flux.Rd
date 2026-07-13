@@ -5,21 +5,27 @@
 \title{Vertical dust flux for an exposed landfill surface}
 \usage{
 dust_flux(
-  tyler_sieve_no,
+  tyler_sieve_no = NULL,
   clay_percent,
   wind_speed_10m,
   wind_gusts_10m,
   soil_moisture,
+  d50 = NULL,
   z0 = NULL,
   bulk_density = 1.6,
   gust_factor = 0.84,
-  threshold_multiplier = 1
+  forcing = c("gust", "weibull"),
+  weibull_shape = DUST_CONSTANTS$WEIBULL_SHAPE,
+  threshold_multiplier = 1,
+  temperature_2m = NULL,
+  surface_pressure = NULL
 )
 }
 \arguments{
 \item{tyler_sieve_no}{Integer Tyler Standard Sieve number for the modal
-aggregate size of the erodible surface. Must be one of the tabulated values
-(see \code{TYLER_SIEVE_DIAMETERS_M}).}
+aggregate size of the erodible surface, or \code{NULL} (default). Must be one
+of the tabulated values (see \code{TYLER_SIEVE_DIAMETERS_M}). Exactly one of
+\code{tyler_sieve_no} or \code{d50} must be supplied; see \code{d50}.}
 
 \item{clay_percent}{Clay fraction of the surface material (\% by mass), in
 \code{0}–\code{100}. Values above \code{DUST_CONSTANTS$MB95_CLAY_CAP} (20\%) are capped
@@ -34,22 +40,66 @@ moisture correction still uses the true \code{clay_percent}.}
 \item{soil_moisture}{Numeric vector. Volumetric water content of the top
 0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}
 
+\item{d50}{Modal grain diameter of the erodible surface (m), or \code{NULL}
+(default). A direct alternative to \code{tyler_sieve_no} for sites with a
+measured grain size, bypassing the Tyler sieve table; assert in
+\verb{[1e-5, 0.02]}. Exactly one of \code{tyler_sieve_no} or \code{d50} must be
+supplied; if both are supplied (non-\code{NULL}), \code{d50} supersedes and a
+warning is issued (\code{meteoHazard_dust_d50_supersedes}) — mirroring the
+\code{soil_moisture_0_to_1cm}/\code{wetness} seam in \code{litter_hazard_vec()}.}
+
 \item{z0}{Aerodynamic roughness length for the wind profile (m). Default
 \code{NULL}, which derives the smooth-bed value \code{d/30} (Nikuradse
 equivalent-sand roughness; the MB95 \code{z0s} convention) from the modal
-grain diameter implied by \code{tyler_sieve_no}. A caller-supplied \code{z0} larger
-than this smooth-bed value warns, because larger roughness is not
-sheltering the bed here (no drag partition is modelled) and so instead
-biases u*, and hence the flux, high.}
+grain diameter (\code{tyler_sieve_no} or \code{d50}); this (or any \verb{z0 <=} the
+smooth-bed value) makes the MB95 drag-partition efficient fraction
+\code{feff = 1} exactly (bit-identical smooth-bed behaviour). A caller-supplied
+\code{z0} above the smooth-bed value engages the drag partition (Marticorena &
+Bergametti 1995 Eqs 18-19): \code{feff} falls below 1, raising the threshold
+(\code{u_star_t / feff}) to represent shear stress shared with non-erodible
+roughness. If \code{feff <= DUST_CONSTANTS$FEFF_MIN} the bed is fully
+sheltered: the flux is zero for every hour, with a warning
+(\code{meteoHazard_dust_fully_sheltered}) rather than an ever more extreme (or
+sign-flipped) threshold. u* itself always uses the caller's \code{z0} in the
+log law. See @section Idealisations for the fit's sensitivity to \code{z0s}.}
 
 \item{bulk_density}{Dry bulk density (Mg/m^3). Default 1.6.}
 
 \item{gust_factor}{Gust-duration factor converting the 3-second gust to the
-fastest-mile driving wind. Default 0.84 (Durst).}
+fastest-mile driving wind. Default 0.84 (Durst). Unused when
+\code{forcing = "weibull"}.}
+
+\item{forcing}{\code{"gust"} (default) or \code{"weibull"}. \code{"gust"} applies
+\code{wind_gusts_10m}/\code{gust_factor} as a constant hourly-steady forcing (the
+pre-v4 behaviour, bit-identical). \code{"weibull"} instead treats the within-hour
+10 m wind as \code{Weibull(weibull_shape, c)} with \code{c} set so the mean equals
+\code{wind_speed_10m}, and returns the closed-form hourly-expected flux;
+\code{wind_gusts_10m} and \code{gust_factor} are unused on this path (still
+validated for shape, just not used in the flux calculation). See
+@section Idealisations.}
+
+\item{weibull_shape}{Weibull shape parameter \code{k} for \code{forcing = "weibull"}
+(ignored otherwise). Default \code{DUST_CONSTANTS$WEIBULL_SHAPE} (2.0,
+uncalibrated placeholder). Larger \code{k} concentrates the within-hour wind
+more tightly around its mean (converging to the steady-forcing flux at
+the mean as \code{k -> Inf}).}
 
 \item{threshold_multiplier}{Multiplier on the threshold friction velocity,
 length 1 or matching the met vectors. Used by \code{\link[=dust_hazard]{dust_hazard()}}
 to inject the crust-persistence factor; defaults to 1 (no effect).}
+
+\item{temperature_2m}{Numeric vector or \code{NULL} (default). Air temperature
+at 2 m (deg C), Open-Meteo \code{temperature_2m}. Together with
+\code{surface_pressure}, drives a per-hour air density via the ideal gas law
+(\code{rho_a = 100 * surface_pressure / (R_D * (temperature_2m + KELVIN_OFFSET))}); supplying only one of the pair is a classed error.
+Neither supplied (the default) uses the fixed
+\code{DUST_CONSTANTS$RHO_A_REF}. The computed density is sanity-asserted in
+\verb{[0.8, 1.6]} kg/m^3 (classed error otherwise — catches Pa-vs-hPa
+mistakes).}
+
+\item{surface_pressure}{Numeric vector or \code{NULL} (default). Surface
+(station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
+\code{surface_pressure}. See \code{temperature_2m}.}
 }
 \value{
 Numeric vector, one value per hour, proportional to the
@@ -62,8 +112,8 @@ Computes an hourly vertical dust (PM) emission flux for an exposed, erodible
 surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
 an Owen (1964) / White (1979) saltation flux, and the Marticorena &
-Bergametti (1995, "MB95") sandblasting efficiency. The erodible surface is
-assumed smooth (no non-erodible roughness drag partition; see \code{z0}). The
+Bergametti (1995, "MB95") sandblasting efficiency and drag partition
+(non-erodible roughness sheltering the erodible bed; see \code{z0}). The
 returned value is proportional to the instantaneous vertical dust
 mass-flux rate, returned \strong{unscaled} for relative ranking; for an
 operational, bounded index use \code{\link[=dust_hazard]{dust_hazard()}}.
@@ -95,25 +145,36 @@ This engine makes several simplifying assumptions, in decreasing order of
 expected impact on absolute accuracy (the relative ranking across hours is
 more robust than the absolute value):
 \itemize{
-\item \strong{Steady hourly gust forcing.} The gust is applied as a constant
-hourly-steady friction velocity rather than integrated over a
-within-hour wind-speed distribution. Because saltation flux is a
-convex (odd-power, threshold-gated) function of wind speed, this biases
-the flux high near the threshold and is a placeholder for a future
-within-hour intermittency treatment (see the T8 TODO below).
+\item \strong{Steady hourly gust forcing, by default.} With \code{forcing = "gust"}
+(default) the gust is applied as a constant hourly-steady friction
+velocity rather than integrated over a within-hour wind-speed
+distribution. Because saltation flux is a convex (odd-power,
+threshold-gated) function of wind speed, this biases the flux high near
+the threshold. \code{forcing = "weibull"} replaces the steady gust with a
+within-hour \code{Weibull(weibull_shape, c)} wind distribution (mean
+\code{wind_speed_10m}-preserving; \code{wind_gusts_10m}/\code{gust_factor} unused) and
+a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
+2004); \code{weibull_shape} (\code{DUST_CONSTANTS$WEIBULL_SHAPE}, 2.0) is an
+UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+\emph{time-averaged} saltation flux under intermittency scales closer to
+u*^2 than the instantaneous u*^3 used in both forcing modes here — a
+further refinement this closed form does not capture.
 \item \strong{MB95 alpha not SI-converted, and capped at 20\% clay.} \code{alpha} is
 kept in its native cm^-1 units (see @section Units) and is clamped at
 the clay \% where the Marticorena & Bergametti (1995) fit was validated
 (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 and emit less than a naive extrapolation would predict.
-\item \strong{Fixed reference air density.} \code{rho_a} is a constant
-(\code{DUST_CONSTANTS$RHO_A_REF}), not adjusted for site temperature or
-pressure (see the T10 TODO below).
-\item \strong{Smooth surface, no drag partition.} \code{z0} defaults to the
-smooth-bed value \code{d/30}; non-erodible roughness elements (gravel,
-vegetation, stockpiles) are not represented, so u* — and hence the flux
-— is not sheltered the way a drag-partition model would predict
-(Raupach et al. 1993; Okin 2008; Webb et al. 2014).
+\item \strong{Drag partition is a highly z0s-sensitive fit, not global
+physics.} \code{z0} defaults to the smooth-bed value \code{d/30} (\code{feff = 1}
+exactly). A caller-supplied \code{z0} above that engages the Marticorena &
+Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+the entrainment threshold to represent non-erodible roughness (gravel,
+vegetation, stockpiles) sharing the shear stress with the erodible bed
+(Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
+sensitive to the assumed erodible-element roughness \code{z0s = d/30} and
+goes negative (fully sheltered) at large \code{z0/z0s}; treat it as an
+UNCALIBRATED screening treatment, not a validated site-specific
+prediction — screening users should keep \code{z0 = NULL}.
 \item \strong{Transport-limited, not supply-limited.} The Owen/White saltation
 flux assumes an unlimited erodible reservoir. Real surfaces can be
 supply-limited (surface armouring, prior deflation), which this model
@@ -130,8 +191,8 @@ velocity (\code{A_N}, \code{gamma}).
 Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-partition and sandblasting efficiency (\code{z0s = d/30},
-\code{alpha = 10^(0.134*clay - 6)} cm^-1).
+partition efficient fraction (Eqs 18-19, \code{MB95_DP_COEF/EXP/X_CM}) and
+sandblasting efficiency (\code{z0s = d/30}, \code{alpha = 10^(0.134*clay - 6)} cm^-1).
 Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 Res. 84:4643 — saltation flux forms.
 Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}
@@ -149,6 +210,14 @@ commonly capped at 0.2 in dust-emission schemes.
 Gillette, D.A. et al. (1982) J. Geophys. Res. 87:9003 — supply limitation
 and crust rupture by saltation impact.
 Nikuradse, J. (1933); Sherman, D.J. (1992) — smooth-bed \code{z0 = d/30}.
+Stout, J.E. & Zobeck, T.M. (1997) \doi{10.1097/00010694-199710000-00003} —
+within-hour wind-speed intermittency in aeolian saltation.
+Cakmur, R.V. et al. (2004) \doi{10.1029/2003JD004067} — sub-daily wind
+variability (Weibull-shaped) in dust-emission modelling.
+Martin, R.L. & Kok, J.F. (2017) \doi{10.1126/sciadv.1602569} — time-averaged
+saltation flux under intermittent wind scales closer to u*^2 than the
+instantaneous u*^3 used here (a further refinement not captured by
+\code{forcing = "weibull"}).
 }
 \seealso{
 \code{\link[=dust_hazard]{dust_hazard()}} for the bounded operational index.

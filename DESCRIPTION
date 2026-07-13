@@ -28,7 +28,7 @@ Imports:
 Suggests:
     elevatr,
     terra,
-    testthat (>= 3.0.0),
+    testthat (>= 3.1.5),
     whitebox,
     withr
 Config/testthat/edition: 3

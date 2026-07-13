@@ -4,8 +4,8 @@
 #' surface using a physical saltation-to-emission chain: a Shao & Lu (2000)
 #' threshold friction velocity, a Fecan et al. (1999) soil-moisture correction,
 #' an Owen (1964) / White (1979) saltation flux, and the Marticorena &
-#' Bergametti (1995, "MB95") sandblasting efficiency. The erodible surface is
-#' assumed smooth (no non-erodible roughness drag partition; see `z0`). The
+#' Bergametti (1995, "MB95") sandblasting efficiency and drag partition
+#' (non-erodible roughness sheltering the erodible bed; see `z0`). The
 #' returned value is proportional to the instantaneous vertical dust
 #' mass-flux rate, returned **unscaled** for relative ranking; for an
 #' operational, bounded index use [dust_hazard()].
@@ -33,25 +33,36 @@
 #' expected impact on absolute accuracy (the relative ranking across hours is
 #' more robust than the absolute value):
 #' \itemize{
-#'   \item **Steady hourly gust forcing.** The gust is applied as a constant
-#'     hourly-steady friction velocity rather than integrated over a
-#'     within-hour wind-speed distribution. Because saltation flux is a
-#'     convex (odd-power, threshold-gated) function of wind speed, this biases
-#'     the flux high near the threshold and is a placeholder for a future
-#'     within-hour intermittency treatment (see the T8 TODO below).
+#'   \item **Steady hourly gust forcing, by default.** With `forcing = "gust"`
+#'     (default) the gust is applied as a constant hourly-steady friction
+#'     velocity rather than integrated over a within-hour wind-speed
+#'     distribution. Because saltation flux is a convex (odd-power,
+#'     threshold-gated) function of wind speed, this biases the flux high near
+#'     the threshold. `forcing = "weibull"` replaces the steady gust with a
+#'     within-hour `Weibull(weibull_shape, c)` wind distribution (mean
+#'     `wind_speed_10m`-preserving; `wind_gusts_10m`/`gust_factor` unused) and
+#'     a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
+#'     2004); `weibull_shape` (`DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0) is an
+#'     UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+#'     *time-averaged* saltation flux under intermittency scales closer to
+#'     u*^2 than the instantaneous u*^3 used in both forcing modes here — a
+#'     further refinement this closed form does not capture.
 #'   \item **MB95 alpha not SI-converted, and capped at 20% clay.** `alpha` is
 #'     kept in its native cm^-1 units (see @section Units) and is clamped at
 #'     the clay % where the Marticorena & Bergametti (1995) fit was validated
 #'     (Foroutan et al. 2017; Kok et al. 2014); real high-clay soils aggregate
 #'     and emit less than a naive extrapolation would predict.
-#'   \item **Fixed reference air density.** `rho_a` is a constant
-#'     (`DUST_CONSTANTS$RHO_A_REF`), not adjusted for site temperature or
-#'     pressure (see the T10 TODO below).
-#'   \item **Smooth surface, no drag partition.** `z0` defaults to the
-#'     smooth-bed value `d/30`; non-erodible roughness elements (gravel,
-#'     vegetation, stockpiles) are not represented, so u* — and hence the flux
-#'     — is not sheltered the way a drag-partition model would predict
-#'     (Raupach et al. 1993; Okin 2008; Webb et al. 2014).
+#'   \item **Drag partition is a highly z0s-sensitive fit, not global
+#'     physics.** `z0` defaults to the smooth-bed value `d/30` (`feff = 1`
+#'     exactly). A caller-supplied `z0` above that engages the Marticorena &
+#'     Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+#'     the entrainment threshold to represent non-erodible roughness (gravel,
+#'     vegetation, stockpiles) sharing the shear stress with the erodible bed
+#'     (Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
+#'     sensitive to the assumed erodible-element roughness `z0s = d/30` and
+#'     goes negative (fully sheltered) at large `z0/z0s`; treat it as an
+#'     UNCALIBRATED screening treatment, not a validated site-specific
+#'     prediction — screening users should keep `z0 = NULL`.
 #'   \item **Transport-limited, not supply-limited.** The Owen/White saltation
 #'     flux assumes an unlimited erodible reservoir. Real surfaces can be
 #'     supply-limited (surface armouring, prior deflation), which this model
@@ -62,8 +73,9 @@
 #' }
 #'
 #' @param tyler_sieve_no Integer Tyler Standard Sieve number for the modal
-#'   aggregate size of the erodible surface. Must be one of the tabulated values
-#'   (see `TYLER_SIEVE_DIAMETERS_M`).
+#'   aggregate size of the erodible surface, or `NULL` (default). Must be one
+#'   of the tabulated values (see `TYLER_SIEVE_DIAMETERS_M`). Exactly one of
+#'   `tyler_sieve_no` or `d50` must be supplied; see `d50`.
 #' @param clay_percent Clay fraction of the surface material (% by mass), in
 #'   `0`–`100`. Values above `DUST_CONSTANTS$MB95_CLAY_CAP` (20%) are capped
 #'   for the MB95 sandblasting efficiency only (with a warning); the Fecan
@@ -73,19 +85,59 @@
 #'   `>= wind_speed_10m` at every hour.
 #' @param soil_moisture Numeric vector. Volumetric water content of the top
 #'   0--1 cm layer (m^3/m^3), in `0`–`1`.
+#' @param d50 Modal grain diameter of the erodible surface (m), or `NULL`
+#'   (default). A direct alternative to `tyler_sieve_no` for sites with a
+#'   measured grain size, bypassing the Tyler sieve table; assert in
+#'   `[1e-5, 0.02]`. Exactly one of `tyler_sieve_no` or `d50` must be
+#'   supplied; if both are supplied (non-`NULL`), `d50` supersedes and a
+#'   warning is issued (`meteoHazard_dust_d50_supersedes`) — mirroring the
+#'   `soil_moisture_0_to_1cm`/`wetness` seam in `litter_hazard_vec()`.
 #' @param z0 Aerodynamic roughness length for the wind profile (m). Default
 #'   `NULL`, which derives the smooth-bed value `d/30` (Nikuradse
 #'   equivalent-sand roughness; the MB95 `z0s` convention) from the modal
-#'   grain diameter implied by `tyler_sieve_no`. A caller-supplied `z0` larger
-#'   than this smooth-bed value warns, because larger roughness is not
-#'   sheltering the bed here (no drag partition is modelled) and so instead
-#'   biases u*, and hence the flux, high.
+#'   grain diameter (`tyler_sieve_no` or `d50`); this (or any `z0 <=` the
+#'   smooth-bed value) makes the MB95 drag-partition efficient fraction
+#'   `feff = 1` exactly (bit-identical smooth-bed behaviour). A caller-supplied
+#'   `z0` above the smooth-bed value engages the drag partition (Marticorena &
+#'   Bergametti 1995 Eqs 18-19): `feff` falls below 1, raising the threshold
+#'   (`u_star_t / feff`) to represent shear stress shared with non-erodible
+#'   roughness. If `feff <= DUST_CONSTANTS$FEFF_MIN` the bed is fully
+#'   sheltered: the flux is zero for every hour, with a warning
+#'   (`meteoHazard_dust_fully_sheltered`) rather than an ever more extreme (or
+#'   sign-flipped) threshold. u* itself always uses the caller's `z0` in the
+#'   log law. See @section Idealisations for the fit's sensitivity to `z0s`.
 #' @param bulk_density Dry bulk density (Mg/m^3). Default 1.6.
 #' @param gust_factor Gust-duration factor converting the 3-second gust to the
-#'   fastest-mile driving wind. Default 0.84 (Durst).
+#'   fastest-mile driving wind. Default 0.84 (Durst). Unused when
+#'   `forcing = "weibull"`.
+#' @param forcing `"gust"` (default) or `"weibull"`. `"gust"` applies
+#'   `wind_gusts_10m`/`gust_factor` as a constant hourly-steady forcing (the
+#'   pre-v4 behaviour, bit-identical). `"weibull"` instead treats the within-hour
+#'   10 m wind as `Weibull(weibull_shape, c)` with `c` set so the mean equals
+#'   `wind_speed_10m`, and returns the closed-form hourly-expected flux;
+#'   `wind_gusts_10m` and `gust_factor` are unused on this path (still
+#'   validated for shape, just not used in the flux calculation). See
+#'   @section Idealisations.
+#' @param weibull_shape Weibull shape parameter `k` for `forcing = "weibull"`
+#'   (ignored otherwise). Default `DUST_CONSTANTS$WEIBULL_SHAPE` (2.0,
+#'   uncalibrated placeholder). Larger `k` concentrates the within-hour wind
+#'   more tightly around its mean (converging to the steady-forcing flux at
+#'   the mean as `k -> Inf`).
 #' @param threshold_multiplier Multiplier on the threshold friction velocity,
 #'   length 1 or matching the met vectors. Used by [dust_hazard()]
 #'   to inject the crust-persistence factor; defaults to 1 (no effect).
+#' @param temperature_2m Numeric vector or `NULL` (default). Air temperature
+#'   at 2 m (deg C), Open-Meteo `temperature_2m`. Together with
+#'   `surface_pressure`, drives a per-hour air density via the ideal gas law
+#'   (`rho_a = 100 * surface_pressure / (R_D * (temperature_2m +
+#'   KELVIN_OFFSET))`); supplying only one of the pair is a classed error.
+#'   Neither supplied (the default) uses the fixed
+#'   `DUST_CONSTANTS$RHO_A_REF`. The computed density is sanity-asserted in
+#'   `[0.8, 1.6]` kg/m^3 (classed error otherwise — catches Pa-vs-hPa
+#'   mistakes).
+#' @param surface_pressure Numeric vector or `NULL` (default). Surface
+#'   (station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
+#'   `surface_pressure`. See `temperature_2m`.
 #'
 #' @return Numeric vector, one value per hour, proportional to the
 #'   instantaneous vertical dust mass-flux rate (relative units, unscaled;
@@ -98,8 +150,8 @@
 #' Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 #' \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 #' Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-#' partition and sandblasting efficiency (`z0s = d/30`,
-#' `alpha = 10^(0.134*clay - 6)` cm^-1).
+#' partition efficient fraction (Eqs 18-19, `MB95_DP_COEF/EXP/X_CM`) and
+#' sandblasting efficiency (`z0s = d/30`, `alpha = 10^(0.134*clay - 6)` cm^-1).
 #' Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 #' Res. 84:4643 — saltation flux forms.
 #' Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}
@@ -117,19 +169,32 @@
 #' Gillette, D.A. et al. (1982) J. Geophys. Res. 87:9003 — supply limitation
 #' and crust rupture by saltation impact.
 #' Nikuradse, J. (1933); Sherman, D.J. (1992) — smooth-bed `z0 = d/30`.
+#' Stout, J.E. & Zobeck, T.M. (1997) \doi{10.1097/00010694-199710000-00003} —
+#' within-hour wind-speed intermittency in aeolian saltation.
+#' Cakmur, R.V. et al. (2004) \doi{10.1029/2003JD004067} — sub-daily wind
+#' variability (Weibull-shaped) in dust-emission modelling.
+#' Martin, R.L. & Kok, J.F. (2017) \doi{10.1126/sciadv.1602569} — time-averaged
+#' saltation flux under intermittent wind scales closer to u*^2 than the
+#' instantaneous u*^3 used here (a further refinement not captured by
+#' `forcing = "weibull"`).
 #'
 #' @seealso [dust_hazard()] for the bounded operational index.
 #' @export
 dust_flux <- function(
-  tyler_sieve_no,
+  tyler_sieve_no       = NULL,
   clay_percent,
   wind_speed_10m,
   wind_gusts_10m,
   soil_moisture,
+  d50                  = NULL,
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
-  threshold_multiplier = 1
+  forcing              = c("gust", "weibull"),
+  weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
+  threshold_multiplier = 1,
+  temperature_2m       = NULL,
+  surface_pressure     = NULL
 ) {
   # ---- Normalise dimensional inputs (bare = documented unit; units = converted) #
   # clay_percent, soil_moisture (m^3/m^3 ratio) and gust_factor are dimensionless
@@ -141,71 +206,156 @@ dust_flux <- function(
   if (!is.null(z0)) {
     z0 <- .drop_to(z0, "m", arg = "z0")
   }
+  if (!is.null(d50)) {
+    d50 <- .drop_to(d50, "m", arg = "d50")
+  }
+  if (!is.null(temperature_2m)) {
+    temperature_2m <- .drop_to(temperature_2m, "degree_C", arg = "temperature_2m")
+  }
+  if (!is.null(surface_pressure)) {
+    surface_pressure <- .drop_to(surface_pressure, "hPa", arg = "surface_pressure")
+  }
   bulk_density   <- .drop_to(bulk_density,   "Mg/m^3", arg = "bulk_density")
 
   # ---- Validation ---------------------------------------------------------- #
-  if (!as.character(tyler_sieve_no) %in% names(TYLER_SIEVE_DIAMETERS_M)) {
-    cli::cli_abort(c(
-      "Invalid {.arg tyler_sieve_no}: {tyler_sieve_no}.",
-      "i" = "Valid Tyler Sieve numbers are: {.val {as.integer(names(TYLER_SIEVE_DIAMETERS_M))}}."
-    ))
+
+  # ---- tyler_sieve_no / d50 grain-size seam --------------------------------- #
+  # Exactly one of the two grain-size inputs is required. d50 is a direct,
+  # measured-diameter alternative to the Tyler sieve table. If both are
+  # supplied, d50 wins (a caller-specified physical measurement outranks a
+  # sieve lookup) and the caller is warned so a stray leftover argument
+  # doesn't silently get ignored -- mirrors the litter
+  # soil_moisture_0_to_1cm/wetness seam (R/litter_hazard.R).
+  have_tyler <- !is.null(tyler_sieve_no)
+  have_d50   <- !is.null(d50)
+  if (!have_tyler && !have_d50) {
+    cli::cli_abort(
+      c("Exactly one of {.arg tyler_sieve_no} or {.arg d50} must be supplied.",
+        "i" = "Use {.arg tyler_sieve_no} (Tyler Standard Sieve number) or {.arg d50} (measured modal grain diameter, m)."),
+      class = "meteoHazard_input_error"
+    )
   }
+  if (have_tyler && have_d50) {
+    cli::cli_warn(
+      c("Both {.arg tyler_sieve_no} and {.arg d50} were supplied.",
+        "i" = "{.arg d50} supersedes {.arg tyler_sieve_no} for this call."),
+      class = "meteoHazard_dust_d50_supersedes"
+    )
+    have_tyler <- FALSE
+  }
+  if (have_d50) {
+    checkmate::assert_number(d50, lower = 1e-5, upper = 0.02)
+    d <- d50
+  } else {
+    if (!as.character(tyler_sieve_no) %in% names(TYLER_SIEVE_DIAMETERS_M)) {
+      cli::cli_abort(c(
+        "Invalid {.arg tyler_sieve_no}: {tyler_sieve_no}.",
+        "i" = "Valid Tyler Sieve numbers are: {.val {as.integer(names(TYLER_SIEVE_DIAMETERS_M))}}."
+      ), class = "meteoHazard_input_error")
+    }
+    d <- TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
+  }
+
   checkmate::assert_number(clay_percent, lower = 0, upper = 100)
   n <- length(wind_speed_10m)
   checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, min.len = 1)
   checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = FALSE, len = n)
   checkmate::assert_numeric(soil_moisture, lower = 0, upper = 1, any.missing = FALSE, len = n)
   if (!is.null(z0)) {
-    checkmate::assert_number(z0, lower = 1e-9, upper = 10 - 1e-9)
+    # z0 must sit strictly below the log-law reference height Z_REF (10 m),
+    # or log(z/z0) is <= 0 and u* is undefined/negative.
+    checkmate::assert_number(z0, lower = 1e-9,
+                             upper = DUST_CONSTANTS$Z_REF - 1e-9)
   }
   checkmate::assert_number(bulk_density, lower = 1e-9)
   checkmate::assert_number(gust_factor, lower = 0, upper = 1)
+  forcing <- match.arg(forcing)
+  checkmate::assert_number(weibull_shape, lower = 1e-9)
   checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = FALSE)
   if (!length(threshold_multiplier) %in% c(1L, n)) {
     cli::cli_abort(
-      "{.arg threshold_multiplier} must have length 1 or {n}, not {length(threshold_multiplier)}."
+      "{.arg threshold_multiplier} must have length 1 or {n}, not {length(threshold_multiplier)}.",
+      class = "meteoHazard_input_error"
     )
   }
   if (any(wind_gusts_10m < wind_speed_10m)) {
     cli::cli_abort(c(
       "{.arg wind_gusts_10m} must be >= {.arg wind_speed_10m} at every hour.",
       "x" = "Row(s) {.val {which(wind_gusts_10m < wind_speed_10m)}} have gust < mean wind."
-    ))
+    ), class = "meteoHazard_input_error")
+  }
+
+  # ---- temperature_2m / surface_pressure air-density seam ------------------- #
+  # Both supplied -> per-hour rho_a from the ideal gas law (`* 100` is
+  # hPa -> Pa); neither -> the fixed DUST_CONSTANTS$RHO_A_REF (behaviour
+  # preserving); exactly one is a classed error (an incomplete pair is more
+  # likely a caller mistake than an intentional partial spec).
+  have_temp  <- !is.null(temperature_2m)
+  have_press <- !is.null(surface_pressure)
+  if (have_temp != have_press) {
+    cli::cli_abort(
+      c("{.arg temperature_2m} and {.arg surface_pressure} must be supplied together, or neither.",
+        "x" = "Only {.arg {if (have_temp) 'temperature_2m' else 'surface_pressure'}} was supplied."),
+      class = "meteoHazard_input_error"
+    )
+  }
+  if (have_temp && have_press) {
+    checkmate::assert_numeric(temperature_2m, any.missing = FALSE, len = n)
+    checkmate::assert_numeric(surface_pressure, lower = 0, any.missing = FALSE, len = n)
+    rho_a <- 100 * surface_pressure /
+      (DUST_CONSTANTS$R_D * (temperature_2m + DUST_CONSTANTS$KELVIN_OFFSET))
+    if (any(rho_a < 0.8 | rho_a > 1.6)) {
+      cli::cli_abort(
+        c("Air density computed from {.arg temperature_2m}/{.arg surface_pressure} is outside the plausible range [0.8, 1.6] kg/m^3.",
+          "x" = "Computed range: [{signif(min(rho_a), 4)}, {signif(max(rho_a), 4)}] kg/m^3.",
+          "i" = "Check units -- {.arg surface_pressure} is expected in hPa, not Pa."),
+        class = "meteoHazard_input_error"
+      )
+    }
+  } else {
+    rho_a <- DUST_CONSTANTS$RHO_A_REF
   }
 
   # ---- Physical constants (DUST_CONSTANTS; see R/constants.R) -------------- #
-  rho_p <- DUST_CONSTANTS$RHO_P     # particle density (kg/m^3, quartz)
-  # Reference air density; not yet temperature/pressure adjusted (T10 TODO
-  # below).
-  rho_a <- DUST_CONSTANTS$RHO_A_REF
   g     <- DUST_CONSTANTS$G
-  gamma <- DUST_CONSTANTS$GAMMA     # interparticle cohesion parameter (N/m)
   kappa <- DUST_CONSTANTS$KAPPA     # von Karman constant
   z     <- DUST_CONSTANTS$Z_REF     # reference height (m)
 
-  d <- TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
-
-  # ---- Smooth-bed roughness (Nikuradse; MB95 z0s convention) --------------- #
+  # ---- Smooth-bed roughness + MB95 drag partition (Eqs 18-19) -------------- #
   # z0 = NULL (default) derives the smooth erodible-bed roughness d/30, i.e.
-  # no non-erodible-element drag partition. A caller-supplied z0 greater than
-  # this raises u* (rather than sheltering the bed via a drag partition, which
-  # is not modelled here), biasing the flux high — warn instead of silently
-  # trusting an unmodelled sheltering effect (Raupach et al. 1993; Okin 2008;
-  # Webb et al. 2014). The guard is strict `>` so the exact smooth-bed value
-  # itself never warns.
+  # no non-erodible-element drag partition (feff = 1 exactly, bit-identical to
+  # the smooth-bed path). A caller-supplied z0 at or below z0_smooth is treated
+  # the same way. A z0 *above* z0_smooth represents non-erodible roughness
+  # sharing the shear stress with the erodible bed: only the efficient
+  # fraction feff of u* reaches the bed, raised here as a threshold divisor
+  # (Marticorena & Bergametti 1995, Eqs 18-19; lengths in cm; z0s = z0_smooth
+  # is the erodible-element roughness, X = MB95_DP_X_CM the internal
+  # boundary-layer height). The fit is not global physics -- feff can go
+  # negative at large z0/z0s (screening only; see @section Idealisations) --
+  # so feff <= FEFF_MIN is treated as fully sheltered: zero flux, with a
+  # warning, rather than an ever-more-extreme (or sign-flipped) threshold.
   z0_smooth <- d * DUST_CONSTANTS$Z0_SMOOTH_RATIO
   if (is.null(z0)) {
     z0 <- z0_smooth
-  } else if (z0 > z0_smooth) {
+    feff <- 1
+  } else if (z0 <= z0_smooth) {
+    feff <- 1
+  } else {
+    z0s_cm <- z0_smooth * 100
+    feff <- 1 - log(z0 / z0_smooth) /
+      log(DUST_CONSTANTS$MB95_DP_COEF * (DUST_CONSTANTS$MB95_DP_X_CM / z0s_cm)^DUST_CONSTANTS$MB95_DP_EXP)
+  }
+  fully_sheltered <- feff <= DUST_CONSTANTS$FEFF_MIN
+  if (fully_sheltered) {
     cli::cli_warn(c(
-      "Supplied {.arg z0} ({z0} m) exceeds the smooth-bed roughness d/30 ({signif(z0_smooth, 3)} m).",
-      "!" = "Non-erodible roughness is not represented (the drag partition is not modelled), so a larger z0 raises u* rather than sheltering the bed; the flux may be biased high.",
-      "i" = "Leave {.arg z0} = NULL to use the smooth-bed value, or characterise roughness for a drag-partition treatment."
-    ))
+      "Supplied {.arg z0} ({z0} m) fully shelters the erodible bed under the MB95 drag partition (feff = {signif(feff, 3)} <= {DUST_CONSTANTS$FEFF_MIN}).",
+      "!" = "Returning zero flux for all hours.",
+      "i" = "The MB95 partition fit is not global physics and can go negative at large z0/z0s; reduce {.arg z0} or leave it {.code NULL} for the smooth bed."
+    ), class = "meteoHazard_dust_fully_sheltered")
   }
 
   # ---- Dry threshold friction velocity (Shao & Lu 2000) -------------------- #
-  u_star_t_dry <- sqrt(DUST_CONSTANTS$A_N * (rho_p / rho_a * g * d + gamma / (rho_a * d)))
+  u_star_t_dry <- .dust_u_star_t_dry(d, rho_a)
 
   # ---- Moisture correction (Fecan et al. 1999) ----------------------------- #
   # Gravimetric moisture (% by mass) from volumetric content and bulk density;
@@ -220,27 +370,53 @@ dust_flux <- function(
     1
   )
 
-  # ---- Combined threshold: wetness vs crust hand off via the maximum ------- #
-  u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier)
+  # ---- Combined threshold: wetness/crust hand off via max, then drag partition #
+  u_star_t <- u_star_t_dry * pmax(f_moist, threshold_multiplier) / feff
 
-  # ---- Effective friction velocity (gust-driven, fastest-mile proxy) ------- #
-  U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
-  # Log law over the smooth-bed z0; the gust is applied as an hourly-steady
-  # forcing (idealisation — see @section Idealisations: biases high near
-  # threshold; T8 TODO below covers within-hour intermittency).
-  u_star <- kappa * U_fm / log(z / z0)
+  # ---- Saltation forcing: hourly-steady gust, or within-hour Weibull ------- #
+  # a: the log-law slope (u* = a * U over the caller's, or smooth-bed, z0).
+  a <- kappa / log(z / z0)
 
-  # ---- Saltation flux (Owen 1964 / White 1979) ----------------------------- #
-  # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess factor
-  # is computed only where u* exceeds the threshold, so it is never negative.
-  # This is transport-limited (unlimited erodible reservoir assumed); see
-  # @section Idealisations for the supply-limited caveat.
-  excess  <- ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
-  Q       <- (rho_a / g) * u_star^3 * excess
+  if (forcing == "gust") {
+    # Gust-driven, fastest-mile proxy, applied as an hourly-steady forcing
+    # (idealisation — see @section Idealisations: biases high near threshold;
+    # "weibull" below is the within-hour alternative).
+    u_star <- .dust_u_star(wind_speed_10m, wind_gusts_10m, gust_factor, z0)
+
+    # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess
+    # factor is computed only where u* exceeds the threshold, so it is never
+    # negative. Transport-limited (unlimited erodible reservoir assumed); see
+    # @section Idealisations for the supply-limited caveat.
+    excess <- ifelse(u_star > u_star_t, 1 - (u_star_t / u_star)^2, 0)
+    Q      <- (rho_a / g) * u_star^3 * excess
+  } else {
+    # Within-hour wind U ~ Weibull(k, c), mean-preserving
+    # (c = wind_speed_10m / gamma(1 + 1/k)); wind_gusts_10m and gust_factor are
+    # UNUSED on this path (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
+    # within-hour intermittency treatment; see @section Idealisations and
+    # dev/dust-v4-plan.md WP3 for the closed-form derivation). The hourly
+    # expectation of Q = (rho_a/g)(aU)^3(1 - (u*t/(aU))^2) over the active
+    # (U > Ut = u_star_t/a) tail uses the truncated Weibull raw moments
+    # E[U^m; U > Ut] = c^m * Gamma(1 + m/k) * P(U > Ut) in the shifted gamma
+    # family (pgamma with shape = 1 + m/k is the standard closed form).
+    k  <- weibull_shape
+    cc <- wind_speed_10m / gamma(1 + 1 / k)
+    Ut <- u_star_t / a
+    e_trunc <- function(m) {
+      cc^m * gamma(1 + m / k) *
+        pgamma((Ut / cc)^k, shape = 1 + m / k, rate = 1, lower.tail = FALSE)
+    }
+    Q <- (rho_a / g) * (a^3 * e_trunc(3) - a * u_star_t^2 * e_trunc(1))
+  }
+  # A fully sheltered surface (feff <= FEFF_MIN) is forced to zero regardless
+  # of u_star_t's (possibly sign-flipped, feff-divided) value, in either mode.
+  if (fully_sheltered) Q <- rep(0, n)
 
   # ---- Vertical dust flux: MB95 sandblasting efficiency -------------------- #
-  # alpha depends only on clay, so it cancels in the reference-normalised index;
-  # retained so this engine yields a physically-meaningful flux. The MB95 fit
+  # alpha depends only on clay, so for a fixed site it scales the flux without
+  # re-ranking hours; retained so this engine yields a physically-meaningful
+  # flux (the fixed reference-normalised index it once cancelled out of was
+  # removed by issue #11). The MB95 fit
   # is only validated to 20% clay (Foroutan et al. 2017; Kok et al. 2014);
   # above that, real high-clay soils aggregate and emit less, so alpha is
   # capped at its 20%-clay value rather than extrapolated. alpha is in cm^-1
@@ -252,20 +428,8 @@ dust_flux <- function(
     cli::cli_warn(c(
       "{.arg clay_percent} ({clay_percent}%) exceeds the MB95 sandblasting validity limit ({DUST_CONSTANTS$MB95_CLAY_CAP}%).",
       "i" = "alpha capped at its {DUST_CONSTANTS$MB95_CLAY_CAP}% value; the MB95 fit is not calibrated for higher clay (real high-clay soils aggregate and emit less)."
-    ))
+    ), class = "meteoHazard_dust_clay_capped")
   }
-
-  # TODO(dust-v3): T10 — add a direct diameter/d50 interface (bypassing
-  # tyler_sieve_no) and a temperature-dependent air density (from
-  # temperature_2m/pressure_msl via the ideal gas law) rather than the fixed
-  # DUST_CONSTANTS$RHO_A_REF used above. Not implemented in this iteration.
-  # TODO(dust-v3): T8 — integrate a within-hour Weibull wind-speed
-  # distribution (Stout & Zobeck 1997; Cakmur et al. 2004) rather than the
-  # steady hourly-gust forcing above, exposed via a future
-  # `forcing = c("gust", "weibull")` argument (Comola et al. 2019 quantify the
-  # intermittency bias this would correct; Martin & Kok 2017 note flux
-  # scales ~u*^2 for the time-averaged saltation flux under intermittency,
-  # vs. the instantaneous u*^3 used here). Not implemented in this iteration.
 
   alpha * Q
 }
@@ -298,15 +462,23 @@ dust_flux <- function(
 #' crust-forming rain before the forecast window starts.
 #'
 #' @section Idealisations:
-#' The precipitation-driven crust factor is an uncalibrated exponential
-#' clock-decay placeholder (`1 + (crust_factor_max - 1) * exp(-age /
-#' crust_decay_hours)`): real crust breakdown is primarily mechanical
-#' (abrasion/rupture by saltating-particle impact), not a pure function of
-#' elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A future version
-#' should gate crust decay on cumulative saltation activity (a TODO, not
-#' implemented here) rather than the clock alone. Separately, watering and
-#' other surface management (the first-order dust-suppression control on an
-#' active landfill working face) are invisible to the gridded
+#' The precipitation-driven crust factor is an uncalibrated exponential decay
+#' placeholder (`1 + (crust_factor_max - 1) * exp(-age / crust_decay_hours)`);
+#' real crust breakdown is primarily mechanical (abrasion/rupture by
+#' saltating-particle impact), not a pure function of elapsed time (Gillette
+#' et al. 1982; Rice & McEwan 2001). With `crust_decay = "clock"` (default)
+#' `age` is pure elapsed time, so a calm week decays the crust exactly as much
+#' as a windy one -- retained as the behaviour-preserving default.
+#' `crust_decay = "saltation"` instead advances `age` only during hours when
+#' the (currently crusted) surface actually saltates, so it does not decay
+#' through a calm spell; it still does not model *why* particular impacts
+#' rupture the crust (a fixed exponential decay rate once saltation resumes,
+#' rather than e.g. an impact-count-dependent rupture probability, remains an
+#' uncalibrated placeholder in both modes) and recomputes u*/the moisture
+#' threshold using the simplified (non-drag-partitioned) smooth/caller z0
+#' rather than sharing dust_flux()'s exact internal state. Separately,
+#' watering and other surface management (the first-order dust-suppression
+#' control on an active landfill working face) are invisible to the gridded
 #' `soil_moisture_0_to_1cm` input; `threshold_multiplier` (via [dust_flux()])
 #' is the intended injection hook — e.g. a caller can locally raise the
 #' threshold multiplier during known watering hours before invoking
@@ -315,11 +487,32 @@ dust_flux <- function(
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
 #'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
 #'   `soil_moisture_0_to_1cm` (m^3/m^3); plus `precipitation` (mm) when
-#'   `crust = TRUE`.
-#' @param tyler_sieve_no,clay_percent,z0,bulk_density,gust_factor
-#'   Site and model parameters forwarded to [dust_flux()].
+#'   `crust = TRUE`; plus `temperature_2m` (deg C) and `surface_pressure` (hPa)
+#'   when `air_density = "met"`.
+#' @param tyler_sieve_no,clay_percent,d50,z0,bulk_density,gust_factor,forcing,weibull_shape
+#'   Site and model parameters forwarded to [dust_flux()]. `d50` (m), if
+#'   supplied, supersedes `tyler_sieve_no` (with a warning if both are
+#'   non-`NULL`); `forcing = "weibull"` ignores `wind_gusts_10m`/`gust_factor`
+#'   -- see [dust_flux()].
+#' @param air_density `"reference"` (default) or `"met"`. `"reference"` uses
+#'   the fixed `DUST_CONSTANTS$RHO_A_REF` and ignores any `temperature_2m`/
+#'   `surface_pressure` columns in `met_data`, even if present (an explicit
+#'   flag, not auto-detection, so a caller never gets a silent behaviour
+#'   change from adding those columns). `"met"` requires both columns and
+#'   forwards them to [dust_flux()] for a per-hour, temperature/pressure-driven
+#'   air density.
 #' @param crust Logical. Enable the precipitation-driven crust-persistence gate.
 #'   Default `FALSE`. When `TRUE`, `met_data$precipitation` is required.
+#' @param crust_decay `"clock"` (default) or `"saltation"`. `"clock"` decays
+#'   the crust as a pure function of elapsed time since the last
+#'   crust-forming rain (the pre-v4 behaviour, bit-identical) -- see
+#'   @section Idealisations. `"saltation"` instead advances the crust age only
+#'   during hours when saltation is actually occurring on the (currently
+#'   crusted) surface: calm hours leave a fresh crust untouched, so it can
+#'   persist through a calm week that the clock would decay regardless.
+#'   Recomputes `u*`/the moisture-corrected dry threshold internally from the
+#'   same site parameters forwarded to [dust_flux()] purely to drive this
+#'   gate (u* is thus computed twice; correctness over micro-perf).
 #' @param rain_crust_threshold Precipitation (mm) at or above which an hour is
 #'   treated as a crust-forming rain event. Default 2.
 #' @param crust_factor_max Maximum threshold multiplier immediately after rain.
@@ -344,10 +537,15 @@ dust_hazard <- function(
   met_data,
   tyler_sieve_no       = 20L,
   clay_percent         = 10,
+  d50                  = NULL,
   z0                   = NULL,
   bulk_density         = 1.6,
   gust_factor          = 0.84,
+  forcing              = c("gust", "weibull"),
+  weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
+  air_density          = c("reference", "met"),
   crust                = FALSE,
+  crust_decay          = c("clock", "saltation"),
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
   crust_decay_hours    = 72,
@@ -357,6 +555,9 @@ dust_hazard <- function(
   # met_data wind columns are normalised inside dust_flux(); crust_factor_max and
   # crust_decay_hours are dimensionless / in hours and taken as-is.
   rain_crust_threshold <- .drop_to(rain_crust_threshold, "mm", arg = "rain_crust_threshold")
+  crust_decay <- match.arg(crust_decay)
+
+  air_density <- match.arg(air_density)
 
   checkmate::assert_data_frame(met_data, min.rows = 1)
   checkmate::assert_flag(crust)
@@ -367,35 +568,100 @@ dust_hazard <- function(
 
   required_cols <- c("wind_speed_10m", "wind_gusts_10m", "soil_moisture_0_to_1cm")
   if (crust) required_cols <- c(required_cols, "precipitation")
+  if (air_density == "met") required_cols <- c(required_cols, "temperature_2m", "surface_pressure")
   .assert_required_cols(
     met_data, required_cols, arg = "met_data",
     info = paste0(
       "Required: wind_speed_10m (m/s), wind_gusts_10m (m/s), ",
       "soil_moisture_0_to_1cm (m³/m³)",
-      if (crust) ", precipitation (mm)." else "."
+      if (crust) ", precipitation (mm)" else "",
+      if (air_density == "met") ", temperature_2m (degC), surface_pressure (hPa)." else "."
     )
   )
 
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
-  crust_mult <- if (crust) {
+  crust_mult <- if (!crust) {
+    1
+  } else if (crust_decay == "clock") {
     .dust_crust_factor(.drop_to(met_data$precipitation, "mm", arg = "precipitation"),
                        rain_crust_threshold, crust_factor_max, crust_decay_hours,
                        age0 = hours_since_last_rain)
   } else {
-    1
+    # ---- Saltation-gated crust decay (WP4) --------------------------------- #
+    # Quiet re-derivation of the grain diameter / z0 / air density -- the SAME
+    # site parameters forwarded to dust_flux() below -- purely to drive the
+    # saltation gate (no warnings emitted here; dust_flux() below performs the
+    # authoritative, warning-emitting resolution for the actual flux). u* is
+    # thus computed twice; correctness over micro-perf (dev/dust-v4-plan.md WP4).
+    d_gate <- if (!is.null(d50)) {
+      .drop_to(d50, "m", arg = "d50")
+    } else if (!is.null(tyler_sieve_no)) {
+      TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
+    } else {
+      cli::cli_abort(
+        "Exactly one of {.arg tyler_sieve_no} or {.arg d50} must be supplied.",
+        class = "meteoHazard_input_error"
+      )
+    }
+    z0_gate <- if (is.null(z0)) {
+      d_gate * DUST_CONSTANTS$Z0_SMOOTH_RATIO
+    } else {
+      .drop_to(z0, "m", arg = "z0")
+    }
+    rho_a_gate <- if (air_density == "met") {
+      100 * .drop_to(met_data$surface_pressure, "hPa", arg = "surface_pressure") /
+        (DUST_CONSTANTS$R_D * (.drop_to(met_data$temperature_2m, "degree_C", arg = "temperature_2m") +
+                                DUST_CONSTANTS$KELVIN_OFFSET))
+    } else {
+      DUST_CONSTANTS$RHO_A_REF
+    }
+    w_gate       <- met_data$soil_moisture_0_to_1cm /
+      .drop_to(bulk_density, "Mg/m^3", arg = "bulk_density") * 100
+    w_prime_gate <- DUST_CONSTANTS$FECAN_WP_QUAD * clay_percent^2 + DUST_CONSTANTS$FECAN_WP_LIN * clay_percent
+    f_moist_gate <- ifelse(
+      w_gate > w_prime_gate,
+      sqrt(1 + DUST_CONSTANTS$FECAN_A * (w_gate - w_prime_gate)^DUST_CONSTANTS$FECAN_B),
+      1
+    )
+    u_star_t_moist_gate <- .dust_u_star_t_dry(d_gate, rho_a_gate) * f_moist_gate
+    u_star_gate <- .dust_u_star(
+      .drop_to(met_data$wind_speed_10m, "m/s", arg = "wind_speed_10m"),
+      .drop_to(met_data$wind_gusts_10m, "m/s", arg = "wind_gusts_10m"),
+      gust_factor, z0_gate
+    )
+
+    .dust_crust_factor_saltation(
+      precipitation  = .drop_to(met_data$precipitation, "mm", arg = "precipitation"),
+      u_star         = u_star_gate,
+      u_star_t_moist = u_star_t_moist_gate,
+      threshold      = rain_crust_threshold,
+      factor_max     = crust_factor_max,
+      decay_hours    = crust_decay_hours,
+      age0           = hours_since_last_rain
+    )
   }
 
   common <- list(
-    tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent,
-    z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor
+    tyler_sieve_no = tyler_sieve_no, clay_percent = clay_percent, d50 = d50,
+    z0 = z0, bulk_density = bulk_density, gust_factor = gust_factor,
+    forcing = forcing, weibull_shape = weibull_shape
   )
 
-  do.call(dust_flux, c(common, list(
+  met_args <- list(
     wind_speed_10m       = met_data$wind_speed_10m,
     wind_gusts_10m       = met_data$wind_gusts_10m,
     soil_moisture        = met_data$soil_moisture_0_to_1cm,
     threshold_multiplier = crust_mult
-  )))
+  )
+  # air_density = "met" forwards the raw met_data columns; dust_flux()
+  # normalises units and computes the per-hour density itself. Not
+  # auto-detected -- "reference" ignores these columns even if present.
+  if (air_density == "met") {
+    met_args$temperature_2m   <- met_data$temperature_2m
+    met_args$surface_pressure <- met_data$surface_pressure
+  }
+
+  do.call(dust_flux, c(common, met_args))
 }
 
 # TODO(dust-v3): T9 — add a receptor-aware dust_exposure() layer, mirroring
@@ -411,15 +677,38 @@ dust_hazard <- function(
 
 # ---- Internal helpers ------------------------------------------------------ #
 
-# Per-hour crust threshold multiplier. age = hours since the most recent hour
-# with precipitation >= threshold (Inf before any such hour, or governed by
-# age0 for row 1 — see dust_hazard()'s "Crust cold-start" section). The crust
-# is strongest right after rain and decays exponentially over decay_hours.
-# This exponential clock-decay is an uncalibrated placeholder; real crust
-# breakdown is primarily mechanical (saltation-impact abrasion/rupture), not a
-# pure function of elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A
-# future version should gate decay on cumulative saltation activity instead
-# (TODO, not implemented here).
+# The u* chain (Shao & Lu 2000 dry threshold; gust-driven friction velocity),
+# extracted from dust_flux() (WP4 refactor, no-behaviour-change) so
+# dust_hazard()'s saltation-gated crust decay can recompute the same
+# quantities for its gate without duplicating the formulas inline.
+
+# Dry threshold friction velocity (Shao & Lu 2000), before the Fecan moisture
+# correction / crust multiplier / MB95 drag-partition division. `d` is the
+# (already-resolved) modal grain diameter (m); `rho_a` the air density
+# (kg/m^3, scalar or per-hour vector).
+.dust_u_star_t_dry <- function(d, rho_a) {
+  sqrt(DUST_CONSTANTS$A_N * (DUST_CONSTANTS$RHO_P / rho_a * DUST_CONSTANTS$G * d +
+                              DUST_CONSTANTS$GAMMA / (rho_a * d)))
+}
+
+# Gust-driven friction velocity: u* = (kappa / log(Z_REF/z0)) * max(wind_speed_10m,
+# gust_factor * wind_gusts_10m). `z0` is the already-resolved roughness length
+# (m; the caller's value or the smooth-bed default, never NULL here).
+.dust_u_star <- function(wind_speed_10m, wind_gusts_10m, gust_factor, z0) {
+  U_fm <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)
+  a    <- DUST_CONSTANTS$KAPPA / log(DUST_CONSTANTS$Z_REF / z0)
+  a * U_fm
+}
+
+# Per-hour crust threshold multiplier (clock decay). age = hours since the
+# most recent hour with precipitation >= threshold (Inf before any such hour,
+# or governed by age0 for row 1 — see dust_hazard()'s "Crust cold-start"
+# section). The crust is strongest right after rain and decays exponentially
+# over decay_hours. This exponential clock-decay is an uncalibrated
+# placeholder; real crust breakdown is primarily mechanical (saltation-impact
+# abrasion/rupture), not a pure function of elapsed time (Gillette et al.
+# 1982; Rice & McEwan 2001) -- see .dust_crust_factor_saltation() for the
+# saltation-gated alternative (WP4, `crust_decay = "saltation"`).
 .dust_crust_factor <- function(precipitation, threshold, factor_max, decay_hours, age0 = Inf) {
   checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
   n   <- length(precipitation)
@@ -434,6 +723,50 @@ dust_hazard <- function(
     age[i] <- current
   }
   ifelse(is.finite(age), 1 + (factor_max - 1) * exp(-age / decay_hours), 1)
+}
+
+# Per-hour crust threshold multiplier (saltation-gated decay, WP4). Unlike
+# .dust_crust_factor()'s pure clock, the crust age here only advances during
+# hours when saltation is actually occurring *on the crusted surface*: a rain
+# hour resets it to fresh; a calm/sub-threshold hour leaves it untouched
+# (nothing is abrading the crust); only a supra-(crusted-)threshold hour
+# advances it (Gillette et al. 1982; Rice & McEwan 2001 motivate gating decay
+# on mechanical abrasion rather than elapsed time alone).
+#
+# At each hour i, mult_i is computed from the age carried IN from the previous
+# hour (age0 for row 1) -- i.e. that hour's own rain/saltation is reflected in
+# the NEXT hour's multiplier, not retroactively in its own (contrast
+# .dust_crust_factor()'s same-hour convention). `u_star`/`u_star_t_moist` are
+# the (pre-crust, pre-drag-partition) gust-driven friction velocity and
+# moisture-corrected dry threshold for the same site/hours (see
+# dust_hazard()'s saltation-gate derivation); the crusted threshold used only
+# for this hour's gate decision is `u_star_t_moist * max(1, mult_i)` (combined
+# via max, mirroring dust_flux()'s own moisture/crust hand-off).
+.dust_crust_factor_saltation <- function(precipitation, u_star, u_star_t_moist,
+                                          threshold, factor_max, decay_hours,
+                                          age0 = Inf) {
+  n <- length(precipitation)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
+  checkmate::assert_numeric(u_star, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(u_star_t_moist, lower = 0, any.missing = FALSE, len = n)
+
+  mult <- numeric(n)
+  current <- age0
+  for (i in seq_len(n)) {
+    mult[i] <- if (is.finite(current)) {
+      1 + (factor_max - 1) * exp(-current / decay_hours)
+    } else {
+      1
+    }
+    u_star_t_i <- u_star_t_moist[i] * max(1, mult[i])
+    if (precipitation[i] >= threshold) {
+      current <- 0
+    } else if (u_star[i] > u_star_t_i) {
+      current <- current + 1   # crust is being sandblasted
+    }
+    # else: calm/sub-threshold hour -- crust age holds (nothing abrading it).
+  }
+  mult
 }
 
 
