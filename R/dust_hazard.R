@@ -148,7 +148,7 @@ dust_flux <- function(
     cli::cli_abort(c(
       "Invalid {.arg tyler_sieve_no}: {tyler_sieve_no}.",
       "i" = "Valid Tyler Sieve numbers are: {.val {as.integer(names(TYLER_SIEVE_DIAMETERS_M))}}."
-    ))
+    ), class = "meteoHazard_input_error")
   }
   checkmate::assert_number(clay_percent, lower = 0, upper = 100)
   n <- length(wind_speed_10m)
@@ -156,21 +156,25 @@ dust_flux <- function(
   checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = FALSE, len = n)
   checkmate::assert_numeric(soil_moisture, lower = 0, upper = 1, any.missing = FALSE, len = n)
   if (!is.null(z0)) {
-    checkmate::assert_number(z0, lower = 1e-9, upper = 10 - 1e-9)
+    # z0 must sit strictly below the log-law reference height Z_REF (10 m),
+    # or log(z/z0) is <= 0 and u* is undefined/negative.
+    checkmate::assert_number(z0, lower = 1e-9,
+                             upper = DUST_CONSTANTS$Z_REF - 1e-9)
   }
   checkmate::assert_number(bulk_density, lower = 1e-9)
   checkmate::assert_number(gust_factor, lower = 0, upper = 1)
   checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = FALSE)
   if (!length(threshold_multiplier) %in% c(1L, n)) {
     cli::cli_abort(
-      "{.arg threshold_multiplier} must have length 1 or {n}, not {length(threshold_multiplier)}."
+      "{.arg threshold_multiplier} must have length 1 or {n}, not {length(threshold_multiplier)}.",
+      class = "meteoHazard_input_error"
     )
   }
   if (any(wind_gusts_10m < wind_speed_10m)) {
     cli::cli_abort(c(
       "{.arg wind_gusts_10m} must be >= {.arg wind_speed_10m} at every hour.",
       "x" = "Row(s) {.val {which(wind_gusts_10m < wind_speed_10m)}} have gust < mean wind."
-    ))
+    ), class = "meteoHazard_input_error")
   }
 
   # ---- Physical constants (DUST_CONSTANTS; see R/constants.R) -------------- #
@@ -201,7 +205,7 @@ dust_flux <- function(
       "Supplied {.arg z0} ({z0} m) exceeds the smooth-bed roughness d/30 ({signif(z0_smooth, 3)} m).",
       "!" = "Non-erodible roughness is not represented (the drag partition is not modelled), so a larger z0 raises u* rather than sheltering the bed; the flux may be biased high.",
       "i" = "Leave {.arg z0} = NULL to use the smooth-bed value, or characterise roughness for a drag-partition treatment."
-    ))
+    ), class = "meteoHazard_dust_z0_rough")
   }
 
   # ---- Dry threshold friction velocity (Shao & Lu 2000) -------------------- #
@@ -239,8 +243,10 @@ dust_flux <- function(
   Q       <- (rho_a / g) * u_star^3 * excess
 
   # ---- Vertical dust flux: MB95 sandblasting efficiency -------------------- #
-  # alpha depends only on clay, so it cancels in the reference-normalised index;
-  # retained so this engine yields a physically-meaningful flux. The MB95 fit
+  # alpha depends only on clay, so for a fixed site it scales the flux without
+  # re-ranking hours; retained so this engine yields a physically-meaningful
+  # flux (the fixed reference-normalised index it once cancelled out of was
+  # removed by issue #11). The MB95 fit
   # is only validated to 20% clay (Foroutan et al. 2017; Kok et al. 2014);
   # above that, real high-clay soils aggregate and emit less, so alpha is
   # capped at its 20%-clay value rather than extrapolated. alpha is in cm^-1
@@ -252,7 +258,7 @@ dust_flux <- function(
     cli::cli_warn(c(
       "{.arg clay_percent} ({clay_percent}%) exceeds the MB95 sandblasting validity limit ({DUST_CONSTANTS$MB95_CLAY_CAP}%).",
       "i" = "alpha capped at its {DUST_CONSTANTS$MB95_CLAY_CAP}% value; the MB95 fit is not calibrated for higher clay (real high-clay soils aggregate and emit less)."
-    ))
+    ), class = "meteoHazard_dust_clay_capped")
   }
 
   # TODO(dust-v3): T10 — add a direct diameter/d50 interface (bypassing

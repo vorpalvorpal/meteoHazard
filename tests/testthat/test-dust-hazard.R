@@ -84,7 +84,14 @@ describe("dust_flux() [v2]", {
 
   it("rejects an invalid Tyler sieve number", {
     skip_if_no_dust_v2()
-    expect_error(dust_flux(7L, 10, 0, 16, 0.02))
+    expect_error(dust_flux(7L, 10, 0, 16, 0.02),
+                 class = "meteoHazard_input_error")
+  })
+
+  it("rejects z0 at or above the 10 m reference height (log-law singularity)", {
+    skip_if_no_dust_v2()
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, z0 = 10))
+    expect_error(dust_flux(20L, 10, 0, 20, 0.02, z0 = 12))
   })
 
   it("rejects out-of-range clay, soil moisture, and missing values", {
@@ -115,6 +122,10 @@ describe("dust_flux() [v2]", {
       dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
       regexp = "roughness|drag partition"
     )
+    expect_warning(
+      dust_flux(20L, 10, 0, 20, 0.02, z0 = 0.05),
+      class = "meteoHazard_dust_z0_rough"
+    )
   })
 
   it("z0 = NULL matches the explicit smooth-bed z0 exactly, without a warning [CC-1c]", {
@@ -143,6 +154,8 @@ describe("dust_flux() [v2]", {
     # z0 > smooth-bed would add a second, order-dependent warning). The alpha
     # clamp/warning is independent of the entrainment threshold.
     expect_warning(dust_flux(20L, 50, 0, 20, 0.02), regexp = "clay")
+    expect_warning(dust_flux(20L, 50, 0, 20, 0.02),
+                   class = "meteoHazard_dust_clay_capped")
   })
 
   # ---- T3: input validation (threshold_multiplier length; gust >= wind) ---- #
@@ -151,7 +164,8 @@ describe("dust_flux() [v2]", {
     skip_if_no_dust_v2()
     expect_error(
       dust_flux(20L, 10, c(0, 0, 0), c(20, 20, 20), c(0.02, 0.02, 0.02),
-                threshold_multiplier = c(1, 2))
+                threshold_multiplier = c(1, 2)),
+      class = "meteoHazard_input_error"
     )
   })
 
@@ -172,6 +186,10 @@ describe("dust_flux() [v2]", {
     expect_error(
       dust_flux(20L, 10, wind_speed_10m = 5, wind_gusts_10m = 3, soil_moisture = 0.02),
       regexp = "gust"
+    )
+    expect_error(
+      dust_flux(20L, 10, wind_speed_10m = 5, wind_gusts_10m = 3, soil_moisture = 0.02),
+      class = "meteoHazard_input_error"
     )
   })
 
