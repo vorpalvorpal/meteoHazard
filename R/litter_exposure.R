@@ -59,7 +59,12 @@
 #'   **basic** mode. Default 45. Must exceed `move_threshold`. (Ignored in
 #'   refined mode, which uses the reach test instead.)
 #' @param default_permeability Permeability applied when the downwind bearing
-#'   matches no configured sector. Default 0.5.
+#'   matches no configured sector. Default 0.5. A gap is treated consistently for
+#'   magnitude and destination: `exposure` uses this permeability, and
+#'   `leaves_site` is `TRUE` when it is `>= p_open_min` and the hour is off-site
+#'   (basic mode). `sensitive_receptor` is always `FALSE` for a gap, so a gap can
+#'   never be `off_site`. In refined mode a gap has no boundary distance, so it is
+#'   never "reached" and `leaves_site` is `FALSE` there.
 #' @param mean_wind Optional numeric vector (m/s; a bare numeric or a
 #'   \pkg{units} object, converted), same length as `hazard`. The hour's mean
 #'   wind. Supplying both `mean_wind` and `reach_per_ms` activates the refined
@@ -171,7 +176,7 @@ litter_exposure <- function(
     cli::cli_warn(
       c(
         "{.arg site} has a litter source but no {.val (litter, barrier)} features.",
-        "i" = "Every bearing will use {.arg default_permeability} and no hour can be off-site."
+        "i" = "Every bearing uses {.arg default_permeability} for both exposure and {.field leaves_site}, is never a sensitive receptor, and so no hour can be off-site."
       ),
       class = "meteoHazard_litter_no_barriers"
     )
@@ -247,6 +252,20 @@ litter_exposure <- function(
       leaves_site   <- leaves_site   | (hit_k & open_k & reached_k)
     }
   }
+
+  # ---- Gap fall-through (no sector hit) ------------------------------------ #
+  # On a gap hour (best_perm still -Inf) the magnitude already uses
+  # default_permeability, so leaves_site must use the SAME assumptions:
+  # permeability = default_permeability, sensitivity = FALSE, distance = unknown.
+  # Previously the magnitude said "litter passes the unconfigured boundary" while
+  # leaves_site said "never" -- a contradiction. sensitive_receptor stays FALSE
+  # for gaps (an unconfigured aspect is not a known sensitive receptor), so zone
+  # can still never be off_site through a gap. Refined mode has no distance for a
+  # gap, so it can never be "reached" there.
+  gap_hours   <- !is.finite(best_perm)
+  gap_open    <- default_permeability >= p_open_min
+  gap_reached <- if (refined) FALSE else hazard >= offsite_threshold
+  leaves_site <- leaves_site | (gap_hours & gap_open & gap_reached)
 
   directional_factor <- ifelse(is.finite(best_perm), best_perm, default_permeability)
 

@@ -80,7 +80,10 @@ describe("litter_exposure() on the mh_site model (basic-mode regression)", {
     # Wind from N (0) -> downwind toward S (180). Neither NE-SE nor SW-NW covers 180.
     out <- litter_exposure(86, 0, site, default_permeability = 0.5)
     expect_equal(out$exposure, 43, tolerance = 1e-3)
-    expect_false(out$leaves_site)
+    # WP3 re-pin: a gap uses default_permeability for leaves_site too (0.5 >=
+    # p_open_min 0.5 and hazard 86 >= offsite 45), consistent with the exposure
+    # magnitude. sensitive_receptor stays FALSE (a gap is not a known receptor).
+    expect_true(out$leaves_site)
     expect_false(out$sensitive_receptor)
   })
 
@@ -413,7 +416,29 @@ describe("zero-barrier warning", {
     expect_s3_class(out, "data.frame")
     expect_named(out, LITTER_EXPOSURE_COLS, ignore.order = TRUE)
     expect_equal(out$exposure, 90 * 0.5, tolerance = 1e-6)  # default_permeability = 0.5
+    # WP3 re-pin: every bearing is a gap, so leaves_site follows the gap
+    # fall-through (0.5 >= p_open_min and 90 >= offsite 45); zone stays on_site
+    # because a gap is never a sensitive receptor.
+    expect_true(out$leaves_site)
     expect_equal(as.character(out$zone), "on_site")
+  })
+
+  it("a gap bearing does NOT leave site when default_permeability < p_open_min", {
+    site <- .make_demo_mh_site()
+    out <- litter_exposure(86, 0, site, default_permeability = 0.4)  # p_open_min 0.5
+    expect_false(out$leaves_site)
+  })
+
+  it("a gap bearing does NOT leave site below offsite_threshold", {
+    site <- .make_demo_mh_site()
+    out <- litter_exposure(30, 0, site)   # 30 < 45
+    expect_false(out$leaves_site)
+  })
+
+  it("refined mode: gap bearings never satisfy the reach test (no distance)", {
+    site <- .make_demo_mh_site()
+    out <- litter_exposure(86, 0, site, mean_wind = 50, reach_per_ms = 100)
+    expect_false(out$leaves_site)
   })
 })
 

@@ -46,7 +46,12 @@ Default 20.}
 refined mode, which uses the reach test instead.)}
 
 \item{default_permeability}{Permeability applied when the downwind bearing
-matches no configured sector. Default 0.5.}
+matches no configured sector. Default 0.5. A gap is treated consistently for
+magnitude and destination: \code{exposure} uses this permeability, and
+\code{leaves_site} is \code{TRUE} when it is \verb{>= p_open_min} and the hour is off-site
+(basic mode). \code{sensitive_receptor} is always \code{FALSE} for a gap, so a gap can
+never be \code{off_site}. In refined mode a gap has no boundary distance, so it is
+never "reached" and \code{leaves_site} is \code{FALSE} there.}
 
 \item{mean_wind}{Optional numeric vector (m/s; a bare numeric or a
 \pkg{units} object, converted), same length as \code{hazard}. The hour's mean
