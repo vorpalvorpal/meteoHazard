@@ -337,6 +337,62 @@ describe("enclosure (a barrier polygon that fully surrounds the source)", {
 })
 
 
+describe("wide barrier arcs (span + 2*direction_tol >= 360)", {
+
+  # A horseshoe (C-shaped annulus sector) spanning bearings 10 -> 350 deg
+  # clockwise (340 deg, gap at north). The source at its centre is NOT
+  # st_within the polygon, so the enclosure sentinel does not fire and the
+  # bearing arc is computed from the vertices. With the default
+  # direction_tol = 15 the expanded arc covers the full circle.
+  .horseshoe_site <- function() {
+    cx <- 335000; cy <- 6250000
+    th_out <- seq(10, 350, length.out = 181) * pi / 180
+    outer  <- cbind(cx + 300 * sin(th_out), cy + 300 * cos(th_out))
+    inner  <- cbind(cx + 200 * sin(rev(th_out)), cy + 200 * cos(rev(th_out)))
+    ring   <- rbind(outer, inner, outer[1, , drop = FALSE])
+    feats <- sf::st_sf(
+      id       = c("source", "horseshoe"),
+      geometry = sf::st_sfc(
+        sf::st_point(c(cx, cy)),
+        sf::st_polygon(list(ring)),
+        crs = 32755
+      )
+    )
+    roles <- data.frame(
+      feature_id   = c("source", "horseshoe"),
+      hazard       = "litter",
+      role         = c("source", "barrier"),
+      permeability = c(NA_real_, 1.0),
+      sensitive    = c(NA, TRUE),
+      stringsAsFactors = FALSE
+    )
+    mh_site(feats, roles, epsg = 32755)
+  }
+
+  it(".litter_arc_contains() hits a bearing deep inside a wide arc once the tolerance band closes the circle", {
+    # Raw arc [10, 350] spans 340 deg; with tol = 15 the expanded edges pass
+    # each other (355 > 5), and the naive wrap branch would test the
+    # COMPLEMENT of the arc, missing theta = 180 entirely.
+    expect_true(meteoHazard:::.litter_arc_contains(180, 10, 350, 15))
+    expect_true(all(meteoHazard:::.litter_arc_contains(seq(0, 359), 10, 350, 15)))
+  })
+
+  it(".litter_arc_contains() still excludes bearings outside a narrow wrapped arc", {
+    expect_false(meteoHazard:::.litter_arc_contains(180, 350, 10, 15))
+    expect_true(meteoHazard:::.litter_arc_contains(0, 350, 10, 15))
+  })
+
+  it("a horseshoe barrier is hit from every principal wind direction (end-to-end)", {
+    site <- .horseshoe_site()
+    for (d in seq(0, 315, 45)) {
+      out <- litter_exposure(50, d, site, default_permeability = 0)
+      expect_equal(out$exposure, 50, tolerance = 1e-3,
+                   info = paste("wind_direction_10m", d))
+    }
+  })
+})
+
+
 describe("zero-barrier warning", {
 
   it("warns meteoHazard_litter_no_barriers when the site has zero litter barriers, and still returns a valid frame", {
@@ -399,6 +455,25 @@ describe("refined distance-reach mode (mean_wind + reach_per_ms)", {
     expect_false(out$leaves_site)
     expect_true(out$sensitive_receptor)
     expect_equal(out$exposure, 86, tolerance = 1e-3)
+  })
+
+  it("accepts a units-tagged mean_wind and converts it to m/s (package units contract)", {
+    site <- .refined_site()
+    bare   <- litter_exposure(86, 270, site, mean_wind = 12, reach_per_ms = 100)
+    tagged <- litter_exposure(86, 270, site,
+                              mean_wind = units::set_units(43.2, "km/h"),
+                              reach_per_ms = 100)
+    expect_equal(tagged, bare)
+  })
+
+  it("rejects a mean_wind tagged with dimensionally incompatible units", {
+    site <- .refined_site()
+    expect_error(
+      litter_exposure(86, 270, site,
+                      mean_wind = units::set_units(12, "degree_C"),
+                      reach_per_ms = 100),
+      class = "meteoHazard_input_error"
+    )
   })
 
   it("basic mode (mean_wind/reach_per_ms both NULL) is unchanged from the magnitude regression", {

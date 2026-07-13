@@ -60,8 +60,10 @@
 #'     s^{\beta})}, where `s` is `wetness` directly when supplied, else the
 #'     Fecan-style clamp of `soil_moisture_0_to_1cm` (see
 #'     `soil_dry`/`soil_wet`).}
-#'   \item{Material-aware graded saturation}{At or above the
-#'     saturation mark (`s == 1`) the surface is treated as fully wet. Loose
+#'   \item{Material-aware graded saturation}{At or above the saturation mark
+#'     (`soil_moisture_0_to_1cm >= soil_wet` on the soil-moisture path;
+#'     `wetness >= paper_veto_wetness` on the wetness path) the surface is
+#'     treated as fully wet. Loose
 #'     film/thin plastic (`material = "film"`, the default — Mellink et al.
 #'     2024 identify film/bags as the dominant landfill-escape material) can
 #'     still be partially entrained off a saturated surface (residual
@@ -69,7 +71,8 @@
 #'     (`material = "paper"`) is hard-vetoed to zero once saturated — it has
 #'     soaked up water rather than sitting on top of a film. The graded
 #'     penalty only touches the saturated region; the unsaturated
-#'     threshold-rise ramp below `s == 1` is identical for both materials.}
+#'     threshold-rise ramp below the saturation mark is identical for both
+#'     materials.}
 #'   \item{Transport potential `T`}{Driven by the **mean wind** directly (not
 #'     the gust; transport is flight-height advection). A linear ramp from 1 to
 #'     `transport_max` between `wind_transport_onset` and `wind_transport_ref`
@@ -139,7 +142,10 @@
 #'   surface, so residual entrainment there is `E0 * (1 - saturation_penalty)`.
 #'   Default 0.7 (i.e. 70% reduction, 30% residual).
 #' @param paper_veto_wetness Normalised wetness (`wetness`, when supplied) at
-#'   or above which a `paper` surface is hard-vetoed (`E = 0`). Default 0.8.
+#'   or above which the surface counts as saturated: a `paper` surface is
+#'   hard-vetoed (`E = 0`) and a `film` surface takes the graded
+#'   `saturation_penalty`. Only used on the `wetness` path (the soil-moisture
+#'   path uses `soil_wet` as its saturation mark). Default 0.8.
 #' @param wind_transport_onset Mean wind below which transport adds nothing
 #'   (m/s). Default 5.5 (~20 km/h).
 #' @param wind_transport_ref Mean wind at which transport saturates (m/s).

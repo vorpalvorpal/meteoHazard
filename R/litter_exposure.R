@@ -60,9 +60,10 @@
 #'   refined mode, which uses the reach test instead.)
 #' @param default_permeability Permeability applied when the downwind bearing
 #'   matches no configured sector. Default 0.5.
-#' @param mean_wind Optional numeric vector (m/s), same length as `hazard`. The
-#'   hour's mean wind. Supplying both `mean_wind` and `reach_per_ms` activates
-#'   the refined distance-reach mode.
+#' @param mean_wind Optional numeric vector (m/s; a bare numeric or a
+#'   \pkg{units} object, converted), same length as `hazard`. The hour's mean
+#'   wind. Supplying both `mean_wind` and `reach_per_ms` activates the refined
+#'   distance-reach mode.
 #' @param reach_per_ms Optional positive scalar (metres per m/s): the calibrated
 #'   characteristic reach `c_L`. In refined mode a barrier is "reached" when
 #'   `reach_per_ms * mean_wind >= distance_m` for that barrier.
@@ -146,6 +147,7 @@ litter_exposure <- function(
   # that the hazard layer's transport term only crudely proxies.
   refined <- !is.null(mean_wind) && !is.null(reach_per_ms)
   if (refined) {
+    mean_wind <- .drop_to(mean_wind, "m/s", arg = "mean_wind")
     checkmate::assert_numeric(mean_wind, lower = 0, any.missing = FALSE, len = n)
     checkmate::assert_number(reach_per_ms, lower = .Machine$double.eps)
   }
@@ -297,6 +299,15 @@ LITTER_COMPASS_DEGREES <- c(
   # hit. The expanded-edge logic below would instead collapse (0, 360) to only
   # +/- tol of north (alpha_exp = 345, beta_exp = 15), so short-circuit here.
   if (beta - alpha >= 360) {
+    return(rep(TRUE, length(theta)))
+  }
+  # Wide-arc guard: when the clockwise span of the raw arc plus the tolerance
+  # band on both edges meets a full turn (e.g. a horseshoe barrier spanning
+  # 340 deg with tol = 15), the expanded edges pass each other and the wrap
+  # branch below would test the COMPLEMENT of the arc — a bearing pointing
+  # straight into the barrier would be reported as a miss.
+  span <- (beta - alpha) %% 360
+  if (span + 2 * tol >= 360) {
     return(rep(TRUE, length(theta)))
   }
   alpha_exp <- (alpha - tol) %% 360

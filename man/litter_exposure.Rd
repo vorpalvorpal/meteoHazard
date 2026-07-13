@@ -48,9 +48,10 @@ refined mode, which uses the reach test instead.)}
 \item{default_permeability}{Permeability applied when the downwind bearing
 matches no configured sector. Default 0.5.}
 
-\item{mean_wind}{Optional numeric vector (m/s), same length as \code{hazard}. The
-hour's mean wind. Supplying both \code{mean_wind} and \code{reach_per_ms} activates
-the refined distance-reach mode.}
+\item{mean_wind}{Optional numeric vector (m/s; a bare numeric or a
+\pkg{units} object, converted), same length as \code{hazard}. The hour's mean
+wind. Supplying both \code{mean_wind} and \code{reach_per_ms} activates the refined
+distance-reach mode.}
 
 \item{reach_per_ms}{Optional positive scalar (metres per m/s): the calibrated
 characteristic reach \code{c_L}. In refined mode a barrier is "reached" when

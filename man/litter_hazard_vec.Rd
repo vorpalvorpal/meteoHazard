@@ -92,7 +92,10 @@ surface, so residual entrainment there is \code{E0 * (1 - saturation_penalty)}.
 Default 0.7 (i.e. 70\% reduction, 30\% residual).}
 
 \item{paper_veto_wetness}{Normalised wetness (\code{wetness}, when supplied) at
-or above which a \code{paper} surface is hard-vetoed (\code{E = 0}). Default 0.8.}
+or above which the surface counts as saturated: a \code{paper} surface is
+hard-vetoed (\code{E = 0}) and a \code{film} surface takes the graded
+\code{saturation_penalty}. Only used on the \code{wetness} path (the soil-moisture
+path uses \code{soil_wet} as its saturation mark). Default 0.8.}
 
 \item{wind_transport_onset}{Mean wind below which transport adds nothing
 (m/s). Default 5.5 (~20 km/h).}
@@ -181,8 +184,10 @@ rises with normalised surface wetness, \eqn{G_t = G_{t0}(1 + \gamma
     s^{\beta})}, where \code{s} is \code{wetness} directly when supplied, else the
 Fecan-style clamp of \code{soil_moisture_0_to_1cm} (see
 \code{soil_dry}/\code{soil_wet}).}
-\item{Material-aware graded saturation}{At or above the
-saturation mark (\code{s == 1}) the surface is treated as fully wet. Loose
+\item{Material-aware graded saturation}{At or above the saturation mark
+(\code{soil_moisture_0_to_1cm >= soil_wet} on the soil-moisture path;
+\code{wetness >= paper_veto_wetness} on the wetness path) the surface is
+treated as fully wet. Loose
 film/thin plastic (\code{material = "film"}, the default — Mellink et al.
 2024 identify film/bags as the dominant landfill-escape material) can
 still be partially entrained off a saturated surface (residual
@@ -190,7 +195,8 @@ entrainment \code{E0 * (1 - saturation_penalty)}), whereas absorbent paper
 (\code{material = "paper"}) is hard-vetoed to zero once saturated — it has
 soaked up water rather than sitting on top of a film. The graded
 penalty only touches the saturated region; the unsaturated
-threshold-rise ramp below \code{s == 1} is identical for both materials.}
+threshold-rise ramp below the saturation mark is identical for both
+materials.}
 \item{Transport potential \code{T}}{Driven by the \strong{mean wind} directly (not
 the gust; transport is flight-height advection). A linear ramp from 1 to
 \code{transport_max} between \code{wind_transport_onset} and \code{wind_transport_ref}
