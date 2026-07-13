@@ -6,3 +6,4 @@
 ^.*\.pdf$
 ^specs$
 ^bench$
+^dev$
