@@ -12,12 +12,16 @@ litter_exposure(
   p_open_min = 0.5,
   move_threshold = 20,
   offsite_threshold = 45,
-  default_permeability = 0.5
+  default_permeability = 0.5,
+  mean_wind = NULL,
+  reach_per_ms = NULL
 )
 }
 \arguments{
-\item{hazard}{Numeric vector in \verb{[0, 100]}. The litter hazard index from
-\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, one value per forecast hour.}
+\item{hazard}{Numeric vector, non-negative. The relative litter hazard index
+from \code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, one value per forecast hour. Issue #11 removed
+the fixed 0--100 scale, so no upper bound is imposed; \code{exposure} inherits
+the hazard's relative scale.}
 
 \item{wind_direction_10m}{Numeric vector, degrees \verb{[0, 360]}. Wind direction
 at 10 m (meteorological convention: the direction the wind blows \emph{from}).
@@ -25,29 +29,45 @@ Same length as \code{hazard}.}
 
 \item{site}{An \code{\link{mh_site}} S7 object. Must carry a \verb{(litter, source)}
 feature and one or more \verb{(litter, barrier)} features with \code{permeability}
-and \code{sensitive} columns in the roles table. Use \code{\link[=site_from_sectors]{site_from_sectors()}} to
+and \code{sensitive} columns in the roles table (and, for refined mode, a
+\code{distance_m} column on the barrier features). Use \code{\link[=site_from_sectors]{site_from_sectors()}} to
 build an \code{mh_site} from a compass-sector data frame.}
 
 \item{direction_tol}{Tolerance (degrees) added to each arc edge. Default 15.}
 
-\item{p_open_min}{Minimum permeability for a sensitive sector to count as
-"open" when deciding off-site risk. Default 0.5.}
+\item{p_open_min}{Minimum permeability for a sector to count as "open" when
+deciding \code{leaves_site}/\code{sensitive_receptor}. Default 0.5.}
 
 \item{move_threshold}{Hazard below which litter stays on the working face.
 Default 20.}
 
-\item{offsite_threshold}{Hazard above which litter can clear the boundary.
-Default 45. Must exceed \code{move_threshold}.}
+\item{offsite_threshold}{Hazard above which litter can clear the boundary in
+\strong{basic} mode. Default 45. Must exceed \code{move_threshold}. (Ignored in
+refined mode, which uses the reach test instead.)}
 
 \item{default_permeability}{Permeability applied when the downwind bearing
 matches no configured sector. Default 0.5.}
+
+\item{mean_wind}{Optional numeric vector (m/s), same length as \code{hazard}. The
+hour's mean wind. Supplying both \code{mean_wind} and \code{reach_per_ms} activates
+the refined distance-reach mode.}
+
+\item{reach_per_ms}{Optional positive scalar (metres per m/s): the calibrated
+characteristic reach \code{c_L}. In refined mode a barrier is "reached" when
+\code{reach_per_ms * mean_wind >= distance_m} for that barrier.}
 }
 \value{
 A data frame with \code{length(hazard)} rows and columns:
 \describe{
-\item{\code{exposure}}{Numeric \verb{[0, 100]}: hazard attenuated by the directional
-factor.}
+\item{\code{exposure}}{Numeric, non-negative: the off-site (permeability-
+attenuated) exposure, \code{hazard * directional_factor}; same relative
+scale as \code{hazard}.}
 \item{\code{zone}}{Ordered factor \code{within_face} < \code{on_site} < \code{off_site}.}
+\item{\code{directional_factor}}{Numeric \verb{[0, 1]}: worst-case permeability
+across hit sectors/sources.}
+\item{\code{leaves_site}}{Logical: litter clears a permeable boundary
+(destination; sensitivity-independent).}
+\item{\code{sensitive_receptor}}{Logical: a hit sensitive sector is open.}
 }
 }
 \description{
@@ -59,19 +79,36 @@ litter moved within the working face is minor, across the site is bad, and
 off site is very bad.
 }
 \details{
-This is the "basic mode" of \code{specs/Litter_exposure.md}: a coarse band, not a
-dispersion or trajectory model. The refined distance-reach mode is not
-implemented.
+Basic mode is the coarse arc-containment band of \code{specs/Litter_exposure.md}.
+Supplying \code{mean_wind} and \code{reach_per_ms} activates the \strong{refined
+distance-reach mode} (\code{specs/Litter_exposure.md} S5): the off-site decision
+then compares a characteristic downwind reach to the boundary distance rather
+than thresholding the hazard magnitude.
 }
 \section{Method}{
 
 For each hour the downwind bearing is the reciprocal of the (meteorological,
 blows-from) wind direction, \eqn{\theta_{down} = (dir + 180) \bmod 360}. Each
 boundary sector whose arc (expanded by \code{direction_tol} on each edge) contains
-\eqn{\theta_{down}} is "hit"; the directional factor \code{M} is the largest
-permeability among hit sectors (worst case), or \code{default_permeability} if the
-bearing lands in a gap. The exposure-adjusted hazard is \code{exposure = hazard * M}. The severity zone uses the raw hazard for mobility and the hit sectors for
-destination.
+\eqn{\theta_{down}} is "hit"; the directional factor is the largest
+permeability among hit sectors across \strong{all} litter sources (worst case), or
+\code{default_permeability} if the bearing lands in a gap. The exposure-adjusted
+hazard is \code{exposure = hazard * directional_factor}.
+
+The severity zone and the two boolean destination flags separate the two
+distinct questions the old single \code{zone} conflated — \emph{where does litter go}
+(\code{leaves_site}) versus \emph{what does it hit} (\code{sensitive_receptor}):
+\itemize{
+\item \code{leaves_site} — litter clears a permeable boundary
+(permeability >= \code{p_open_min}) and, in basic mode, the hazard exceeds
+\code{offsite_threshold} (in refined mode, the reach clears the boundary
+distance). This is sensitivity-independent.
+\item \code{sensitive_receptor} — a hit sector is \code{sensitive} \strong{and} open
+(permeability >= \code{p_open_min}).
+\item \code{zone} is \code{off_site} only when litter both leaves the site \strong{and}
+does so toward a sensitive receptor; hence a fully-open but non-sensitive
+boundary reports \code{on_site} with \code{leaves_site = TRUE}.
+}
 }
 
 \references{
@@ -79,5 +116,6 @@ NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 (2nd edn). Barrier-class guidance informing \code{permeability}.
 }
 \seealso{
-\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} for the upstream hazard index.
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} for the upstream hazard index, \code{\link[=litter_risk]{litter_risk()}}
+for the combined hazard + exposure wrapper.
 }

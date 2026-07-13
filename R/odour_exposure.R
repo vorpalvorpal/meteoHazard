@@ -330,16 +330,8 @@ odour_exposure <- function(met_data, site,
 }
 
 
-# ---- Internal helpers (kept here; not exported) ---------------------------- #
-
-# Returns the bearing the wind is blowing TOWARD (downwind bearing).
-# wind_direction_10m is the bearing FROM which wind comes (met convention).
-.downwind_bearing <- function(wind_dir) {
-  (wind_dir + 180) %% 360
-}
-
-# Smallest unsigned angular difference between two bearings (0-180 deg).
-.angular_diff <- function(theta1, theta2) {
-  d <- abs(theta1 - theta2) %% 360
-  ifelse(d > 180, 360 - d, d)
-}
+# ---- Internal helpers ------------------------------------------------------ #
+# The shared wind-geometry helpers `.downwind_bearing()` and `.angular_diff()`
+# are single-sourced in R/geometry.R (whose header documents the blows-from
+# convention). They used to be redefined here too; that duplicate copy was
+# removed (R-D3) so the odour and litter modules cannot silently diverge.

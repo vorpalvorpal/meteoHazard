@@ -4,15 +4,30 @@
 \alias{litter_hazard}
 \title{Litter hazard index for a forecast tibble}
 \usage{
-litter_hazard(met_data, ...)
+litter_hazard(met_data, use_wetness_state = FALSE, ...)
 }
 \arguments{
-\item{met_data}{A tibble (or data frame) with one row per hourly timestep
-containing at least the columns \code{wind_gusts_10m} (m/s), \code{wind_speed_10m}
-(m/s), \code{precipitation} (mm), and \code{soil_moisture_0_to_1cm} (m^3/m^3).}
+\item{met_data}{A tibble (or data frame) with one row per hourly timestep.
+Always requires \code{wind_gusts_10m} (m/s), \code{wind_speed_10m} (m/s), and
+\code{precipitation} (mm). When \code{use_wetness_state = FALSE} (default), also
+requires \code{soil_moisture_0_to_1cm} (m^3/m^3). When \code{use_wetness_state = TRUE}, also requires the five columns consumed by \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}:
+\code{temperature_2m} (degC), \code{relative_humidity_2m} (\%), \code{shortwave_radiation}
+(W/m^2), \code{wind_speed_10m}, and \code{precipitation} (the latter two already
+required above).}
+
+\item{use_wetness_state}{Logical. Default \code{FALSE} (uses
+\code{soil_moisture_0_to_1cm} directly, as in earlier package versions). When
+\code{TRUE}, the litter-specific wetness state (\code{\link[=litter_wetness_vec]{litter_wetness_vec()}}, run
+with its own defaults -- see ADJ-8) is computed from \code{met_data} first and
+passed through as \code{wetness}, in place of \code{soil_moisture_0_to_1cm}.}
 
 \item{...}{Additional calibration parameters forwarded to
-\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} (e.g. \code{rain_threshold}, \code{soil_wet}, \code{z0}).}
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}} ONLY (e.g. \code{rain_threshold}, \code{soil_wet},
+\code{gust_threshold}, \code{material}). ADJ-8: \code{...} is not forwarded to the
+internal \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} call in the \code{use_wetness_state = TRUE}
+path -- that call always uses its own defaults, so a hazard-side
+calibration override (e.g. a custom \code{rain_threshold} for the hazard's
+rain gate) cannot accidentally perturb the wetness-reset dynamics.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the relative litter hazard
@@ -22,8 +37,9 @@ the fixed 0-100 scale across hazards in favour of physical/relative outputs.
 \description{
 Computes the hourly litter hazard index (\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}) for each row
 of a meteorological forecast tibble. Wraps the vector API, accepting a tibble
-with named columns rather than individual vectors.
+with named columns rather than individual vectors. Two column contracts are
+supported, selected by \code{use_wetness_state}.
 }
 \seealso{
-\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, \code{\link[=litter_exposure]{litter_exposure()}}.
+\code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}, \code{\link[=litter_exposure]{litter_exposure()}}.
 }

@@ -28,9 +28,13 @@
 #'   \describe{
 #'     \item{`arc_start`, `arc_end`}{Compass labels (`N`, `NE`, `E`, `SE`,
 #'       `S`, `SW`, `W`, `NW`) giving the clockwise start and end of each
-#'       boundary sector.}
+#'       boundary sector. `arc_start == arc_end` names a full-circle sector
+#'       (a ring enclosing the source), not a zero-area sliver.}
 #'     \item{`permeability`}{Numeric `[0, 1]`.}
 #'     \item{`sensitive`}{Logical.}
+#'     \item{`distance_m`}{Optional numeric `> 0` (metres): the reach
+#'       distance used by [litter_exposure()]'s refined distance-reach mode.
+#'       If absent, every row defaults to `ring_radius`.}
 #'   }
 #' @param centroid An `sf` object containing a single POINT feature in any
 #'   CRS.  Must not be `NULL`.  If the CRS is geographic it will be
@@ -78,6 +82,21 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
   checkmate::assert_logical(sectors$sensitive, any.missing = FALSE,
                             .var.name = "sectors$sensitive")
 
+  # ---- Optional distance_m (spec S3.4): reach distance for the refined ----
+  # distance-reach exposure mode (R-C1, owned by litter_exposure()). Absent ->
+  # every row defaults to ring_radius below (once ring_radius is validated).
+  has_distance_m <- "distance_m" %in% names(sectors)
+  if (has_distance_m) {
+    checkmate::assert_numeric(sectors$distance_m, any.missing = FALSE,
+                              .var.name = "sectors$distance_m")
+    if (any(sectors$distance_m <= 0)) {
+      cli::cli_abort(
+        "{.arg sectors$distance_m} must be strictly positive.",
+        class = "meteoHazard_input_error"
+      )
+    }
+  }
+
   # ---- Validate centroid is an sf object -----------------------------------
   if (!inherits(centroid, "sf")) {
     cli::cli_abort(
@@ -100,6 +119,10 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
   # ---- Build geometries ----------------------------------------------------
   n_sectors <- nrow(sectors)
 
+  # distance_m (spec S3.4): defaults to ring_radius per row when the sectors
+  # data frame does not supply its own distance_m column.
+  distance_vals <- if (has_distance_m) sectors$distance_m else rep(ring_radius, n_sectors)
+
   # Source point
   source_geom <- sf::st_sfc(
     sf::st_point(c(cx, cy)),
@@ -121,9 +144,13 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     bearing_end_vals[k]   <- beta
 
     # Generate arc angles (clockwise from north).
-    # When alpha == beta (full 360 circle) or alpha < beta: simple range.
-    # When alpha > beta: wraps through north.
-    if (alpha <= beta) {
+    # When alpha == beta: full-circle sector (R-A4). arc_start == arc_end
+    # names a ring enclosing the source, not a zero-area sliver, so sweep a
+    # whole turn starting from alpha rather than collapsing to a point.
+    # When alpha < beta: simple range. When alpha > beta: wraps through north.
+    if (alpha == beta) {
+      thetas <- seq(alpha, alpha + 360, length.out = N_arc) %% 360
+    } else if (alpha < beta) {
       thetas <- seq(alpha, beta, length.out = N_arc)
     } else {
       # wraps through north: e.g. 315 -> 0 -> 45
@@ -140,21 +167,75 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     arc_x <- cx + ring_radius * sin(theta_rad)
     arc_y <- cy + ring_radius * cos(theta_rad)
 
-    # Polygon: outer arc + centroid + close (repeat first point)
-    poly_x <- c(arc_x, cx, arc_x[1])
-    poly_y <- c(arc_y, cy, arc_y[1])
+    # Polygon geometry differs for full-circle vs wedge sectors.
+    if (alpha == beta) {
+      # Full-circle (R-A4): close the swept ring into a DISK with NO centroid
+      # vertex, so the litter source sits in the polygon INTERIOR. This is what
+      # lets the enclosure guard in .barrier_bearing_range() (sf::st_within())
+      # recognise the barrier as surrounding the source. A centroid apex would
+      # leave the source on the polygon BOUNDARY, where st_within() is FALSE
+      # (verified empirically), and the enclosure would go undetected.
+      # thetas already start and end at alpha (seq wraps a full turn), so the
+      # last point duplicates the first; drop it before closing the ring.
+      poly_x <- c(arc_x[-N_arc], arc_x[1])
+      poly_y <- c(arc_y[-N_arc], arc_y[1])
+    } else {
+      # Wedge: outer arc + centroid apex + close (repeat first point). The source
+      # is the apex vertex (on the boundary), so st_within() is FALSE and the
+      # enclosure guard correctly does NOT fire for ordinary directional barriers.
+      poly_x <- c(arc_x, cx, arc_x[1])
+      poly_y <- c(arc_y, cy, arc_y[1])
+    }
 
     barrier_geoms[[k]] <- sf::st_polygon(list(cbind(poly_x, poly_y)))
   }
 
   barrier_sfc <- sf::st_sfc(barrier_geoms, crs = as.integer(epsg))
 
+  # ---- Sector-coverage-gap warning (R-A7) ----------------------------------
+  # Sample every whole degree of bearing and mark it covered if any RAW
+  # (pre-direction_tol, i.e. tol=0) sector arc contains it, using the same
+  # wrap-aware containment rule as litter_exposure()'s .litter_arc_contains()
+  # (R/litter_exposure.R). A full-circle sector (alpha == beta, R-A4) covers
+  # every bearing by construction, since .litter_arc_contains(theta,a,a,0) is
+  # only TRUE at theta==a otherwise. If any sampled bearing is uncovered, the
+  # supplied sectors leave a real gap where litter_exposure() would silently
+  # fall back to default_permeability -- warn so the caller notices.
+  sample_bearings <- 0:359
+  covered <- rep(FALSE, length(sample_bearings))
+  for (k in seq_len(n_sectors)) {
+    alpha_k <- bearing_start_vals[k]
+    beta_k  <- bearing_end_vals[k]
+    hit_k <- if (alpha_k == beta_k) {
+      rep(TRUE, length(sample_bearings))
+    } else {
+      vapply(
+        sample_bearings, .litter_arc_contains, logical(1),
+        alpha = alpha_k, beta = beta_k, tol = 0
+      )
+    }
+    covered <- covered | hit_k
+  }
+  if (!all(covered)) {
+    gap_bearings <- sample_bearings[!covered]
+    cli::cli_warn(
+      c(
+        "{.arg sectors} leaves {length(gap_bearings)} degree(s) of bearing uncovered.",
+        "i" = "Uncovered bearings include {.val {min(gap_bearings)}}°-{.val {max(gap_bearings)}}° (may wrap through north).",
+        "i" = "Bearings not covered by any sector fall back to litter_exposure()'s default_permeability."
+      ),
+      class = "meteoHazard_litter_sector_gap"
+    )
+  }
+
   # ---- Assemble sf feature collection -------------------------------------
-  # Source row
+  # Source row (distance_m: NA -- distance_m is a barrier-only reach
+  # attribute; see spec S3.4)
   source_sf <- sf::st_sf(
     id            = "source",
     bearing_start = NA_real_,
     bearing_end   = NA_real_,
+    distance_m    = NA_real_,
     geometry      = source_geom,
     stringsAsFactors = FALSE
   )
@@ -164,6 +245,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     id            = paste0("barrier_", seq_len(n_sectors)),
     bearing_start = bearing_start_vals,
     bearing_end   = bearing_end_vals,
+    distance_m    = distance_vals,
     geometry      = barrier_sfc,
     stringsAsFactors = FALSE
   )
@@ -177,6 +259,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     role         = c("source", rep("barrier", n_sectors)),
     permeability = c(NA_real_, sectors$permeability),
     sensitive    = c(NA, sectors$sensitive),
+    distance_m   = c(NA_real_, distance_vals),
     stringsAsFactors = FALSE
   )
 

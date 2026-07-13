@@ -7,52 +7,85 @@
 #' litter moved within the working face is minor, across the site is bad, and
 #' off site is very bad.
 #'
-#' This is the "basic mode" of `specs/Litter_exposure.md`: a coarse band, not a
-#' dispersion or trajectory model. The refined distance-reach mode is not
-#' implemented.
+#' Basic mode is the coarse arc-containment band of `specs/Litter_exposure.md`.
+#' Supplying `mean_wind` and `reach_per_ms` activates the **refined
+#' distance-reach mode** (`specs/Litter_exposure.md` S5): the off-site decision
+#' then compares a characteristic downwind reach to the boundary distance rather
+#' than thresholding the hazard magnitude.
 #'
 #' @section Method:
 #' For each hour the downwind bearing is the reciprocal of the (meteorological,
 #' blows-from) wind direction, \eqn{\theta_{down} = (dir + 180) \bmod 360}. Each
 #' boundary sector whose arc (expanded by `direction_tol` on each edge) contains
-#' \eqn{\theta_{down}} is "hit"; the directional factor `M` is the largest
-#' permeability among hit sectors (worst case), or `default_permeability` if the
-#' bearing lands in a gap. The exposure-adjusted hazard is `exposure = hazard *
-#' M`. The severity zone uses the raw hazard for mobility and the hit sectors for
-#' destination.
+#' \eqn{\theta_{down}} is "hit"; the directional factor is the largest
+#' permeability among hit sectors across **all** litter sources (worst case), or
+#' `default_permeability` if the bearing lands in a gap. The exposure-adjusted
+#' hazard is `exposure = hazard * directional_factor`.
 #'
-#' @param hazard Numeric vector in `[0, 100]`. The litter hazard index from
-#'   [litter_hazard_vec()], one value per forecast hour.
+#' The severity zone and the two boolean destination flags separate the two
+#' distinct questions the old single `zone` conflated — *where does litter go*
+#' (`leaves_site`) versus *what does it hit* (`sensitive_receptor`):
+#' \itemize{
+#'   \item `leaves_site` — litter clears a permeable boundary
+#'     (permeability >= `p_open_min`) and, in basic mode, the hazard exceeds
+#'     `offsite_threshold` (in refined mode, the reach clears the boundary
+#'     distance). This is sensitivity-independent.
+#'   \item `sensitive_receptor` — a hit sector is `sensitive` **and** open
+#'     (permeability >= `p_open_min`).
+#'   \item `zone` is `off_site` only when litter both leaves the site **and**
+#'     does so toward a sensitive receptor; hence a fully-open but non-sensitive
+#'     boundary reports `on_site` with `leaves_site = TRUE`.
+#' }
+#'
+#' @param hazard Numeric vector, non-negative. The relative litter hazard index
+#'   from [litter_hazard_vec()], one value per forecast hour. Issue #11 removed
+#'   the fixed 0--100 scale, so no upper bound is imposed; `exposure` inherits
+#'   the hazard's relative scale.
 #' @param wind_direction_10m Numeric vector, degrees `[0, 360]`. Wind direction
 #'   at 10 m (meteorological convention: the direction the wind blows *from*).
 #'   Same length as `hazard`.
 #' @param site An [`mh_site`] S7 object. Must carry a `(litter, source)`
 #'   feature and one or more `(litter, barrier)` features with `permeability`
-#'   and `sensitive` columns in the roles table. Use [site_from_sectors()] to
+#'   and `sensitive` columns in the roles table (and, for refined mode, a
+#'   `distance_m` column on the barrier features). Use [site_from_sectors()] to
 #'   build an `mh_site` from a compass-sector data frame.
 #'
 #' @param direction_tol Tolerance (degrees) added to each arc edge. Default 15.
-#' @param p_open_min Minimum permeability for a sensitive sector to count as
-#'   "open" when deciding off-site risk. Default 0.5.
+#' @param p_open_min Minimum permeability for a sector to count as "open" when
+#'   deciding `leaves_site`/`sensitive_receptor`. Default 0.5.
 #' @param move_threshold Hazard below which litter stays on the working face.
 #'   Default 20.
-#' @param offsite_threshold Hazard above which litter can clear the boundary.
-#'   Default 45. Must exceed `move_threshold`.
+#' @param offsite_threshold Hazard above which litter can clear the boundary in
+#'   **basic** mode. Default 45. Must exceed `move_threshold`. (Ignored in
+#'   refined mode, which uses the reach test instead.)
 #' @param default_permeability Permeability applied when the downwind bearing
 #'   matches no configured sector. Default 0.5.
+#' @param mean_wind Optional numeric vector (m/s), same length as `hazard`. The
+#'   hour's mean wind. Supplying both `mean_wind` and `reach_per_ms` activates
+#'   the refined distance-reach mode.
+#' @param reach_per_ms Optional positive scalar (metres per m/s): the calibrated
+#'   characteristic reach `c_L`. In refined mode a barrier is "reached" when
+#'   `reach_per_ms * mean_wind >= distance_m` for that barrier.
 #'
 #' @return A data frame with `length(hazard)` rows and columns:
 #'   \describe{
-#'     \item{`exposure`}{Numeric `[0, 100]`: hazard attenuated by the directional
-#'       factor.}
+#'     \item{`exposure`}{Numeric, non-negative: the off-site (permeability-
+#'       attenuated) exposure, `hazard * directional_factor`; same relative
+#'       scale as `hazard`.}
 #'     \item{`zone`}{Ordered factor `within_face` < `on_site` < `off_site`.}
+#'     \item{`directional_factor`}{Numeric `[0, 1]`: worst-case permeability
+#'       across hit sectors/sources.}
+#'     \item{`leaves_site`}{Logical: litter clears a permeable boundary
+#'       (destination; sensitivity-independent).}
+#'     \item{`sensitive_receptor`}{Logical: a hit sensitive sector is open.}
 #'   }
 #'
 #' @references
 #' NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 #' (2nd edn). Barrier-class guidance informing `permeability`.
 #'
-#' @seealso [litter_hazard_vec()] for the upstream hazard index.
+#' @seealso [litter_hazard_vec()] for the upstream hazard index, [litter_risk()]
+#'   for the combined hazard + exposure wrapper.
 #' @export
 litter_exposure <- function(
   hazard,
@@ -62,7 +95,9 @@ litter_exposure <- function(
   p_open_min           = 0.5,
   move_threshold       = 20,
   offsite_threshold    = 45,
-  default_permeability = 0.5
+  default_permeability = 0.5,
+  mean_wind            = NULL,
+  reach_per_ms         = NULL
 ) {
   if (!S7::S7_inherits(site, mh_site)) {
     cli::cli_abort(
@@ -72,13 +107,21 @@ litter_exposure <- function(
   }
 
   # ---- Validate hazard / direction vectors --------------------------------- #
+  # R-A2 contract seam: the hazard is a RELATIVE index (issue #11 removed the
+  # fixed 0-100 scale), so only non-negativity is asserted here. Imposing an
+  # upper bound of 100 would make the exposure layer reject legitimate hazard
+  # values produced with a non-default entrainment_max.
   n <- length(hazard)
-  checkmate::assert_numeric(hazard, lower = 0, upper = 100,
-                            any.missing = FALSE, min.len = 1)
+  checkmate::assert_numeric(hazard, lower = 0, any.missing = FALSE, min.len = 1)
   checkmate::assert_numeric(wind_direction_10m, lower = 0, upper = 360,
                             any.missing = FALSE, len = n)
 
   # ---- Validate scalar parameters ------------------------------------------ #
+  # direction_tol plays the role of the odour module's forecast wind-direction
+  # uncertainty SIGMA_FC_DEG (constants.R): it widens each barrier arc to absorb
+  # NWP direction error plus lateral spread. Litter uses a HARD tolerance band
+  # rather than odour's Gaussian smoothing of sigma_y because this is a coarse
+  # screening arc-containment test, not a plume-dispersion calculation.
   checkmate::assert_number(direction_tol, lower = 0, upper = 90)
   checkmate::assert_number(p_open_min, lower = 0, upper = 1)
   checkmate::assert_number(move_threshold, lower = 0)
@@ -94,6 +137,19 @@ litter_exposure <- function(
   }
   checkmate::assert_number(default_permeability, lower = 0, upper = 1)
 
+  # ---- Refined distance-reach mode (specs/Litter_exposure.md S5) ------------ #
+  # Active only when BOTH mean_wind and reach_per_ms are supplied. It replaces
+  # the hazard-magnitude off-site test with a geometric reach test: a
+  # characteristic downwind reach L = reach_per_ms * mean_wind is compared to the
+  # downwind distance to the boundary. Deliberately crude (a single linear reach
+  # scale, not a trajectory); the natural home for the transport/reach question
+  # that the hazard layer's transport term only crudely proxies.
+  refined <- !is.null(mean_wind) && !is.null(reach_per_ms)
+  if (refined) {
+    checkmate::assert_numeric(mean_wind, lower = 0, any.missing = FALSE, len = n)
+    checkmate::assert_number(reach_per_ms, lower = .Machine$double.eps)
+  }
+
   # ---- Get source and barrier features ------------------------------------- #
   sources  <- .role_features(site, "litter", "source")
   barriers <- .role_features(site, "litter", "barrier")
@@ -105,8 +161,19 @@ litter_exposure <- function(
     )
   }
 
-  # Use the first source feature
-  source_pt <- sources[1, ]
+  # A site with a source but no barriers is almost always mis-configured: every
+  # bearing falls through to default_permeability and no hour can ever be
+  # off-site. Warn rather than error (a bare site is a legitimate, if unusual,
+  # screening input).
+  if (nrow(barriers) == 0) {
+    cli::cli_warn(
+      c(
+        "{.arg site} has a litter source but no {.val (litter, barrier)} features.",
+        "i" = "Every bearing will use {.arg default_permeability} and no hour can be off-site."
+      ),
+      class = "meteoHazard_litter_no_barriers"
+    )
+  }
 
   # Barrier roles (permeability + sensitive live here)
   barrier_roles <- site@roles[
@@ -116,41 +183,67 @@ litter_exposure <- function(
   # ---- Downwind bearing ---------------------------------------------------- #
   theta_down <- .downwind_bearing(wind_direction_10m)
 
-  # ---- Per-barrier arc containment test ------------------------------------ #
+  # ---- Aggregate over ALL sources and barriers (worst-case screening) ------ #
+  # Worst-case-across-sources is the natural screening semantics for multiple
+  # active tipping faces (mirrors odour_exposure()'s loop over sources): take the
+  # most permeable hit, and OR the destination/sensitivity flags.
   best_perm     <- rep(-Inf, n)
   sensitive_hit <- logical(n)
+  leaves_site   <- logical(n)
 
-  for (k in seq_len(nrow(barriers))) {
-    barrier_k <- barriers[k, ]
+  for (s in seq_len(nrow(sources))) {
+    source_pt <- sources[s, ]
 
-    # Compute actual bearing range from source to barrier vertices
-    br      <- .barrier_bearing_range(source_pt, barrier_k)
-    alpha_k <- br["alpha"]
-    beta_k  <- br["beta"]
+    for (k in seq_len(nrow(barriers))) {
+      barrier_k <- barriers[k, ]
 
-    # Look up roles for this barrier
-    role_k <- barrier_roles[barrier_roles$feature_id == barrier_k$id, ]
+      # Bearing arc from THIS source to the barrier.
+      br    <- .barrier_bearing_range(source_pt, barrier_k)
+      hit_k <- .litter_arc_contains(theta_down, br["alpha"], br["beta"], direction_tol)
 
-    perm_k <- if (nrow(role_k) > 0 &&
-                  "permeability" %in% names(role_k) &&
-                  !is.na(role_k$permeability[1])) {
-      role_k$permeability[1]
-    } else {
-      default_permeability
+      # Look up permeability / sensitivity for this barrier.
+      role_k <- barrier_roles[barrier_roles$feature_id == barrier_k$id, ]
+      perm_k <- if (nrow(role_k) > 0 &&
+                    "permeability" %in% names(role_k) &&
+                    !is.na(role_k$permeability[1])) {
+        role_k$permeability[1]
+      } else {
+        default_permeability
+      }
+      sens_k <- if (nrow(role_k) > 0 &&
+                    "sensitive" %in% names(role_k) &&
+                    !is.na(role_k$sensitive[1])) {
+        as.logical(role_k$sensitive[1])
+      } else {
+        FALSE
+      }
+
+      # Downwind distance to this barrier (refined mode only). Use the barrier
+      # feature's distance_m attribute (site_from_sectors sets it to the ring
+      # radius); absent/NA -> Inf, i.e. never reached. (ADJ-1: st_distance() to a
+      # wedge polygon is 0 because the polygon includes the source vertex, so the
+      # configured distance_m attribute is the reliable source of the reach
+      # distance, per specs/Litter_exposure.md S3.1.)
+      dist_k <- if ("distance_m" %in% names(barrier_k) &&
+                    !is.na(barrier_k$distance_m[1])) {
+        barrier_k$distance_m[1]
+      } else {
+        Inf
+      }
+
+      open_k    <- perm_k >= p_open_min
+      # "reached": refined -> reach clears the boundary distance; basic -> hazard
+      # exceeds the off-site threshold.
+      reached_k <- if (refined) {
+        reach_per_ms * mean_wind >= dist_k
+      } else {
+        hazard >= offsite_threshold
+      }
+
+      best_perm     <- pmax(best_perm, ifelse(hit_k, perm_k, -Inf))
+      sensitive_hit <- sensitive_hit | (hit_k & sens_k & open_k)
+      leaves_site   <- leaves_site   | (hit_k & open_k & reached_k)
     }
-
-    sens_k <- if (nrow(role_k) > 0 &&
-                  "sensitive" %in% names(role_k) &&
-                  !is.na(role_k$sensitive[1])) {
-      as.logical(role_k$sensitive[1])
-    } else {
-      FALSE
-    }
-
-    hit_k <- .litter_arc_contains(theta_down, alpha_k, beta_k, direction_tol)
-
-    best_perm     <- pmax(best_perm, ifelse(hit_k, perm_k, -Inf))
-    sensitive_hit <- sensitive_hit | (hit_k & sens_k & perm_k >= p_open_min)
   }
 
   directional_factor <- ifelse(is.finite(best_perm), best_perm, default_permeability)
@@ -158,15 +251,25 @@ litter_exposure <- function(
   # ---- Exposure-adjusted hazard and severity zone -------------------------- #
   exposure <- hazard * directional_factor
 
+  # within_face: below move_threshold, litter is not mobile enough to leave the
+  # face. off_site: clears a permeable boundary AND does so toward a sensitive
+  # receptor. on_site: everything else (mobile but contained, or leaving toward a
+  # non-sensitive aspect).
   zone <- ifelse(
     hazard < move_threshold,
     "within_face",
-    ifelse(hazard >= offsite_threshold & sensitive_hit, "off_site", "on_site")
+    ifelse(leaves_site & sensitive_hit, "off_site", "on_site")
   )
   zone <- factor(zone, levels = c("within_face", "on_site", "off_site"),
                  ordered = TRUE)
 
-  data.frame(exposure = exposure, zone = zone)
+  data.frame(
+    exposure           = exposure,
+    zone               = zone,
+    directional_factor = directional_factor,
+    leaves_site        = leaves_site,
+    sensitive_receptor = sensitive_hit
+  )
 }
 
 
@@ -190,6 +293,13 @@ LITTER_COMPASS_DEGREES <- c(
 # tolerance band is handled correctly even when it crosses north (the corrected
 # rule from specs/Litter.md S3.2).
 .litter_arc_contains <- function(theta, alpha, beta, tol) {
+  # Full-circle sentinel: .barrier_bearing_range() returns (alpha = 0,
+  # beta = 360) for a barrier that ENCLOSES the source, meaning every bearing is
+  # hit. The expanded-edge logic below would instead collapse (0, 360) to only
+  # +/- tol of north (alpha_exp = 345, beta_exp = 15), so short-circuit here.
+  if (beta - alpha >= 360) {
+    return(rep(TRUE, length(theta)))
+  }
   alpha_exp <- (alpha - tol) %% 360
   beta_exp  <- (beta  + tol) %% 360
   if (alpha_exp <= beta_exp) {
@@ -211,6 +321,17 @@ LITTER_COMPASS_DEGREES <- c(
 # when the barrier polygon was built with the source centroid as a vertex (as
 # in site_from_sectors()).
 .barrier_bearing_range <- function(source_pt, barrier_poly) {
+  # Enclosure guard: if the source lies INSIDE the barrier polygon, the barrier
+  # surrounds it and is hit from every bearing. The largest-gap heuristic below
+  # cannot represent that (it always returns a sub-360 arc), so short-circuit to
+  # the full-circle sentinel (0, 360). Verified empirically: a site_from_sectors
+  # wedge has the source as an apex BOUNDARY vertex (st_within FALSE -> guard
+  # stays silent for ordinary directional barriers); a disk / solid enclosing
+  # polygon has the source in the INTERIOR (st_within TRUE -> guard fires).
+  if (length(sf::st_within(source_pt, barrier_poly)[[1]]) > 0) {
+    return(c(alpha = 0, beta = 360))
+  }
+
   src_xy <- sf::st_coordinates(source_pt)[1, c("X", "Y")]
   verts  <- sf::st_coordinates(barrier_poly)[, c("X", "Y")]
 

@@ -8,20 +8,23 @@ litter_hazard_vec(
   wind_gusts_10m,
   wind_speed_10m,
   precipitation,
-  soil_moisture_0_to_1cm,
-  kappa = 0.4,
-  z0 = 0.05,
-  ustar_t0 = 0.3,
-  ustar_ref = 1.05,
+  soil_moisture_0_to_1cm = NULL,
+  wetness = NULL,
+  material = c("film", "paper"),
+  gust_threshold = 3.9737355,
+  gust_reference = 13.9080743,
   entrainment_max = 50,
   excess_exponent = 2,
   moisture_gain = 2,
   moisture_curve = 0.5,
   soil_dry = 0.05,
   soil_wet = 0.2,
+  saturation_penalty = 0.7,
+  paper_veto_wetness = 0.8,
   wind_transport_onset = 5.5,
   wind_transport_ref = 15,
   transport_max = 2,
+  rain_onset = 0.2,
   rain_threshold = 0.5
 )
 }
@@ -34,39 +37,62 @@ entrainment.}
 Open-Meteo \code{wind_speed_10m}. Drives transport potential.}
 
 \item{precipitation}{Numeric vector. Hourly precipitation (mm), Open-Meteo
-\code{precipitation}. Feeds the rainfall hard gate.}
+\code{precipitation}. Feeds the smooth rainfall gate.}
 
-\item{soil_moisture_0_to_1cm}{Numeric vector. Volumetric water content of the
-0--1 cm layer (m^3/m^3), Open-Meteo \code{soil_moisture_0_to_1cm}. Used as a
-relative surface-wetness surrogate that raises the entrainment threshold and
-supplies the saturation veto.}
+\item{soil_moisture_0_to_1cm}{Numeric vector or \code{NULL} (default). Volumetric
+water content of the 0--1 cm layer (m^3/m^3), Open-Meteo
+\code{soil_moisture_0_to_1cm}. Required \strong{unless} \code{wetness} is supplied; used
+as a relative surface-wetness surrogate that raises the entrainment
+threshold and supplies the saturation mark.}
 
-\item{kappa}{von Karman constant for the log wind profile. Default 0.40.}
+\item{wetness}{Numeric vector or \code{NULL} (default). Precomputed
+litter-surface wetness in \verb{[0, 1]} from \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} (a faster,
+litter-specific alternative to the gridded soil-moisture proxy — see
+\code{use_wetness_state} in \code{\link[=litter_hazard]{litter_hazard()}}). When supplied it \strong{supersedes}
+\code{soil_moisture_0_to_1cm} (ADJ-6); supplying both warns
+(\code{meteoHazard_litter_wetness_supersedes}).}
 
-\item{z0}{Aerodynamic roughness length of the working face (m). Default 0.05.
-Must be less than the 10 m reference height. High calibration uncertainty.}
+\item{material}{Character. \code{"film"} (default) or \code{"paper"}. Governs how a
+saturated surface is treated — see @section Model, R-B3a.}
 
-\item{ustar_t0}{Dry threshold friction velocity (m/s). Default 0.30.}
+\item{gust_threshold}{Dry threshold gust (m/s) below which entrainment is
+zero. Default \code{3.9737355}. Replaces the v3.0 \code{kappa}/\code{z0}/\code{ustar_t0}
+friction-velocity parameterisation: \verb{u*} is a linear rescaling of the
+gust under the neutral log wind profile, so those four knobs collapse to
+two identifiable gust speeds without losing any behaviour (needed for the
+calibration workflow in issue #26). The default reproduces the old
+\code{ustar_t0 = 0.30} m/s threshold to rounding
+(\code{0.30 / (0.40 / log(200))} = 3.97373802; pinned as 3.9737355).}
 
-\item{ustar_ref}{Friction velocity at which entrainment saturates (m/s).
-Default 1.05. Must exceed \code{ustar_t0}.}
+\item{gust_reference}{Gust (m/s) at which entrainment saturates. Default
+\code{13.9080743}. Must exceed \code{gust_threshold}. Reproduces the old
+\code{ustar_ref = 1.05} m/s to rounding
+(\code{1.05 / (0.40 / log(200))} = 13.90808309).}
 
 \item{entrainment_max}{Maximum entrainment score. Default 50.}
 
-\item{excess_exponent}{Power-law exponent on the friction-velocity excess.
-Default 2 (AP-42); calibratable in \verb{[2, 3]}.}
+\item{excess_exponent}{Power-law exponent on the gust excess. Default 2
+(AP-42-shaped); calibratable in \verb{[2, 3]}.}
 
 \item{moisture_gain}{Maximum fractional increase of the threshold as the
 surface approaches wet. Default 2.0. High calibration uncertainty.}
 
 \item{moisture_curve}{Curvature of the moisture-threshold rise. Default 0.5
-(concave, Fécan-type). High calibration uncertainty.}
+(concave, Fecan-type). High calibration uncertainty.}
 
 \item{soil_dry}{Soil moisture at or below which the surface is fully dry
-(m^3/m^3). Default 0.05.}
+(m^3/m^3). Default 0.05. Only used on the \code{soil_moisture_0_to_1cm} path.}
 
-\item{soil_wet}{Soil moisture at or above which the surface is saturated and
-entrainment is vetoed (m^3/m^3). Default 0.20. Must exceed \code{soil_dry}.}
+\item{soil_wet}{Soil moisture at or above which the normalised wetness \code{s}
+reaches 1 (m^3/m^3); also the "saturated" mark on the soil-moisture path.
+Default 0.20. Must exceed \code{soil_dry}.}
+
+\item{saturation_penalty}{Fractional entrainment loss on a saturated \code{film}
+surface, so residual entrainment there is \code{E0 * (1 - saturation_penalty)}.
+Default 0.7 (i.e. 70\% reduction, 30\% residual).}
+
+\item{paper_veto_wetness}{Normalised wetness (\code{wetness}, when supplied) at
+or above which a \code{paper} surface is hard-vetoed (\code{E = 0}). Default 0.8.}
 
 \item{wind_transport_onset}{Mean wind below which transport adds nothing
 (m/s). Default 5.5 (~20 km/h).}
@@ -76,8 +102,12 @@ Default 15 (~54 km/h). Must exceed \code{wind_transport_onset}.}
 
 \item{transport_max}{Maximum transport multiplier. Default 2.0.}
 
-\item{rain_threshold}{Hourly precipitation at or above which all litter
-hazard is suppressed (mm). Default 0.5.}
+\item{rain_onset}{Hourly precipitation (mm) at or below which the rainfall
+gate is fully open (\code{R = 1}). Default 0.2.}
+
+\item{rain_threshold}{Hourly precipitation (mm) at or above which the
+rainfall gate is fully closed (\code{R = 0}). Default 0.5. Must exceed
+\code{rain_onset}.}
 }
 \value{
 Numeric vector of length equal to the inputs, the relative litter
@@ -102,8 +132,8 @@ not a calibrated operational scale. Mapping it onto a site-specific index /
 tiers is a calibration step delivered by forthcoming calibration tooling
 (issues #11/#8).
 
-The function does not query any API. The caller fetches the four required
-hourly variables from the Open-Meteo \verb{/v1/forecast} endpoint (winds in m/s,
+The function does not query any API. The caller fetches the required hourly
+variables from the Open-Meteo \verb{/v1/forecast} endpoint (winds in m/s,
 \verb{&wind_speed_unit=ms}) and passes them as numeric vectors, one element per
 forecast hour.
 }
@@ -113,9 +143,9 @@ forecast hour.
 The dimensional inputs (\code{wind_gusts_10m}, \code{wind_speed_10m}, \code{precipitation})
 may be supplied either as bare numerics in the documented unit or as
 \pkg{units} objects, which are converted automatically (a dimensionally
-incompatible unit is an error). \code{soil_moisture_0_to_1cm} is a dimensionless
-ratio and is taken as-is. The returned index is dimensionless and is a plain
-numeric.
+incompatible unit is an error). \code{soil_moisture_0_to_1cm} and \code{wetness} are
+dimensionless ratios and are taken as-is. The returned index is
+dimensionless and is a plain numeric.
 }
 
 \section{Model}{
@@ -125,43 +155,85 @@ potential, and a rainfall gate:
 \deqn{LRI = E \cdot T \cdot R}
 
 \describe{
-\item{Entrainment \code{E}}{Driven by the \strong{gust} through friction velocity
-\verb{u*} (the surface-shear-stress scale). Using the neutral logarithmic wind
-profile, \eqn{u_{*g} = \kappa G / \ln(z/z_0)} with the gust \code{G} in m/s.
-Entrainment follows the EPA AP-42 wind-erosion shape
-\eqn{E = a\,\min(1, ((u_{*g}-u_{*t})/\Delta u_*)^n)} with
-\eqn{\Delta u_* = u_{*ref} - u_{*t0}}, bounded above by \code{entrainment_max}.}
-\item{Moisture-raised threshold \code{u*t}}{A damp surface needs a stronger gust
-to release litter (Fécan et al. 1999): the threshold rises with surface
-moisture, \eqn{u_{*t} = u_{*t0}(1 + \gamma s^{\beta})} where
-\eqn{s = \mathrm{clamp}((SM-SM_{dry})/(SM_{wet}-SM_{dry}), 0, 1)}. At or
-above \code{soil_wet} the surface is treated as saturated and entrainment is
-vetoed (\code{E = 0}).}
+\item{Entrainment \code{E}}{A \strong{phenomenological mobilization-threshold CDF},
+not a soil-physics-derived flux: as the gust rises past a threshold, an
+increasing \emph{fraction} of the litter population on the working face is
+recruited into motion (dry film/bags first, at modest gusts; heavier
+items such as bottles need much stronger gusts, if they move at all).
+The AP-42 (EPA 2006) / Bagnold-type excess-power form
+\eqn{E = a\,\min(1, ((G-G_t)/\Delta G)^n)} is borrowed for its \emph{shape}
+only — a threshold-gated, saturating ramp is the right qualitative
+behaviour for a mobilization CDF — and is evaluated directly on the
+10 m \strong{gust} \code{G} (m/s) rather than on a soil friction velocity \verb{u*}.
+Macro-litter is a different transport regime from mineral dust/sand
+(item shape, area-to-mass ratio, and lofting mechanics all differ), so
+\code{entrainment_max}, \code{gust_threshold}, and \code{gust_reference} are
+litter-calibration placeholders, not soil-erosion constants transferred
+from AP-42/Shao & Lu: Mellink et al. (2024) report near-100\% mobility
+for bags vs. near-0\% for bottles at the \emph{same} ~2.3 m/s wind speed —
+material identity, not a single physical threshold, dominates: see
+Valyrakis et al. (2024) on energetic-flow-structure-driven entrainment
+of sediment and plastic debris, and \code{\link[=litter_wetness]{litter_wetness()}} / \code{material} for
+how this package's threshold/saturation terms attempt to track it.}
+\item{Moisture-raised threshold}{A damp surface needs a stronger gust to
+release litter (Fecan et al. 1999 supplies the \emph{shape}): the threshold
+rises with normalised surface wetness, \eqn{G_t = G_{t0}(1 + \gamma
+    s^{\beta})}, where \code{s} is \code{wetness} directly when supplied, else the
+Fecan-style clamp of \code{soil_moisture_0_to_1cm} (see
+\code{soil_dry}/\code{soil_wet}).}
+\item{Material-aware graded saturation (R-B3a)}{At or above the
+saturation mark (\code{s == 1}) the surface is treated as fully wet. Loose
+film/thin plastic (\code{material = "film"}, the default — Mellink et al.
+2024 identify film/bags as the dominant landfill-escape material) can
+still be partially entrained off a saturated surface (residual
+entrainment \code{E0 * (1 - saturation_penalty)}), whereas absorbent paper
+(\code{material = "paper"}) is hard-vetoed to zero once saturated — it has
+soaked up water rather than sitting on top of a film. The graded
+penalty only touches the saturated region; the unsaturated
+threshold-rise ramp below \code{s == 1} is identical for both materials.}
 \item{Transport potential \code{T}}{Driven by the \strong{mean wind} directly (not
-\verb{u*}; transport is flight-height advection). A linear ramp from 1 to
+the gust; transport is flight-height advection). A linear ramp from 1 to
 \code{transport_max} between \code{wind_transport_onset} and \code{wind_transport_ref}
-m/s — the "how far is it moved" penalty.}
-\item{Rainfall gate \code{R}}{Binary: \code{R = 0} when \code{precipitation >= rain_threshold}, else 1.}
+m/s — the "how far is it moved" penalty. Mellink et al. (2024) observed
+macroplastic transport velocity rising with wind speed (~141 to 219 m/h
+over 2.3--3.2 m/s), supporting a monotone transport-vs-mean-wind ramp;
+the onset/reference wind speeds are uncalibrated engineering placeholders
+(carried from v2), not fitted constants, and the reach/geometry mapping
+of this potential is deferred to \code{\link[=litter_exposure]{litter_exposure()}}.}
+\item{Rainfall gate \code{R}}{A smooth ramp (R-B4), not a hard cutoff: \code{R = 1}
+at or below \code{rain_onset}, \code{R = 0} at or above \code{rain_threshold}, linear
+between. Windblown/aeolian transport only — this package does not model
+rain-driven runoff transport of litter (Mellink et al. 2024 show runoff
+is a materially different, non-aeolian mobilisation pathway).}
 }
-Any single suppressor (rain, saturated surface, sub-threshold gust) drives
+Any single suppressor (rain, saturated + paper, sub-threshold gust) drives
 the index to zero. The maximum attainable value is
-\code{entrainment_max * transport_max} (= 100 with the defaults 50 and 2).
+\code{entrainment_max * transport_max} (= 100 with the defaults 50 and 2); this
+is not a fixed cap (R-A3) — an inflated \code{entrainment_max} legitimately
+exceeds it.
 }
 
 \references{
-EPA (2006). AP-42, Section 13.2.5: Industrial Wind Erosion. Basis for the
-friction-velocity excess entrainment form.
+EPA (2006). AP-42, Section 13.2.5: Industrial Wind Erosion. Supplies the
+threshold-gated excess-power \emph{shape} of the entrainment CDF (not its
+numbers — see @section Model).
 
 Fecan, F., Marticorena, B. and Bergametti, G. (1999). Parametrization of the
 increase of the aeolian erosion threshold wind friction velocity due to soil
 moisture for arid and semi-arid areas. \emph{Annales Geophysicae}, 17,
-149--157. Basis for the moisture-raised threshold.
+149--157. \doi{10.1007/s00585-999-0149-7}. Basis for the moisture-raised
+threshold \emph{shape}.
 
-Mellink, Y. et al. (2024). Wind- and rain-driven macroplastic mobilization
-and transport on land. \emph{Scientific Reports} 14, 5006.
-\doi{10.1038/s41598-024-53971-8}.
+Mellink, Y. A. M., van Emmerik, T. H. M. & Mani, T. (2024). Wind- and
+rain-driven macroplastic mobilization and transport on land.
+\emph{Scientific Reports} 14, 3898. \doi{10.1038/s41598-024-53971-8}.
+
+Valyrakis, M. et al. (2024). The role of energetic flow structures on the
+aeolian transport of sediment and plastic debris. \emph{Acta Mechanica
+Sinica}. \doi{10.1007/s10409-024-24467-x}.
 }
 \seealso{
 \code{\link[=litter_exposure]{litter_exposure()}} for the direction- and geometry-aware exposure
-layer that sits on top of this hazard index.
+layer that sits on top of this hazard index; \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} for
+the litter-specific wetness state consumed via \code{wetness}.
 }
