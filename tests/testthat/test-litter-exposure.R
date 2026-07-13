@@ -393,6 +393,35 @@ describe("wide barrier arcs (span + 2*direction_tol >= 360)", {
                    info = paste("wind_direction_10m", d))
     }
   })
+
+  it("a coarse square-cornered C-shape is hit through its walls and missed through its opening (WP4)", {
+    cx <- 335000; cy <- 6250000
+    # C-shape opening due NORTH; source sits in the cavity. 8 corners only, so
+    # the vertex-only heuristic gaps are coarse; densification is required.
+    ring <- matrix(c(
+      cx - 300, cy - 300,   cx + 300, cy - 300,   cx + 300, cy + 300,
+      cx + 100, cy + 300,   cx + 100, cy - 100,   cx - 100, cy - 100,
+      cx - 100, cy + 300,   cx - 300, cy + 300,   cx - 300, cy - 300
+    ), ncol = 2, byrow = TRUE)
+    feats <- sf::st_sf(
+      id       = c("source", "cshape"),
+      geometry = sf::st_sfc(sf::st_point(c(cx, cy)),
+                            sf::st_polygon(list(ring)), crs = 32755)
+    )
+    roles <- data.frame(
+      feature_id = c("source", "cshape"), hazard = "litter",
+      role = c("source", "barrier"),
+      permeability = c(NA_real_, 1.0), sensitive = c(NA, TRUE),
+      stringsAsFactors = FALSE
+    )
+    site <- mh_site(feats, roles, epsg = 32755)
+    # Due EAST/SOUTH/WEST point straight at a wall -> hit:
+    expect_equal(litter_exposure(50, 270, site, default_permeability = 0)$exposure, 50, tolerance = 1e-3)
+    expect_equal(litter_exposure(50, 0,   site, default_permeability = 0)$exposure, 50, tolerance = 1e-3)
+    expect_equal(litter_exposure(50, 90,  site, default_permeability = 0)$exposure, 50, tolerance = 1e-3)
+    # Due NORTH (wind 180 -> theta_down 0) exits through the opening -> miss:
+    expect_equal(litter_exposure(50, 180, site, default_permeability = 0)$exposure, 0, tolerance = 1e-6)
+  })
 })
 
 

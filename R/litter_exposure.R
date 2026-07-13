@@ -362,7 +362,22 @@ LITTER_COMPASS_DEGREES <- c(
   }
 
   src_xy <- sf::st_coordinates(source_pt)[1, c("X", "Y")]
-  verts  <- sf::st_coordinates(barrier_poly)[, c("X", "Y")]
+
+  # Densify the boundary before taking bearings. The largest-gap heuristic sees
+  # only polygon VERTICES, so a coarse CONCAVE barrier can put a larger gap
+  # between two consecutive vertex bearings INSIDE the true arc than the real
+  # outside gap, returning the complement (a bearing pointing straight at a wall
+  # reported as a miss). Segmentizing to <= ~3 deg angular steps (relative to the
+  # nearest boundary point) guarantees the largest gap is the true outside gap.
+  # Straight radial edges of site_from_sectors wedges are unaffected: bearings
+  # vary monotonically along a segment, so densifying introduces no new extreme
+  # bearings and existing results are unchanged.
+  verts0 <- sf::st_coordinates(barrier_poly)[, c("X", "Y")]
+  d2     <- (verts0[, "X"] - src_xy["X"])^2 + (verts0[, "Y"] - src_xy["Y"])^2
+  d_min  <- sqrt(min(d2[d2 > 0]))    # nearest non-coincident vertex
+  seg_len <- max(d_min * 0.05, 0.5)  # <= ~2.9 deg step at range d_min; 0.5 m floor
+  poly_dense <- sf::st_segmentize(sf::st_geometry(barrier_poly), dfMaxLength = seg_len)
+  verts  <- sf::st_coordinates(poly_dense)[, c("X", "Y")]
 
   dE <- verts[, "X"] - src_xy["X"]
   dN <- verts[, "Y"] - src_xy["Y"]
