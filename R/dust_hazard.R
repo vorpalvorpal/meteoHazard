@@ -462,15 +462,23 @@ dust_flux <- function(
 #' crust-forming rain before the forecast window starts.
 #'
 #' @section Idealisations:
-#' The precipitation-driven crust factor is an uncalibrated exponential
-#' clock-decay placeholder (`1 + (crust_factor_max - 1) * exp(-age /
-#' crust_decay_hours)`): real crust breakdown is primarily mechanical
-#' (abrasion/rupture by saltating-particle impact), not a pure function of
-#' elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A future version
-#' should gate crust decay on cumulative saltation activity (a TODO, not
-#' implemented here) rather than the clock alone. Separately, watering and
-#' other surface management (the first-order dust-suppression control on an
-#' active landfill working face) are invisible to the gridded
+#' The precipitation-driven crust factor is an uncalibrated exponential decay
+#' placeholder (`1 + (crust_factor_max - 1) * exp(-age / crust_decay_hours)`);
+#' real crust breakdown is primarily mechanical (abrasion/rupture by
+#' saltating-particle impact), not a pure function of elapsed time (Gillette
+#' et al. 1982; Rice & McEwan 2001). With `crust_decay = "clock"` (default)
+#' `age` is pure elapsed time, so a calm week decays the crust exactly as much
+#' as a windy one -- retained as the behaviour-preserving default.
+#' `crust_decay = "saltation"` instead advances `age` only during hours when
+#' the (currently crusted) surface actually saltates, so it does not decay
+#' through a calm spell; it still does not model *why* particular impacts
+#' rupture the crust (a fixed exponential decay rate once saltation resumes,
+#' rather than e.g. an impact-count-dependent rupture probability, remains an
+#' uncalibrated placeholder in both modes) and recomputes u*/the moisture
+#' threshold using the simplified (non-drag-partitioned) smooth/caller z0
+#' rather than sharing dust_flux()'s exact internal state. Separately,
+#' watering and other surface management (the first-order dust-suppression
+#' control on an active landfill working face) are invisible to the gridded
 #' `soil_moisture_0_to_1cm` input; `threshold_multiplier` (via [dust_flux()])
 #' is the intended injection hook — e.g. a caller can locally raise the
 #' threshold multiplier during known watering hours before invoking
@@ -495,6 +503,16 @@ dust_flux <- function(
 #'   air density.
 #' @param crust Logical. Enable the precipitation-driven crust-persistence gate.
 #'   Default `FALSE`. When `TRUE`, `met_data$precipitation` is required.
+#' @param crust_decay `"clock"` (default) or `"saltation"`. `"clock"` decays
+#'   the crust as a pure function of elapsed time since the last
+#'   crust-forming rain (the pre-v4 behaviour, bit-identical) -- see
+#'   @section Idealisations. `"saltation"` instead advances the crust age only
+#'   during hours when saltation is actually occurring on the (currently
+#'   crusted) surface: calm hours leave a fresh crust untouched, so it can
+#'   persist through a calm week that the clock would decay regardless.
+#'   Recomputes `u*`/the moisture-corrected dry threshold internally from the
+#'   same site parameters forwarded to [dust_flux()] purely to drive this
+#'   gate (u* is thus computed twice; correctness over micro-perf).
 #' @param rain_crust_threshold Precipitation (mm) at or above which an hour is
 #'   treated as a crust-forming rain event. Default 2.
 #' @param crust_factor_max Maximum threshold multiplier immediately after rain.
@@ -527,6 +545,7 @@ dust_hazard <- function(
   weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
   air_density          = c("reference", "met"),
   crust                = FALSE,
+  crust_decay          = c("clock", "saltation"),
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
   crust_decay_hours    = 72,
@@ -536,6 +555,7 @@ dust_hazard <- function(
   # met_data wind columns are normalised inside dust_flux(); crust_factor_max and
   # crust_decay_hours are dimensionless / in hours and taken as-is.
   rain_crust_threshold <- .drop_to(rain_crust_threshold, "mm", arg = "rain_crust_threshold")
+  crust_decay <- match.arg(crust_decay)
 
   air_density <- match.arg(air_density)
 
@@ -560,12 +580,61 @@ dust_hazard <- function(
   )
 
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
-  crust_mult <- if (crust) {
+  crust_mult <- if (!crust) {
+    1
+  } else if (crust_decay == "clock") {
     .dust_crust_factor(.drop_to(met_data$precipitation, "mm", arg = "precipitation"),
                        rain_crust_threshold, crust_factor_max, crust_decay_hours,
                        age0 = hours_since_last_rain)
   } else {
-    1
+    # ---- Saltation-gated crust decay (WP4) --------------------------------- #
+    # Quiet re-derivation of the grain diameter / z0 / air density -- the SAME
+    # site parameters forwarded to dust_flux() below -- purely to drive the
+    # saltation gate (no warnings emitted here; dust_flux() below performs the
+    # authoritative, warning-emitting resolution for the actual flux). u* is
+    # thus computed twice; correctness over micro-perf (dev/dust-v4-plan.md WP4).
+    d_gate <- if (!is.null(d50)) {
+      .drop_to(d50, "m", arg = "d50")
+    } else if (!is.null(tyler_sieve_no)) {
+      TYLER_SIEVE_DIAMETERS_M[[as.character(tyler_sieve_no)]]
+    } else {
+      cli::cli_abort(
+        "Exactly one of {.arg tyler_sieve_no} or {.arg d50} must be supplied.",
+        class = "meteoHazard_input_error"
+      )
+    }
+    z0_gate <- if (is.null(z0)) {
+      d_gate * DUST_CONSTANTS$Z0_SMOOTH_RATIO
+    } else {
+      .drop_to(z0, "m", arg = "z0")
+    }
+    rho_a_gate <- if (air_density == "met") {
+      100 * .drop_to(met_data$surface_pressure, "hPa", arg = "surface_pressure") /
+        (DUST_CONSTANTS$R_D * (.drop_to(met_data$temperature_2m, "degree_C", arg = "temperature_2m") +
+                                DUST_CONSTANTS$KELVIN_OFFSET))
+    } else {
+      DUST_CONSTANTS$RHO_A_REF
+    }
+    w_gate       <- met_data$soil_moisture_0_to_1cm / bulk_density * 100
+    w_prime_gate <- DUST_CONSTANTS$FECAN_WP_QUAD * clay_percent^2 + DUST_CONSTANTS$FECAN_WP_LIN * clay_percent
+    f_moist_gate <- ifelse(
+      w_gate > w_prime_gate,
+      sqrt(1 + DUST_CONSTANTS$FECAN_A * (w_gate - w_prime_gate)^DUST_CONSTANTS$FECAN_B),
+      1
+    )
+    u_star_t_moist_gate <- .dust_u_star_t_dry(d_gate, rho_a_gate) * f_moist_gate
+    u_star_gate <- .dust_u_star(met_data$wind_speed_10m, met_data$wind_gusts_10m,
+                                gust_factor, z0_gate)
+
+    .dust_crust_factor_saltation(
+      precipitation  = .drop_to(met_data$precipitation, "mm", arg = "precipitation"),
+      u_star         = u_star_gate,
+      u_star_t_moist = u_star_t_moist_gate,
+      threshold      = rain_crust_threshold,
+      factor_max     = crust_factor_max,
+      decay_hours    = crust_decay_hours,
+      age0           = hours_since_last_rain
+    )
   }
 
   common <- list(

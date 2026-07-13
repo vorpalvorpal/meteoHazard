@@ -611,6 +611,105 @@ describe(".dust_crust_factor() [v3 cold-start]", {
 })
 
 
+describe(".dust_crust_factor_saltation() [v4 WP4]", {
+
+  it("holds the crust age (and multiplier) through calm/sub-threshold hours", {
+    skip_if_no_dust_v2()
+    precip <- rep(0, 5)
+    u_star <- rep(0.1, 5)          # always below the crusted threshold
+    u_star_t_moist <- rep(1, 5)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = 0
+    )
+    expect_equal(mult, rep(3, 5))   # age stays 0 throughout -> full factor_max
+  })
+
+  it("advances the crust age only on hours where u_star exceeds the crusted threshold", {
+    skip_if_no_dust_v2()
+    precip <- rep(0, 5)
+    u_star <- rep(10, 5)           # always exceeds the threshold, even fully crusted
+    u_star_t_moist <- rep(1, 5)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = 0
+    )
+    expect_true(all(diff(mult) < 0))   # decays every hour once saltation occurs
+  })
+
+  it("a rain hour resets the age for the FOLLOWING hour, not retroactively", {
+    skip_if_no_dust_v2()
+    precip <- c(0, 5, 0, 0)
+    u_star <- rep(0, 4)             # never exceeds the threshold
+    u_star_t_moist <- rep(1, 4)
+    mult <- meteoHazard:::.dust_crust_factor_saltation(
+      precip, u_star, u_star_t_moist, threshold = 2, factor_max = 3,
+      decay_hours = 24, age0 = Inf
+    )
+    expect_equal(mult[1], 1)                     # age0 = Inf -> no crust memory yet
+    expect_equal(mult[2], 1)                     # this hour's rain not yet reflected
+    expect_equal(mult[3], 3, tolerance = 1e-6)    # next hour: fresh crust
+    expect_equal(mult[4], 3, tolerance = 1e-6)    # held (calm, sub-threshold)
+  })
+})
+
+
+describe("dust_hazard() [v4 WP4: crust_decay = 'saltation']", {
+
+  it("saltation mode: crust persists through a calm week, clock mode decays it", {
+    skip_if_no_dust_v2()
+    # rain hour 1, then 167 dead-calm hours, then a strong hour 169
+    met <- data.frame(wind_speed_10m = c(0, rep(0, 167), 0),
+                      wind_gusts_10m = c(0, rep(2, 167), 25),
+                      soil_moisture_0_to_1cm = 0.02,
+                      precipitation = c(5, rep(0, 168)))
+    clock <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24)
+    salt  <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24,
+                         crust_decay = "saltation")
+    expect_lt(salt[169], clock[169])   # crust still fully fresh in saltation mode
+    expect_equal(salt[169], 0)         # still-elevated crust threshold -> zero flux
+  })
+
+  it("saltation mode: sustained supra-threshold wind decays the crust", {
+    skip_if_no_dust_v2()
+    n <- 200
+    met <- data.frame(wind_speed_10m = rep(0, n),
+                      wind_gusts_10m = c(0, rep(60, n - 1)),   # exceeds even the
+                      soil_moisture_0_to_1cm = 0.02,           # fully-crusted threshold
+                      precipitation = c(5, rep(0, n - 1)))
+    base <- dust_hazard(met, crust = FALSE)
+    salt <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24,
+                        crust_decay = "saltation")
+    expect_lt(salt[10], base[10])                       # still suppressed early on
+    expect_equal(salt[n], base[n], tolerance = 1e-3)     # decayed back to baseline
+  })
+
+  it("crust_decay = 'clock' is bit-identical to the current (pre-WP4) behaviour", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = c(20, 22, 25),
+                      soil_moisture_0_to_1cm = 0.02, precipitation = c(5, 0, 0))
+    implicit <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24)
+    explicit <- dust_hazard(met, crust = TRUE, crust_decay_hours = 24, crust_decay = "clock")
+    expect_equal(implicit, explicit)
+  })
+
+  it("crust_decay is irrelevant when crust = FALSE", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = c(20, 22, 25),
+                      soil_moisture_0_to_1cm = 0.02)
+    clock_off <- dust_hazard(met, crust = FALSE, crust_decay = "clock")
+    salt_off  <- dust_hazard(met, crust = FALSE, crust_decay = "saltation")
+    expect_equal(clock_off, salt_off)
+  })
+
+  it("rejects an invalid crust_decay value", {
+    skip_if_no_dust_v2()
+    met <- data.frame(wind_speed_10m = 0, wind_gusts_10m = 20, soil_moisture_0_to_1cm = 0.02)
+    expect_error(dust_hazard(met, crust_decay = "bogus"))
+  })
+})
+
+
 describe("dust units handling", {
 
   it("dust_flux accepts units-tagged winds and converts them to m/s", {

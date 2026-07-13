@@ -42,6 +42,17 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   near threshold and emitting where the hourly mean is sub-threshold but the
   within-hour tail is not. New `weibull_shape` argument (default
   `DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0, uncalibrated placeholder).
+* **Saltation-gated crust decay** (WP4): new `crust_decay = c("clock",
+  "saltation")` on `dust_hazard()` (default `"clock"`, bit-identical). The
+  pure elapsed-time clock decays a crust through a calm week exactly as fast
+  as a windy one; `"saltation"` instead advances the crust age only during
+  hours when the (currently crusted) surface is actually being sandblasted
+  (rain resets it, calm/sub-threshold hours leave it untouched), so it
+  persists through a calm spell and decays once winds resume. Internally
+  refactors the u* chain into `.dust_u_star()`/`.dust_u_star_t_dry()` (pure,
+  no-behaviour-change) and adds `.dust_crust_factor_saltation()`; `u*` is
+  computed twice for the `"saltation"` gate (once in the gate, once in the
+  real flux) -- correctness over micro-perf.
 
 ## Litter hazard v3.2
 

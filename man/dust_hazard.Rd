@@ -16,6 +16,7 @@ dust_hazard(
   weibull_shape = DUST_CONSTANTS$WEIBULL_SHAPE,
   air_density = c("reference", "met"),
   crust = FALSE,
+  crust_decay = c("clock", "saltation"),
   rain_crust_threshold = 2,
   crust_factor_max = 3,
   crust_decay_hours = 72,
@@ -44,6 +45,17 @@ air density.}
 
 \item{crust}{Logical. Enable the precipitation-driven crust-persistence gate.
 Default \code{FALSE}. When \code{TRUE}, \code{met_data$precipitation} is required.}
+
+\item{crust_decay}{\code{"clock"} (default) or \code{"saltation"}. \code{"clock"} decays
+the crust as a pure function of elapsed time since the last
+crust-forming rain (the pre-v4 behaviour, bit-identical) -- see
+@section Idealisations. \code{"saltation"} instead advances the crust age only
+during hours when saltation is actually occurring on the (currently
+crusted) surface: calm hours leave a fresh crust untouched, so it can
+persist through a calm week that the clock would decay regardless.
+Recomputes \verb{u*}/the moisture-corrected dry threshold internally from the
+same site parameters forwarded to \code{\link[=dust_flux]{dust_flux()}} purely to drive this
+gate (u* is thus computed twice; correctness over micro-perf).}
 
 \item{rain_crust_threshold}{Precipitation (mm) at or above which an hour is
 treated as a crust-forming rain event. Default 2.}
@@ -98,14 +110,23 @@ crust-forming rain before the forecast window starts.
 
 \section{Idealisations}{
 
-The precipitation-driven crust factor is an uncalibrated exponential
-clock-decay placeholder (\code{1 + (crust_factor_max - 1) * exp(-age / crust_decay_hours)}): real crust breakdown is primarily mechanical
-(abrasion/rupture by saltating-particle impact), not a pure function of
-elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A future version
-should gate crust decay on cumulative saltation activity (a TODO, not
-implemented here) rather than the clock alone. Separately, watering and
-other surface management (the first-order dust-suppression control on an
-active landfill working face) are invisible to the gridded
+The precipitation-driven crust factor is an uncalibrated exponential decay
+placeholder (\code{1 + (crust_factor_max - 1) * exp(-age / crust_decay_hours)});
+real crust breakdown is primarily mechanical (abrasion/rupture by
+saltating-particle impact), not a pure function of elapsed time (Gillette
+et al. 1982; Rice & McEwan 2001). With \code{crust_decay = "clock"} (default)
+\code{age} is pure elapsed time, so a calm week decays the crust exactly as much
+as a windy one -- retained as the behaviour-preserving default.
+\code{crust_decay = "saltation"} instead advances \code{age} only during hours when
+the (currently crusted) surface actually saltates, so it does not decay
+through a calm spell; it still does not model \emph{why} particular impacts
+rupture the crust (a fixed exponential decay rate once saltation resumes,
+rather than e.g. an impact-count-dependent rupture probability, remains an
+uncalibrated placeholder in both modes) and recomputes u*/the moisture
+threshold using the simplified (non-drag-partitioned) smooth/caller z0
+rather than sharing dust_flux()'s exact internal state. Separately,
+watering and other surface management (the first-order dust-suppression
+control on an active landfill working face) are invisible to the gridded
 \code{soil_moisture_0_to_1cm} input; \code{threshold_multiplier} (via \code{\link[=dust_flux]{dust_flux()}})
 is the intended injection hook — e.g. a caller can locally raise the
 threshold multiplier during known watering hours before invoking
