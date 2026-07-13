@@ -570,6 +570,32 @@ describe("dust_hazard() [v2]", {
 })
 
 
+describe(".dust_u_star() / .dust_u_star_t_dry() [v4 WP4 refactor]", {
+
+  it(".dust_u_star_t_dry() reproduces the dry threshold used inside dust_flux()", {
+    skip_if_no_dust_v2()
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    expected <- sqrt(DC$A_N * (DC$RHO_P / DC$RHO_A_REF * DC$G * d + DC$GAMMA / (DC$RHO_A_REF * d)))
+    expect_equal(meteoHazard:::.dust_u_star_t_dry(d, DC$RHO_A_REF), expected)
+  })
+
+  it(".dust_u_star() reproduces the gust-driven friction velocity used inside dust_flux()", {
+    skip_if_no_dust_v2()
+    DC <- meteoHazard:::DUST_CONSTANTS
+    d  <- meteoHazard:::TYLER_SIEVE_DIAMETERS_M[["20"]]
+    z0 <- d * DC$Z0_SMOOTH_RATIO
+    expected <- (DC$KAPPA / log(DC$Z_REF / z0)) * max(0, 0.84 * 20)
+    expect_equal(meteoHazard:::.dust_u_star(0, 20, 0.84, z0), expected)
+  })
+
+  it("dust_flux() is bit-identical after the WP4 refactor (smooth-bed KAT)", {
+    skip_if_no_dust_v2()
+    expect_equal(dust_flux(20L, 10, 0, 20, 0.02), 7.86633315e-08, tolerance = 1e-4)
+  })
+})
+
+
 describe(".dust_crust_factor() [v3 cold-start]", {
 
   it("age0 sets the initial crust age for the cold-start row [CC-4c]", {

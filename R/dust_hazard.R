@@ -317,9 +317,7 @@ dust_flux <- function(
   }
 
   # ---- Physical constants (DUST_CONSTANTS; see R/constants.R) -------------- #
-  rho_p <- DUST_CONSTANTS$RHO_P     # particle density (kg/m^3, quartz)
   g     <- DUST_CONSTANTS$G
-  gamma <- DUST_CONSTANTS$GAMMA     # interparticle cohesion parameter (N/m)
   kappa <- DUST_CONSTANTS$KAPPA     # von Karman constant
   z     <- DUST_CONSTANTS$Z_REF     # reference height (m)
 
@@ -357,7 +355,7 @@ dust_flux <- function(
   }
 
   # ---- Dry threshold friction velocity (Shao & Lu 2000) -------------------- #
-  u_star_t_dry <- sqrt(DUST_CONSTANTS$A_N * (rho_p / rho_a * g * d + gamma / (rho_a * d)))
+  u_star_t_dry <- .dust_u_star_t_dry(d, rho_a)
 
   # ---- Moisture correction (Fecan et al. 1999) ----------------------------- #
   # Gravimetric moisture (% by mass) from volumetric content and bulk density;
@@ -383,8 +381,7 @@ dust_flux <- function(
     # Gust-driven, fastest-mile proxy, applied as an hourly-steady forcing
     # (idealisation — see @section Idealisations: biases high near threshold;
     # "weibull" below is the within-hour alternative).
-    U_fm   <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)  # m/s
-    u_star <- a * U_fm
+    u_star <- .dust_u_star(wind_speed_10m, wind_gusts_10m, gust_factor, z0)
 
     # Q = (rho_a/g) u*^3 (1 - (u*t/u*)^2), zero below threshold. The excess
     # factor is computed only where u* exceeds the threshold, so it is never
@@ -607,15 +604,38 @@ dust_hazard <- function(
 
 # ---- Internal helpers ------------------------------------------------------ #
 
-# Per-hour crust threshold multiplier. age = hours since the most recent hour
-# with precipitation >= threshold (Inf before any such hour, or governed by
-# age0 for row 1 — see dust_hazard()'s "Crust cold-start" section). The crust
-# is strongest right after rain and decays exponentially over decay_hours.
-# This exponential clock-decay is an uncalibrated placeholder; real crust
-# breakdown is primarily mechanical (saltation-impact abrasion/rupture), not a
-# pure function of elapsed time (Gillette et al. 1982; Rice & McEwan 2001). A
-# future version should gate decay on cumulative saltation activity instead
-# (TODO, not implemented here).
+# The u* chain (Shao & Lu 2000 dry threshold; gust-driven friction velocity),
+# extracted from dust_flux() (WP4 refactor, no-behaviour-change) so
+# dust_hazard()'s saltation-gated crust decay can recompute the same
+# quantities for its gate without duplicating the formulas inline.
+
+# Dry threshold friction velocity (Shao & Lu 2000), before the Fecan moisture
+# correction / crust multiplier / MB95 drag-partition division. `d` is the
+# (already-resolved) modal grain diameter (m); `rho_a` the air density
+# (kg/m^3, scalar or per-hour vector).
+.dust_u_star_t_dry <- function(d, rho_a) {
+  sqrt(DUST_CONSTANTS$A_N * (DUST_CONSTANTS$RHO_P / rho_a * DUST_CONSTANTS$G * d +
+                              DUST_CONSTANTS$GAMMA / (rho_a * d)))
+}
+
+# Gust-driven friction velocity: u* = (kappa / log(Z_REF/z0)) * max(wind_speed_10m,
+# gust_factor * wind_gusts_10m). `z0` is the already-resolved roughness length
+# (m; the caller's value or the smooth-bed default, never NULL here).
+.dust_u_star <- function(wind_speed_10m, wind_gusts_10m, gust_factor, z0) {
+  U_fm <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)
+  a    <- DUST_CONSTANTS$KAPPA / log(DUST_CONSTANTS$Z_REF / z0)
+  a * U_fm
+}
+
+# Per-hour crust threshold multiplier (clock decay). age = hours since the
+# most recent hour with precipitation >= threshold (Inf before any such hour,
+# or governed by age0 for row 1 — see dust_hazard()'s "Crust cold-start"
+# section). The crust is strongest right after rain and decays exponentially
+# over decay_hours. This exponential clock-decay is an uncalibrated
+# placeholder; real crust breakdown is primarily mechanical (saltation-impact
+# abrasion/rupture), not a pure function of elapsed time (Gillette et al.
+# 1982; Rice & McEwan 2001) -- see .dust_crust_factor_saltation() for the
+# saltation-gated alternative (WP4, `crust_decay = "saltation"`).
 .dust_crust_factor <- function(precipitation, threshold, factor_max, decay_hours, age0 = Inf) {
   checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
   n   <- length(precipitation)
@@ -630,6 +650,50 @@ dust_hazard <- function(
     age[i] <- current
   }
   ifelse(is.finite(age), 1 + (factor_max - 1) * exp(-age / decay_hours), 1)
+}
+
+# Per-hour crust threshold multiplier (saltation-gated decay, WP4). Unlike
+# .dust_crust_factor()'s pure clock, the crust age here only advances during
+# hours when saltation is actually occurring *on the crusted surface*: a rain
+# hour resets it to fresh; a calm/sub-threshold hour leaves it untouched
+# (nothing is abrading the crust); only a supra-(crusted-)threshold hour
+# advances it (Gillette et al. 1982; Rice & McEwan 2001 motivate gating decay
+# on mechanical abrasion rather than elapsed time alone).
+#
+# At each hour i, mult_i is computed from the age carried IN from the previous
+# hour (age0 for row 1) -- i.e. that hour's own rain/saltation is reflected in
+# the NEXT hour's multiplier, not retroactively in its own (contrast
+# .dust_crust_factor()'s same-hour convention). `u_star`/`u_star_t_moist` are
+# the (pre-crust, pre-drag-partition) gust-driven friction velocity and
+# moisture-corrected dry threshold for the same site/hours (see
+# dust_hazard()'s saltation-gate derivation); the crusted threshold used only
+# for this hour's gate decision is `u_star_t_moist * max(1, mult_i)` (combined
+# via max, mirroring dust_flux()'s own moisture/crust hand-off).
+.dust_crust_factor_saltation <- function(precipitation, u_star, u_star_t_moist,
+                                          threshold, factor_max, decay_hours,
+                                          age0 = Inf) {
+  n <- length(precipitation)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
+  checkmate::assert_numeric(u_star, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(u_star_t_moist, lower = 0, any.missing = FALSE, len = n)
+
+  mult <- numeric(n)
+  current <- age0
+  for (i in seq_len(n)) {
+    mult[i] <- if (is.finite(current)) {
+      1 + (factor_max - 1) * exp(-current / decay_hours)
+    } else {
+      1
+    }
+    u_star_t_i <- u_star_t_moist[i] * max(1, mult[i])
+    if (precipitation[i] >= threshold) {
+      current <- 0
+    } else if (u_star[i] > u_star_t_i) {
+      current <- current + 1   # crust is being sandblasted
+    }
+    # else: calm/sub-threshold hour -- crust age holds (nothing abrading it).
+  }
+  mult
 }
 
 
