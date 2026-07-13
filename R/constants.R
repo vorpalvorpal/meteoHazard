@@ -225,3 +225,45 @@ DUST_CONSTANTS <- list(
   MB95_ALPHA_INTERCEPT  = -6,       # MB95 sandblasting log-alpha intercept
   MB95_CLAY_CAP         = 20        # % clay; MB95 alpha validity ceiling
 )
+
+#' Constants for the litter hazard model
+#'
+#' Tunable parameters for [litter_hazard_vec()]. The litter hazard is a
+#' phenomenological windblown-litter mobilization index (a threshold-gated,
+#' saturating gust ramp), **not** a soil-physics flux, so every value here is an
+#' UNCALIBRATED screening placeholder; calibration is owned by issues #11/#26.
+#'
+#' \describe{
+#'   \item{MATERIALS}{Per-material mobilization parameters. Each entry lists a
+#'     `gust_threshold` (dry threshold gust, m/s, below which nothing moves), a
+#'     `gust_reference` (gust at which the mobilized fraction saturates, m/s),
+#'     and a `saturation_penalty` (fractional entrainment loss on a fully wet
+#'     surface). `film` and `paper` share the same dry thresholds — carried over
+#'     from the v3.0 friction-velocity defaults `0.30` and `1.05` m/s divided by
+#'     `kappa / ln(z/z0) = 0.40 / ln(200)` — because dry paper is about as
+#'     mobile as dry film; they differ only in how water suppresses them (film
+#'     sheds surface water and keeps a residual, penalty 0.7; absorbent paper is
+#'     fully vetoed once soaked, penalty 1.0). `rigid` (bottles, cans) needs a
+#'     far stronger gust to move and is barely held down by water — Mellink et
+#'     al. (2024) found bottles ~0% mobile at winds that fully mobilize bags. The
+#'     `rigid` numbers (12/25 m/s, penalty 0.15) are UNCALIBRATED placeholders,
+#'     first estimates only.}
+#'   \item{SATURATION_ONSET}{Normalised surface wetness at which the material
+#'     saturation penalty begins to ramp in — full penalty lands at wetness 1.
+#'     0.8. Uncalibrated placeholder.}
+#' }
+#' @keywords internal
+LITTER_CONSTANTS <- list(
+  # Per-material dry thresholds and wet-saturation penalties (all uncalibrated).
+  MATERIALS = list(
+    film  = list(gust_threshold = 3.9737355, gust_reference = 13.9080743,
+                 saturation_penalty = 0.7),
+    paper = list(gust_threshold = 3.9737355, gust_reference = 13.9080743,
+                 saturation_penalty = 1.0),
+    # rigid: bottles/cans ~0% mobile at winds that mobilize bags (Mellink 2024);
+    # a wet surface barely holds a rigid item down. UNCALIBRATED placeholders.
+    rigid = list(gust_threshold = 12.0, gust_reference = 25.0,
+                 saturation_penalty = 0.15)
+  ),
+  SATURATION_ONSET = 0.8  # normalised wetness where the saturation penalty starts
+)

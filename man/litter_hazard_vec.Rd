@@ -10,17 +10,17 @@ litter_hazard_vec(
   precipitation,
   soil_moisture_0_to_1cm = NULL,
   wetness = NULL,
-  material = c("film", "paper"),
-  gust_threshold = 3.9737355,
-  gust_reference = 13.9080743,
+  material = c("film", "paper", "rigid"),
+  gust_threshold = NULL,
+  gust_reference = NULL,
   entrainment_max = 50,
   excess_exponent = 2,
   moisture_gain = 2,
   moisture_curve = 0.5,
   soil_dry = 0.05,
   soil_wet = 0.2,
-  saturation_penalty = 0.7,
-  paper_veto_wetness = 0.8,
+  saturation_penalty = NULL,
+  saturation_onset = LITTER_CONSTANTS$SATURATION_ONSET,
   wind_transport_onset = 5.5,
   wind_transport_ref = 15,
   transport_max = 2,
@@ -52,21 +52,28 @@ litter-specific alternative to the gridded soil-moisture proxy — see
 \code{soil_moisture_0_to_1cm}; supplying both warns
 (\code{meteoHazard_litter_wetness_supersedes}).}
 
-\item{material}{Character. \code{"film"} (default) or \code{"paper"}. Governs how a
-saturated surface is treated — see @section Model.}
+\item{material}{Character, one of \code{"film"} (default), \code{"paper"}, or
+\code{"rigid"}. Selects the per-material dry mobilization thresholds
+(\code{gust_threshold}/\code{gust_reference}) and wet \code{saturation_penalty} from
+\code{LITTER_CONSTANTS$MATERIALS} — see @section Model. \code{film} and \code{paper} share
+the same dry thresholds (differing only when wet); \code{rigid} (bottles/cans)
+needs a much stronger gust and its numbers are uncalibrated placeholders.}
 
 \item{gust_threshold}{Dry threshold gust (m/s) below which entrainment is
-zero. Default \code{3.9737355}. Replaces the v3.0 \code{kappa}/\code{z0}/\code{ustar_t0}
-friction-velocity parameterisation: \verb{u*} is a linear rescaling of the
-gust under the neutral log wind profile, so those four knobs collapse to
-two identifiable gust speeds without losing any behaviour (needed for the
-calibration workflow in issue #26). The default reproduces the old
-\code{ustar_t0 = 0.30} m/s threshold to rounding
-(\code{0.30 / (0.40 / log(200))} = 3.97373802; pinned as 3.9737355).}
+zero, or \code{NULL} (default) to use the per-material value from
+\code{LITTER_CONSTANTS$MATERIALS[[material]]} (film/paper 3.9737355, rigid 12.0).
+An explicit value is a calibration override that wins for any material.
+Parameterising in gust speed replaces the v3.0 \code{kappa}/\code{z0}/\code{ustar_t0}
+friction-velocity knobs: \verb{u*} is a linear rescaling of the gust under the
+neutral log wind profile, so those four collapse to two identifiable gust
+speeds without losing behaviour (calibration workflow, issue #26). The
+film/paper default reproduces the old \code{ustar_t0 = 0.30} m/s threshold to
+rounding (\code{0.30 / (0.40 / log(200))} = 3.97373802).}
 
-\item{gust_reference}{Gust (m/s) at which entrainment saturates. Default
-\code{13.9080743}. Must exceed \code{gust_threshold}. Reproduces the old
-\code{ustar_ref = 1.05} m/s to rounding
+\item{gust_reference}{Gust (m/s) at which entrainment saturates, or \code{NULL}
+(default) to use the per-material value (film/paper 13.9080743, rigid 25.0).
+Must exceed \code{gust_threshold} after resolution. The film/paper default
+reproduces the old \code{ustar_ref = 1.05} m/s to rounding
 (\code{1.05 / (0.40 / log(200))} = 13.90808309).}
 
 \item{entrainment_max}{Maximum entrainment score. Default 50.}
@@ -84,18 +91,19 @@ surface approaches wet. Default 2.0. High calibration uncertainty.}
 (m^3/m^3). Default 0.05. Only used on the \code{soil_moisture_0_to_1cm} path.}
 
 \item{soil_wet}{Soil moisture at or above which the normalised wetness \code{s}
-reaches 1 (m^3/m^3); also the "saturated" mark on the soil-moisture path.
-Default 0.20. Must exceed \code{soil_dry}.}
+reaches 1 (m^3/m^3), i.e. fully wet. Default 0.20. Must exceed \code{soil_dry}.}
 
-\item{saturation_penalty}{Fractional entrainment loss on a saturated \code{film}
-surface, so residual entrainment there is \code{E0 * (1 - saturation_penalty)}.
-Default 0.7 (i.e. 70\% reduction, 30\% residual).}
+\item{saturation_penalty}{Fractional entrainment loss at full wetness, or
+\code{NULL} (default) to use the per-material value (film 0.7, paper 1.0, rigid
+0.15). At normalised wetness 1 the entrainment is
+\code{E0 * (1 - saturation_penalty)}; below \code{saturation_onset} there is no
+penalty. An explicit value overrides the material default.}
 
-\item{paper_veto_wetness}{Normalised wetness (\code{wetness}, when supplied) at
-or above which the surface counts as saturated: a \code{paper} surface is
-hard-vetoed (\code{E = 0}) and a \code{film} surface takes the graded
-\code{saturation_penalty}. Only used on the \code{wetness} path (the soil-moisture
-path uses \code{soil_wet} as its saturation mark). Default 0.8.}
+\item{saturation_onset}{Normalised surface wetness at which the material
+saturation penalty begins to ramp in (reaching the full
+\code{saturation_penalty} at wetness 1). Default 0.8
+(\code{LITTER_CONSTANTS$SATURATION_ONSET}). Must be \verb{< 1}. Uncalibrated
+placeholder.}
 
 \item{wind_transport_onset}{Mean wind below which transport adds nothing
 (m/s). Default 5.5 (~20 km/h).}
@@ -184,19 +192,17 @@ rises with normalised surface wetness, \eqn{G_t = G_{t0}(1 + \gamma
     s^{\beta})}, where \code{s} is \code{wetness} directly when supplied, else the
 Fecan-style clamp of \code{soil_moisture_0_to_1cm} (see
 \code{soil_dry}/\code{soil_wet}).}
-\item{Material-aware graded saturation}{At or above the saturation mark
-(\code{soil_moisture_0_to_1cm >= soil_wet} on the soil-moisture path;
-\code{wetness >= paper_veto_wetness} on the wetness path) the surface is
-treated as fully wet. Loose
-film/thin plastic (\code{material = "film"}, the default — Mellink et al.
-2024 identify film/bags as the dominant landfill-escape material) can
-still be partially entrained off a saturated surface (residual
-entrainment \code{E0 * (1 - saturation_penalty)}), whereas absorbent paper
-(\code{material = "paper"}) is hard-vetoed to zero once saturated — it has
-soaked up water rather than sitting on top of a film. The graded
-penalty only touches the saturated region; the unsaturated
-threshold-rise ramp below the saturation mark is identical for both
-materials.}
+\item{Material-aware graded saturation}{As the surface wets, a \strong{smooth
+penalty ramp} scales entrainment down: zero penalty below
+\code{saturation_onset} (normalised wetness), rising linearly to the full
+per-material \code{saturation_penalty} at normalised wetness 1.
+\code{material = "film"} (the default — Mellink et al. 2024 identify film/bags
+as the dominant landfill-escape material) sheds surface water and keeps a
+residual (penalty 0.7); absorbent \code{"paper"} soaks up water and is fully
+vetoed when wet (penalty 1.0); \code{"rigid"} items (bottles/cans) are barely
+held down by water (penalty 0.15). Both input paths (soil moisture,
+wetness state) share the one ramp, so the index has no interior
+discontinuity at the saturation mark.}
 \item{Transport potential \code{T}}{Driven by the \strong{mean wind} directly (not
 the gust; transport is flight-height advection). A linear ramp from 1 to
 \code{transport_max} between \code{wind_transport_onset} and \code{wind_transport_ref}
@@ -212,8 +218,8 @@ between. Windblown/aeolian transport only — this package does not model
 rain-driven runoff transport of litter (Mellink et al. 2024 show runoff
 is a materially different, non-aeolian mobilisation pathway).}
 }
-Any single suppressor (rain, saturated + paper, sub-threshold gust) drives
-the index to zero. The maximum attainable value is
+Any single suppressor (rain, a fully wet paper surface, sub-threshold gust)
+drives the index to zero. The maximum attainable value is
 \code{entrainment_max * transport_max} (= 100 with the defaults 50 and 2); this
 is not a fixed cap — an inflated \code{entrainment_max} legitimately
 exceeds it.

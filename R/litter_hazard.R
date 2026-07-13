@@ -60,19 +60,17 @@
 #'     s^{\beta})}, where `s` is `wetness` directly when supplied, else the
 #'     Fecan-style clamp of `soil_moisture_0_to_1cm` (see
 #'     `soil_dry`/`soil_wet`).}
-#'   \item{Material-aware graded saturation}{At or above the saturation mark
-#'     (`soil_moisture_0_to_1cm >= soil_wet` on the soil-moisture path;
-#'     `wetness >= paper_veto_wetness` on the wetness path) the surface is
-#'     treated as fully wet. Loose
-#'     film/thin plastic (`material = "film"`, the default — Mellink et al.
-#'     2024 identify film/bags as the dominant landfill-escape material) can
-#'     still be partially entrained off a saturated surface (residual
-#'     entrainment `E0 * (1 - saturation_penalty)`), whereas absorbent paper
-#'     (`material = "paper"`) is hard-vetoed to zero once saturated — it has
-#'     soaked up water rather than sitting on top of a film. The graded
-#'     penalty only touches the saturated region; the unsaturated
-#'     threshold-rise ramp below the saturation mark is identical for both
-#'     materials.}
+#'   \item{Material-aware graded saturation}{As the surface wets, a **smooth
+#'     penalty ramp** scales entrainment down: zero penalty below
+#'     `saturation_onset` (normalised wetness), rising linearly to the full
+#'     per-material `saturation_penalty` at normalised wetness 1.
+#'     `material = "film"` (the default — Mellink et al. 2024 identify film/bags
+#'     as the dominant landfill-escape material) sheds surface water and keeps a
+#'     residual (penalty 0.7); absorbent `"paper"` soaks up water and is fully
+#'     vetoed when wet (penalty 1.0); `"rigid"` items (bottles/cans) are barely
+#'     held down by water (penalty 0.15). Both input paths (soil moisture,
+#'     wetness state) share the one ramp, so the index has no interior
+#'     discontinuity at the saturation mark.}
 #'   \item{Transport potential `T`}{Driven by the **mean wind** directly (not
 #'     the gust; transport is flight-height advection). A linear ramp from 1 to
 #'     `transport_max` between `wind_transport_onset` and `wind_transport_ref`
@@ -88,8 +86,8 @@
 #'     rain-driven runoff transport of litter (Mellink et al. 2024 show runoff
 #'     is a materially different, non-aeolian mobilisation pathway).}
 #' }
-#' Any single suppressor (rain, saturated + paper, sub-threshold gust) drives
-#' the index to zero. The maximum attainable value is
+#' Any single suppressor (rain, a fully wet paper surface, sub-threshold gust)
+#' drives the index to zero. The maximum attainable value is
 #' `entrainment_max * transport_max` (= 100 with the defaults 50 and 2); this
 #' is not a fixed cap — an inflated `entrainment_max` legitimately
 #' exceeds it.
@@ -112,19 +110,26 @@
 #'   `use_wetness_state` in [litter_hazard()]). When supplied it **supersedes**
 #'   `soil_moisture_0_to_1cm`; supplying both warns
 #'   (`meteoHazard_litter_wetness_supersedes`).
-#' @param material Character. `"film"` (default) or `"paper"`. Governs how a
-#'   saturated surface is treated — see @section Model.
+#' @param material Character, one of `"film"` (default), `"paper"`, or
+#'   `"rigid"`. Selects the per-material dry mobilization thresholds
+#'   (`gust_threshold`/`gust_reference`) and wet `saturation_penalty` from
+#'   `LITTER_CONSTANTS$MATERIALS` — see @section Model. `film` and `paper` share
+#'   the same dry thresholds (differing only when wet); `rigid` (bottles/cans)
+#'   needs a much stronger gust and its numbers are uncalibrated placeholders.
 #' @param gust_threshold Dry threshold gust (m/s) below which entrainment is
-#'   zero. Default `3.9737355`. Replaces the v3.0 `kappa`/`z0`/`ustar_t0`
-#'   friction-velocity parameterisation: `u*` is a linear rescaling of the
-#'   gust under the neutral log wind profile, so those four knobs collapse to
-#'   two identifiable gust speeds without losing any behaviour (needed for the
-#'   calibration workflow in issue #26). The default reproduces the old
-#'   `ustar_t0 = 0.30` m/s threshold to rounding
-#'   (`0.30 / (0.40 / log(200))` = 3.97373802; pinned as 3.9737355).
-#' @param gust_reference Gust (m/s) at which entrainment saturates. Default
-#'   `13.9080743`. Must exceed `gust_threshold`. Reproduces the old
-#'   `ustar_ref = 1.05` m/s to rounding
+#'   zero, or `NULL` (default) to use the per-material value from
+#'   `LITTER_CONSTANTS$MATERIALS[[material]]` (film/paper 3.9737355, rigid 12.0).
+#'   An explicit value is a calibration override that wins for any material.
+#'   Parameterising in gust speed replaces the v3.0 `kappa`/`z0`/`ustar_t0`
+#'   friction-velocity knobs: `u*` is a linear rescaling of the gust under the
+#'   neutral log wind profile, so those four collapse to two identifiable gust
+#'   speeds without losing behaviour (calibration workflow, issue #26). The
+#'   film/paper default reproduces the old `ustar_t0 = 0.30` m/s threshold to
+#'   rounding (`0.30 / (0.40 / log(200))` = 3.97373802).
+#' @param gust_reference Gust (m/s) at which entrainment saturates, or `NULL`
+#'   (default) to use the per-material value (film/paper 13.9080743, rigid 25.0).
+#'   Must exceed `gust_threshold` after resolution. The film/paper default
+#'   reproduces the old `ustar_ref = 1.05` m/s to rounding
 #'   (`1.05 / (0.40 / log(200))` = 13.90808309).
 #' @param entrainment_max Maximum entrainment score. Default 50.
 #' @param excess_exponent Power-law exponent on the gust excess. Default 2
@@ -136,16 +141,17 @@
 #' @param soil_dry Soil moisture at or below which the surface is fully dry
 #'   (m^3/m^3). Default 0.05. Only used on the `soil_moisture_0_to_1cm` path.
 #' @param soil_wet Soil moisture at or above which the normalised wetness `s`
-#'   reaches 1 (m^3/m^3); also the "saturated" mark on the soil-moisture path.
-#'   Default 0.20. Must exceed `soil_dry`.
-#' @param saturation_penalty Fractional entrainment loss on a saturated `film`
-#'   surface, so residual entrainment there is `E0 * (1 - saturation_penalty)`.
-#'   Default 0.7 (i.e. 70% reduction, 30% residual).
-#' @param paper_veto_wetness Normalised wetness (`wetness`, when supplied) at
-#'   or above which the surface counts as saturated: a `paper` surface is
-#'   hard-vetoed (`E = 0`) and a `film` surface takes the graded
-#'   `saturation_penalty`. Only used on the `wetness` path (the soil-moisture
-#'   path uses `soil_wet` as its saturation mark). Default 0.8.
+#'   reaches 1 (m^3/m^3), i.e. fully wet. Default 0.20. Must exceed `soil_dry`.
+#' @param saturation_penalty Fractional entrainment loss at full wetness, or
+#'   `NULL` (default) to use the per-material value (film 0.7, paper 1.0, rigid
+#'   0.15). At normalised wetness 1 the entrainment is
+#'   `E0 * (1 - saturation_penalty)`; below `saturation_onset` there is no
+#'   penalty. An explicit value overrides the material default.
+#' @param saturation_onset Normalised surface wetness at which the material
+#'   saturation penalty begins to ramp in (reaching the full
+#'   `saturation_penalty` at wetness 1). Default 0.8
+#'   (`LITTER_CONSTANTS$SATURATION_ONSET`). Must be `< 1`. Uncalibrated
+#'   placeholder.
 #' @param wind_transport_onset Mean wind below which transport adds nothing
 #'   (m/s). Default 5.5 (~20 km/h).
 #' @param wind_transport_ref Mean wind at which transport saturates (m/s).
@@ -191,17 +197,17 @@ litter_hazard_vec <- function(
   precipitation,
   soil_moisture_0_to_1cm = NULL,
   wetness              = NULL,
-  material             = c("film", "paper"),
-  gust_threshold       = 3.9737355,
-  gust_reference       = 13.9080743,
+  material             = c("film", "paper", "rigid"),
+  gust_threshold       = NULL,
+  gust_reference       = NULL,
   entrainment_max      = 50,
   excess_exponent      = 2,
   moisture_gain        = 2.0,
   moisture_curve       = 0.5,
   soil_dry             = 0.05,
   soil_wet             = 0.20,
-  saturation_penalty   = 0.7,
-  paper_veto_wetness   = 0.8,
+  saturation_penalty   = NULL,
+  saturation_onset     = LITTER_CONSTANTS$SATURATION_ONSET,
   wind_transport_onset = 5.5,
   wind_transport_ref   = 15.0,
   transport_max        = 2.0,
@@ -225,6 +231,15 @@ litter_hazard_vec <- function(
   checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, len = n)
 
   material <- match.arg(material)
+
+  # ---- Resolve per-material mobilization parameters ------------------------ #
+  # gust_threshold / gust_reference / saturation_penalty default to the
+  # material-specific values in LITTER_CONSTANTS$MATERIALS; an explicitly
+  # supplied value is a calibration override that wins for any material.
+  mat <- LITTER_CONSTANTS$MATERIALS[[material]]
+  if (is.null(gust_threshold))     gust_threshold     <- mat$gust_threshold
+  if (is.null(gust_reference))     gust_reference     <- mat$gust_reference
+  if (is.null(saturation_penalty)) saturation_penalty <- mat$saturation_penalty
 
   # ---- soil_moisture_0_to_1cm / wetness contract seam ----------------------- #
   # Exactly one of the two surface-wetness inputs is required. wetness is the
@@ -280,7 +295,13 @@ litter_hazard_vec <- function(
     ), class = "meteoHazard_input_error")
   }
   checkmate::assert_number(saturation_penalty, lower = 0, upper = 1)
-  checkmate::assert_number(paper_veto_wetness, lower = 0, upper = 1)
+  checkmate::assert_number(saturation_onset, lower = 0)
+  if (saturation_onset >= 1) {
+    cli::cli_abort(c(
+      "{.arg saturation_onset} ({saturation_onset}) must be less than 1.",
+      "i" = "The saturation ramp denominator (1 - saturation_onset) must be positive."
+    ), class = "meteoHazard_input_error")
+  }
   checkmate::assert_number(wind_transport_onset, lower = 0)
   checkmate::assert_number(wind_transport_ref)
   if (wind_transport_ref <= wind_transport_onset) {
@@ -307,18 +328,13 @@ litter_hazard_vec <- function(
   # units throughout -- two identifiable knobs instead of four (issue #26).
   #
   # w_norm = wetness directly when supplied (already normalised [0,1]);
-  # otherwise the Fecan-style clamp of soil_moisture_0_to_1cm onto [0,1]
-  # between soil_dry and soil_wet. "saturated" marks the region where the
-  # material-aware graded-saturation treatment applies: wetness >=
-  # paper_veto_wetness on the wetness path (a dedicated, independently
-  # calibratable mark), or SM >= soil_wet on the soil-moisture path (reusing
-  # soil_wet keeps the pre-existing soil-moisture worked oracles unchanged).
+  # otherwise the Fecan-style clamp of soil_moisture_0_to_1cm onto [0,1] between
+  # soil_dry (w_norm 0) and soil_wet (w_norm 1). Both paths then drive the same
+  # moisture-threshold rise and saturation-penalty ramp below.
   if (have_wet) {
-    w_norm    <- wetness
-    saturated <- wetness >= paper_veto_wetness
+    w_norm <- wetness
   } else {
-    w_norm    <- pmin(1, pmax(0, (soil_moisture_0_to_1cm - soil_dry) / (soil_wet - soil_dry)))
-    saturated <- soil_moisture_0_to_1cm >= soil_wet
+    w_norm <- pmin(1, pmax(0, (soil_moisture_0_to_1cm - soil_dry) / (soil_wet - soil_dry)))
   }
 
   # ---- Moisture-raised entrainment threshold (Fecan et al. 1999 shape) ----- #
@@ -335,19 +351,17 @@ litter_hazard_vec <- function(
   excess <- pmax(0, wind_gusts_10m - gust_t)
   E0 <- entrainment_max * pmin(1, (excess / denom)^excess_exponent)
 
-  # ---- Material-aware graded saturation ------------------------------------- #
-  # Only touches the saturated region (s == 1); the unsaturated threshold-rise
-  # ramp above is identical for both materials. paper: hard veto (it has
-  # absorbed the water, not just sat under a film). film (default, the
-  # dominant landfill-escape material per Mellink et al. 2024): a graded
-  # residual, entrainment_max scaled down by saturation_penalty rather than
-  # zeroed, because a film can still be picked up off a wet surface.
-  E <- E0
-  if (material == "paper") {
-    E[saturated] <- 0
-  } else {
-    E[saturated] <- E0[saturated] * (1 - saturation_penalty)
-  }
+  # ---- Material-aware graded saturation (smooth penalty ramp) -------------- #
+  # A linear penalty ramp on normalised wetness: no penalty below
+  # saturation_onset, rising to the full per-material saturation_penalty at
+  # w_norm == 1. This replaces the v3.1 step at the saturation mark (an interior
+  # discontinuity in an otherwise smooth index that would fight calibration).
+  # film sheds surface water and keeps a residual (penalty 0.7); absorbent paper
+  # is fully vetoed once soaked (penalty 1.0); rigid items are barely held down
+  # (penalty 0.15). Both input paths (soil moisture, wetness state) flow through
+  # the one formula (Mellink et al. 2024 for the material contrast).
+  sat_ramp <- pmin(1, pmax(0, (w_norm - saturation_onset) / (1 - saturation_onset)))
+  E <- E0 * (1 - saturation_penalty * sat_ramp)
 
   # ---- Transport potential from the mean wind ------------------------------ #
   # Linear ramp [1, transport_max] over the mean wind (m/s). Transport is

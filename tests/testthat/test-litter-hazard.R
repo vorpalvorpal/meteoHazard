@@ -137,8 +137,8 @@ describe("litter_hazard_vec() [v3.1]", {
 
     it("wetness supersedes soil_moisture_0_to_1cm when both are supplied, with a warning", {
       skip_if_no_litter_v3()
-      # wetness=0.02 is far below paper_veto_wetness (0.8): if wetness wins,
-      # the (saturated, SM=0.30) veto path is NOT taken and the result is > 0.
+      # wetness=0.02 is far below saturation_onset (0.8): if wetness wins,
+      # the saturation penalty is not applied and the result is > 0.
       expect_warning(
         out <- litter_hazard_vec(
           16, 15, 0,
@@ -294,6 +294,77 @@ describe("litter_hazard_vec() [v3.1]", {
     it("rejects an unrecognised material value", {
       skip_if_no_litter_v3()
       expect_error(litter_hazard_vec(16, 12.5, 0, 0.02, material = "cardboard"))
+    })
+  })
+
+  describe("smooth material-saturation ramp (v3.2)", {
+
+    it("film mid-ramp: wetness=0.9, G=35, W=15 -> 65", {
+      skip_if_no_litter_v3()
+      # E0 = 50 (excess > denom at w_norm 0.9), ramp = (0.9-0.8)/0.2 = 0.5,
+      # E = 50*(1 - 0.7*0.5) = 32.5, T(15) = 2 -> 65.
+      out <- litter_hazard_vec(35, 15, 0, wetness = 0.9, material = "film")
+      expect_equal(out, 65, tolerance = 1e-3)
+    })
+
+    it("paper mid-ramp: wetness=0.9 -> 50 (partial, no longer a hard veto)", {
+      skip_if_no_litter_v3()
+      out <- litter_hazard_vec(35, 15, 0, wetness = 0.9, material = "paper")
+      expect_equal(out, 50, tolerance = 1e-3)
+    })
+
+    it("no step at the onset: continuous and monotone over wetness [0.75, 1]", {
+      skip_if_no_litter_v3()
+      w <- seq(0.75, 1, by = 0.01)
+      out <- litter_hazard_vec(rep(35, length(w)), rep(15, length(w)),
+                               rep(0, length(w)), wetness = w)
+      expect_true(all(diff(out) <= 0))
+      expect_lt(max(abs(diff(out))), 4)  # 0.01-step bound; a cliff would be ~35
+    })
+
+    it("errors (classed) when saturation_onset >= 1", {
+      skip_if_no_litter_v3()
+      expect_error(
+        litter_hazard_vec(16, 15, 0, wetness = 0.5, saturation_onset = 1),
+        class = "meteoHazard_input_error"
+      )
+    })
+  })
+
+  describe("material-resolved mobilization thresholds (v3.2)", {
+
+    it("rigid needs a much stronger gust than film: G=10 moves film, not rigid", {
+      skip_if_no_litter_v3()
+      expect_gt(litter_hazard_vec(10, 12, 0, 0.02, material = "film"), 0)
+      expect_equal(litter_hazard_vec(10, 12, 0, 0.02, material = "rigid"), 0)
+    })
+
+    it("rigid worked oracle: G=16, W=15, dry -> 9.4675", {
+      skip_if_no_litter_v3()
+      # threshold 12, reference 25, denom 13; E = 50*((16-12)/13)^2 = 4.7337; T=2.
+      out <- litter_hazard_vec(16, 15, 0, 0.02, material = "rigid")
+      expect_equal(out, 9.4675, tolerance = 1e-3)
+    })
+
+    it("rigid saturates at the rigid reference: G=26 and G=40 both -> 100", {
+      skip_if_no_litter_v3()
+      out <- litter_hazard_vec(c(26, 40), c(15, 15), c(0, 0), c(0.02, 0.02),
+                               material = "rigid")
+      expect_equal(out, c(100, 100), tolerance = 1e-3)
+    })
+
+    it("an explicit gust_threshold/reference overrides the material default", {
+      skip_if_no_litter_v3()
+      a <- litter_hazard_vec(16, 15, 0, 0.02, material = "rigid",
+                             gust_threshold = 3.9737355, gust_reference = 13.9080743)
+      b <- litter_hazard_vec(16, 15, 0, 0.02, material = "film")
+      expect_equal(a, b, tolerance = 1e-3)
+    })
+
+    it("film and paper share the dry threshold (pinned film==paper oracle intact)", {
+      skip_if_no_litter_v3()
+      expect_equal(litter_hazard_vec(10, 7, 0, 0.10, material = "paper"),
+                   1.2127, tolerance = 1e-3)
     })
   })
 
