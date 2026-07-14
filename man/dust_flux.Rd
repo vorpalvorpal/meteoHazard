@@ -55,7 +55,8 @@ grain diameter (\code{tyler_sieve_no} or \code{d50}); this (or any \verb{z0 <=} 
 smooth-bed value) makes the MB95 drag-partition efficient fraction
 \code{feff = 1} exactly (bit-identical smooth-bed behaviour). A caller-supplied
 \code{z0} above the smooth-bed value engages the drag partition (Marticorena &
-Bergametti 1995 Eqs 18-19): \code{feff} falls below 1, raising the threshold
+Bergametti 1995 Eq. 20, King et al. 2005 correction): \code{feff} falls below
+1, raising the threshold
 (\code{u_star_t / feff}) to represent shear stress shared with non-erodible
 roughness. If \code{feff <= DUST_CONSTANTS$FEFF_MIN} the bed is fully
 sheltered: the flux is zero for every hour, with a warning
@@ -79,8 +80,8 @@ validated for shape, just not used in the flux calculation). See
 @section Idealisations.}
 
 \item{weibull_shape}{Weibull shape parameter \code{k} for \code{forcing = "weibull"}
-(ignored otherwise). Default \code{DUST_CONSTANTS$WEIBULL_SHAPE} (2.0,
-uncalibrated placeholder). Larger \code{k} concentrates the within-hour wind
+(ignored otherwise). Default \code{DUST_CONSTANTS$WEIBULL_SHAPE} (4.0;
+Menut 2008). Larger \code{k} concentrates the within-hour wind
 more tightly around its mean (converging to the steady-forcing flux at
 the mean as \code{k -> Inf}).}
 
@@ -154,8 +155,9 @@ the threshold. \code{forcing = "weibull"} replaces the steady gust with a
 within-hour \code{Weibull(weibull_shape, c)} wind distribution (mean
 \code{wind_speed_10m}-preserving; \code{wind_gusts_10m}/\code{gust_factor} unused) and
 a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
-2004); \code{weibull_shape} (\code{DUST_CONSTANTS$WEIBULL_SHAPE}, 2.0) is an
-UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+2004); \code{weibull_shape} (\code{DUST_CONSTANTS$WEIBULL_SHAPE}, 4.0) follows
+Menut (2008)'s operational sub-grid value — a literature default, not
+a site calibration. Martin & Kok (2017) note the
 \emph{time-averaged} saltation flux under intermittency scales closer to
 u*^2 than the instantaneous u*^3 used in both forcing modes here — a
 further refinement this closed form does not capture.
@@ -167,7 +169,8 @@ and emit less than a naive extrapolation would predict.
 \item \strong{Drag partition is a highly z0s-sensitive fit, not global
 physics.} \code{z0} defaults to the smooth-bed value \code{d/30} (\code{feff = 1}
 exactly). A caller-supplied \code{z0} above that engages the Marticorena &
-Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+Bergametti (1995, Eq. 20; coefficient corrected per King et al. 2005)
+efficient-fraction partition, which raises
 the entrainment threshold to represent non-erodible roughness (gravel,
 vegetation, stockpiles) sharing the shear stress with the erodible bed
 (Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
@@ -191,8 +194,13 @@ velocity (\code{A_N}, \code{gamma}).
 Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-partition efficient fraction (Eqs 18-19, \code{MB95_DP_COEF/EXP/X_CM}) and
+partition efficient fraction (Eq. 20, \code{MB95_DP_COEF/EXP/X_CM}) and
 sandblasting efficiency (\code{z0s = d/30}, \code{alpha = 10^(0.134*clay - 6)} cm^-1).
+King, J., Nickling, W.G. & Gillies, J.A. (2005) J. Geophys. Res.-Earth
+Surf. 110:F04015 — corrects the MB95 Eq. 20 coefficient to 0.7 (from the
+0.35 print).
+Menut, L. (2008) J. Geophys. Res. 113:D16201 — Weibull sub-grid wind
+distribution around the hourly mean with shape k = 4 (\code{WEIBULL_SHAPE}).
 Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 Res. 84:4643 — saltation flux forms.
 Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}

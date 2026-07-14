@@ -53,21 +53,36 @@ with \code{KELVIN_OFFSET} to compute a met-driven air density from
 \code{temperature_2m}/\code{surface_pressure} (see \code{dust_flux()}'s Design).}
 \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
 \item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
-(1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+(1995) Eq. (20) drag-partition efficient-fraction constants: fit
 coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
 and internal-boundary-layer height (10 cm; lengths in this formula are
-in cm). Applying this fit as a general screening treatment (rather than
-for the specific vegetation-canopy roughness elements MB95 fit it to)
-is an UNCALIBRATED placeholder use — see \code{dust_flux()}'s Idealisations.}
+in cm). The coefficient 0.7 is the King, Nickling & Gillies (2005)
+correction of the original MB95 print (0.35), as adopted by the modern
+emission schemes (Kok et al. 2014, Eq. S.10; Klose et al. 2021,
+MONARCH, Eq. 28; Leung et al. 2023, Eq. 15). X = 10 cm is the choice
+for cm-scale non-vegetation roughness (gravel, clods, stockpiles);
+vegetated surfaces need a much larger X (MacKinnon et al. 2004 re-fit
+X = 122.55 m). Applying this fit as a general screening treatment
+(rather than to the roughness types it was fit to) remains an
+UNCALIBRATED use — see \code{dust_flux()}'s Idealisations.}
 \item{FEFF_MIN}{Efficient-fraction floor below which the surface is
 treated as fully sheltered (zero flux, with a warning, rather than an
-ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
-placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+ever more extreme or sign-flipped threshold), 0.01. No published
+implementation of the MB95 partition floors \code{feff}; the literature
+instead bounds validity at roughly \verb{z0 < 1 cm} (Darmenova et al. 2009,
+via Leung et al. 2023), which for typical \code{z0s} is close to where the
+corrected fit crosses zero — so this guard approximates the published
+validity bound. The fit legitimately goes negative at large z0/z0s
 ratios, which is a fit artefact, not physics.}
 \item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
-parameter \code{k} for \code{dust_flux(forcing = "weibull")}, 2.0. UNCALIBRATED
-placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
-within-hour intermittency treatment but not this specific \code{k}).}
+parameter \code{k} for \code{dust_flux(forcing = "weibull")}, 4.0 — the
+operational sub-grid value of Menut (2008), inside the k = 3-4 band
+reviewed by Menut (2018) and consistent with open-terrain 10 m
+turbulence intensities of ~0.15-0.30 via Justus et al. (1978)
+\code{k = (mean/sd)^1.086}. (Stout & Zobeck 1997 and Cakmur et al. 2004
+motivate the intermittency treatment itself.) A literature default,
+not a site calibration (issues #11/#26); estimating \code{k} per hour from
+the gust factor via the Justus relation is a possible refinement.}
 }
 }
 \keyword{internal}

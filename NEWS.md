@@ -18,7 +18,7 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   exactly one of `tyler_sieve_no`/`d50` is required (supplying both warns,
   `d50` wins). New constants `R_D`, `KELVIN_OFFSET`.
 * **MB95 drag partition** (WP2): a caller-supplied `z0` above the smooth-bed
-  value now engages the Marticorena & Bergametti (1995, Eqs 18-19)
+  value now engages the Marticorena & Bergametti (1995, Eq. 20)
   efficient-fraction drag partition -- roughness shelters the erodible bed by
   raising the entrainment threshold (`u_star_t / feff`) instead of just
   raising u* unsheltered. `z0 <= z0_smooth` (including the `NULL` default)
@@ -41,7 +41,8 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   and a closed-form hourly-expected flux, correcting the steady-forcing bias
   near threshold and emitting where the hourly mean is sub-threshold but the
   within-hour tail is not. New `weibull_shape` argument (default
-  `DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0, uncalibrated placeholder).
+  `DUST_CONSTANTS$WEIBULL_SHAPE`, 4.0 — see the literature-anchored defaults
+  entry below).
 * **Saltation-gated crust decay** (WP4): new `crust_decay = c("clock",
   "saltation")` on `dust_hazard()` (default `"clock"`, bit-identical). The
   pure elapsed-time clock decays a crust through a calm week exactly as fast
@@ -53,6 +54,34 @@ deferred to their own follow-up against a design-note/contract-test skeleton.
   no-behaviour-change) and adds `.dust_crust_factor_saltation()`; `u*` is
   computed twice for the `"saltation"` gate (once in the gate, once in the
   real flux) -- correctness over micro-perf.
+
+## Literature-anchored defaults (dust + litter)
+
+A literature pass over the constants flagged as uncalibrated placeholders:
+
+* **Breaking (re-pin):** `DUST_CONSTANTS$WEIBULL_SHAPE` moves 2.0 -> 4.0 —
+  Menut (2008)'s operational sub-grid Weibull shape, inside the k = 3-4 band
+  of Menut (2018) and consistent with open-terrain within-hour turbulence
+  intensity via Justus et al. (1978). k = 2 is the *climatological* shape
+  (sigma/mean ~0.52, about double real within-hour gustiness) and
+  over-predicted emission for sub-threshold hourly means. The
+  `forcing = "weibull"` known-answer fixture is re-pinned (mean 12, dry,
+  smooth bed: `1.062634e-07` at k = 2 -> `1.581832e-08` at k = 4; both
+  verified against independent numeric integration).
+* `MB95_DP_COEF = 0.7` confirmed as the King et al. (2005) correction of the
+  original Marticorena & Bergametti (1995) print (0.35), as adopted by Kok
+  et al. (2014), Klose et al. (2021, MONARCH) and Leung et al. (2023); the
+  drag-partition provenance now cites MB95 Eq. (20) plus the correction. No
+  value change.
+* `FEFF_MIN` documented against the literature's `z0 < 1 cm` validity bound
+  (Darmenova et al. 2009, via Leung et al. 2023) — no published feff floor
+  exists; no value change.
+* `rigid` litter parameters documented against Mellink, van Emmerik & Mani
+  (2024): the 12 m/s grass-surface onset matches their measured 12.4 m/s
+  10 m-equivalent for uncapped PET bottles; the 25 m/s saturation reference
+  and 0.15 wet penalty are directionally supported but unquantified. Caveats
+  recorded: paved-ground onset is far lower (~4-6 m/s), and no data exist for
+  metal cans. No value changes.
 
 ## Litter hazard v3.2
 
