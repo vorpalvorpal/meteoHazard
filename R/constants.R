@@ -211,21 +211,36 @@ ODOUR_CONSTANTS <- list(
 #'     `temperature_2m`/`surface_pressure` (see `dust_flux()`'s Design).}
 #'   \item{KELVIN_OFFSET}{Celsius-to-Kelvin offset (K), 273.15.}
 #'   \item{MB95_DP_COEF, MB95_DP_EXP, MB95_DP_X_CM}{Marticorena & Bergametti
-#'     (1995) Eqs. 18-19 drag-partition efficient-fraction coefficients: fit
+#'     (1995) Eq. (20) drag-partition efficient-fraction constants: fit
 #'     coefficient (0.7, dimensionless), fit exponent (0.8, dimensionless),
 #'     and internal-boundary-layer height (10 cm; lengths in this formula are
-#'     in cm). Applying this fit as a general screening treatment (rather than
-#'     for the specific vegetation-canopy roughness elements MB95 fit it to)
-#'     is an UNCALIBRATED placeholder use — see `dust_flux()`'s Idealisations.}
+#'     in cm). The coefficient 0.7 is the King, Nickling & Gillies (2005)
+#'     correction of the original MB95 print (0.35), as adopted by the modern
+#'     emission schemes (Kok et al. 2014, Eq. S.10; Klose et al. 2021,
+#'     MONARCH, Eq. 28; Leung et al. 2023, Eq. 15). X = 10 cm is the choice
+#'     for cm-scale non-vegetation roughness (gravel, clods, stockpiles);
+#'     vegetated surfaces need a much larger X (MacKinnon et al. 2004 re-fit
+#'     X = 122.55 m). Applying this fit as a general screening treatment
+#'     (rather than to the roughness types it was fit to) remains an
+#'     UNCALIBRATED use — see `dust_flux()`'s Idealisations.}
 #'   \item{FEFF_MIN}{Efficient-fraction floor below which the surface is
 #'     treated as fully sheltered (zero flux, with a warning, rather than an
-#'     ever more extreme or sign-flipped threshold), 0.01. UNCALIBRATED
-#'     placeholder: the MB95 fit legitimately goes negative at large z0/z0s
+#'     ever more extreme or sign-flipped threshold), 0.01. No published
+#'     implementation of the MB95 partition floors `feff`; the literature
+#'     instead bounds validity at roughly `z0 < 1 cm` (Darmenova et al. 2009,
+#'     via Leung et al. 2023), which for typical `z0s` is close to where the
+#'     corrected fit crosses zero — so this guard approximates the published
+#'     validity bound. The fit legitimately goes negative at large z0/z0s
 #'     ratios, which is a fit artefact, not physics.}
 #'   \item{WEIBULL_SHAPE}{Default within-hour wind-speed Weibull shape
-#'     parameter `k` for `dust_flux(forcing = "weibull")`, 2.0. UNCALIBRATED
-#'     placeholder (Stout & Zobeck 1997; Cakmur et al. 2004 motivate the
-#'     within-hour intermittency treatment but not this specific `k`).}
+#'     parameter `k` for `dust_flux(forcing = "weibull")`, 4.0 — the
+#'     operational sub-grid value of Menut (2008), inside the k = 3-4 band
+#'     reviewed by Menut (2018) and consistent with open-terrain 10 m
+#'     turbulence intensities of ~0.15-0.30 via Justus et al. (1978)
+#'     `k = (mean/sd)^1.086`. (Stout & Zobeck 1997 and Cakmur et al. 2004
+#'     motivate the intermittency treatment itself.) A literature default,
+#'     not a site calibration (issues #11/#26); estimating `k` per hour from
+#'     the gust factor via the Justus relation is a possible refinement.}
 #' }
 #' @keywords internal
 DUST_CONSTANTS <- list(
@@ -246,11 +261,11 @@ DUST_CONSTANTS <- list(
   MB95_CLAY_CAP         = 20,       # % clay; MB95 alpha validity ceiling
   R_D                   = 287.05,   # J/(kg*K), dry-air specific gas constant
   KELVIN_OFFSET         = 273.15,   # K, Celsius -> Kelvin offset
-  MB95_DP_COEF          = 0.7,      # MB95 Eq. 19 drag-partition fit coefficient (uncalibrated screening use)
-  MB95_DP_EXP           = 0.8,      # MB95 Eq. 19 drag-partition fit exponent (uncalibrated screening use)
-  MB95_DP_X_CM          = 10,       # cm, MB95 Eq. 19 internal-boundary-layer height
-  FEFF_MIN              = 0.01,     # efficient-fraction floor -> fully sheltered below this (uncalibrated)
-  WEIBULL_SHAPE         = 2.0       # within-hour Weibull shape k (uncalibrated placeholder)
+  MB95_DP_COEF          = 0.7,      # MB95 Eq. 20 drag-partition coefficient (King et al. 2005 correction of the 0.35 print)
+  MB95_DP_EXP           = 0.8,      # MB95 Eq. 20 drag-partition fit exponent
+  MB95_DP_X_CM          = 10,       # cm, MB95 Eq. 20 internal-boundary-layer height (cm-scale roughness)
+  FEFF_MIN              = 0.01,     # efficient-fraction floor -> fully sheltered below this (~ the z0 < 1 cm validity bound)
+  WEIBULL_SHAPE         = 4.0       # within-hour Weibull shape k (Menut 2008 operational sub-grid value)
 )
 
 #' Constants for the litter hazard model
@@ -271,10 +286,21 @@ DUST_CONSTANTS <- list(
 #'     mobile as dry film; they differ only in how water suppresses them (film
 #'     sheds surface water and keeps a residual, penalty 0.7; absorbent paper is
 #'     fully vetoed once soaked, penalty 1.0). `rigid` (bottles, cans) needs a
-#'     far stronger gust to move and is barely held down by water — Mellink et
-#'     al. (2024) found bottles ~0% mobile at winds that fully mobilize bags. The
-#'     `rigid` numbers (12/25 m/s, penalty 0.15) are UNCALIBRATED placeholders,
-#'     first estimates only.}
+#'     far stronger gust to move and is barely held down by water. The 12 m/s
+#'     threshold matches the one direct measurement: Mellink, van Emmerik &
+#'     Mani (2024, Sci. Rep. 14:3898) found uncapped PET bottles on grass
+#'     mobilized only above a 12.4 m/s 10 m-equivalent wind, at speeds where
+#'     bags were 100% mobile; bottle mobilization was still well short of
+#'     saturation at their top tested speed (~15 m/s), so the 25 m/s
+#'     `gust_reference` is untested but consistent. Their rain runs saw water
+#'     bead off bottles while pinning bags and wrappers down — a small
+#'     `saturation_penalty` (0.15) is qualitatively right but unquantified.
+#'     Caveats: on paved ground the onset drops to ~4-6 m/s (12 m/s is a
+#'     rough-ground value, not universal); no wind-mobilization data exist for
+#'     metal cans (the bottle analogy carries them); and under this model's
+#'     own z0 = 5 cm height convention the Mellink onsets convert to
+#'     ~14-19 m/s, so 12 m/s sits at the hazard-conservative end.
+#'     Literature-anchored first estimates, not a site calibration.}
 #'   \item{SATURATION_ONSET}{Normalised surface wetness at which the material
 #'     saturation penalty begins to ramp in — full penalty lands at wetness 1.
 #'     0.8. Uncalibrated placeholder.}
@@ -287,8 +313,9 @@ LITTER_CONSTANTS <- list(
                  saturation_penalty = 0.7),
     paper = list(gust_threshold = 3.9737355, gust_reference = 13.9080743,
                  saturation_penalty = 1.0),
-    # rigid: bottles/cans ~0% mobile at winds that mobilize bags (Mellink 2024);
-    # a wet surface barely holds a rigid item down. UNCALIBRATED placeholders.
+    # rigid: bottles on grass mobilize only above ~12.4 m/s 10 m-equivalent and
+    # rain beads off rather than pinning them (Mellink et al. 2024); onset is
+    # far lower (~4-6 m/s) on paved ground. Literature-anchored, uncalibrated.
     rigid = list(gust_threshold = 12.0, gust_reference = 25.0,
                  saturation_penalty = 0.15)
   ),

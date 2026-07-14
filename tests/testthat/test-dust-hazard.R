@@ -348,11 +348,17 @@ describe("dust_flux() [v4 WP1: met-driven air density + d50 interface]", {
 
 describe("dust_flux() [v4 WP3: within-hour Weibull intermittency]", {
 
-  it("weibull forcing matches the closed-form oracle (mean 12, k = 2, dry, smooth bed)", {
+  it("weibull forcing matches the closed-form oracle (mean 12, k = 4 default, dry, smooth bed)", {
     skip_if_no_dust_v2()
+    # Re-pinned when the WEIBULL_SHAPE default moved 2.0 -> 4.0 (Menut 2008);
+    # both values verified against independent numeric integration to 9 s.f.
     f <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
                    soil_moisture = 0.02, forcing = "weibull")
-    expect_equal(f, 1.062634e-07, tolerance = 1e-4)
+    expect_equal(f, 1.581832e-08, tolerance = 1e-4)
+    f_k2 <- dust_flux(20L, 10, wind_speed_10m = 12, wind_gusts_10m = 20,
+                      soil_moisture = 0.02, forcing = "weibull",
+                      weibull_shape = 2)
+    expect_equal(f_k2, 1.062634e-07, tolerance = 1e-4)
   })
 
   it("weibull forcing emits where the steady mean is sub-threshold (intermittency tail)", {

@@ -28,10 +28,21 @@ from the v3.0 friction-velocity defaults \code{0.30} and \code{1.05} m/s divided
 mobile as dry film; they differ only in how water suppresses them (film
 sheds surface water and keeps a residual, penalty 0.7; absorbent paper is
 fully vetoed once soaked, penalty 1.0). \code{rigid} (bottles, cans) needs a
-far stronger gust to move and is barely held down by water — Mellink et
-al. (2024) found bottles ~0\% mobile at winds that fully mobilize bags. The
-\code{rigid} numbers (12/25 m/s, penalty 0.15) are UNCALIBRATED placeholders,
-first estimates only.}
+far stronger gust to move and is barely held down by water. The 12 m/s
+threshold matches the one direct measurement: Mellink, van Emmerik &
+Mani (2024, Sci. Rep. 14:3898) found uncapped PET bottles on grass
+mobilized only above a 12.4 m/s 10 m-equivalent wind, at speeds where
+bags were 100\% mobile; bottle mobilization was still well short of
+saturation at their top tested speed (~15 m/s), so the 25 m/s
+\code{gust_reference} is untested but consistent. Their rain runs saw water
+bead off bottles while pinning bags and wrappers down — a small
+\code{saturation_penalty} (0.15) is qualitatively right but unquantified.
+Caveats: on paved ground the onset drops to ~4-6 m/s (12 m/s is a
+rough-ground value, not universal); no wind-mobilization data exist for
+metal cans (the bottle analogy carries them); and under this model's
+own z0 = 5 cm height convention the Mellink onsets convert to
+~14-19 m/s, so 12 m/s sits at the hazard-conservative end.
+Literature-anchored first estimates, not a site calibration.}
 \item{SATURATION_ONSET}{Normalised surface wetness at which the material
 saturation penalty begins to ramp in — full penalty lands at wetness 1.
 0.8. Uncalibrated placeholder.}

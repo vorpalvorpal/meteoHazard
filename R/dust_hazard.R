@@ -42,8 +42,9 @@
 #'     within-hour `Weibull(weibull_shape, c)` wind distribution (mean
 #'     `wind_speed_10m`-preserving; `wind_gusts_10m`/`gust_factor` unused) and
 #'     a closed-form hourly-expected flux (Stout & Zobeck 1997; Cakmur et al.
-#'     2004); `weibull_shape` (`DUST_CONSTANTS$WEIBULL_SHAPE`, 2.0) is an
-#'     UNCALIBRATED placeholder shape. Martin & Kok (2017) note the
+#'     2004); `weibull_shape` (`DUST_CONSTANTS$WEIBULL_SHAPE`, 4.0) follows
+#'     Menut (2008)'s operational sub-grid value — a literature default, not
+#'     a site calibration. Martin & Kok (2017) note the
 #'     *time-averaged* saltation flux under intermittency scales closer to
 #'     u*^2 than the instantaneous u*^3 used in both forcing modes here — a
 #'     further refinement this closed form does not capture.
@@ -55,7 +56,8 @@
 #'   \item **Drag partition is a highly z0s-sensitive fit, not global
 #'     physics.** `z0` defaults to the smooth-bed value `d/30` (`feff = 1`
 #'     exactly). A caller-supplied `z0` above that engages the Marticorena &
-#'     Bergametti (1995, Eqs 18-19) efficient-fraction partition, which raises
+#'     Bergametti (1995, Eq. 20; coefficient corrected per King et al. 2005)
+#'     efficient-fraction partition, which raises
 #'     the entrainment threshold to represent non-erodible roughness (gravel,
 #'     vegetation, stockpiles) sharing the shear stress with the erodible bed
 #'     (Raupach et al. 1993; Okin 2008; Webb et al. 2014). The fit is
@@ -99,7 +101,8 @@
 #'   smooth-bed value) makes the MB95 drag-partition efficient fraction
 #'   `feff = 1` exactly (bit-identical smooth-bed behaviour). A caller-supplied
 #'   `z0` above the smooth-bed value engages the drag partition (Marticorena &
-#'   Bergametti 1995 Eqs 18-19): `feff` falls below 1, raising the threshold
+#'   Bergametti 1995 Eq. 20, King et al. 2005 correction): `feff` falls below
+#'   1, raising the threshold
 #'   (`u_star_t / feff`) to represent shear stress shared with non-erodible
 #'   roughness. If `feff <= DUST_CONSTANTS$FEFF_MIN` the bed is fully
 #'   sheltered: the flux is zero for every hour, with a warning
@@ -119,8 +122,8 @@
 #'   validated for shape, just not used in the flux calculation). See
 #'   @section Idealisations.
 #' @param weibull_shape Weibull shape parameter `k` for `forcing = "weibull"`
-#'   (ignored otherwise). Default `DUST_CONSTANTS$WEIBULL_SHAPE` (2.0,
-#'   uncalibrated placeholder). Larger `k` concentrates the within-hour wind
+#'   (ignored otherwise). Default `DUST_CONSTANTS$WEIBULL_SHAPE` (4.0;
+#'   Menut 2008). Larger `k` concentrates the within-hour wind
 #'   more tightly around its mean (converging to the steady-forcing flux at
 #'   the mean as `k -> Inf`).
 #' @param threshold_multiplier Multiplier on the threshold friction velocity,
@@ -150,8 +153,13 @@
 #' Fecan, F., Marticorena, B. & Bergametti, G. (1999)
 #' \doi{10.1007/s00585-999-0149-7} — soil-moisture threshold correction.
 #' Marticorena, B. & Bergametti, G. (1995) \doi{10.1029/95JD00690} — drag
-#' partition efficient fraction (Eqs 18-19, `MB95_DP_COEF/EXP/X_CM`) and
+#' partition efficient fraction (Eq. 20, `MB95_DP_COEF/EXP/X_CM`) and
 #' sandblasting efficiency (`z0s = d/30`, `alpha = 10^(0.134*clay - 6)` cm^-1).
+#' King, J., Nickling, W.G. & Gillies, J.A. (2005) J. Geophys. Res.-Earth
+#' Surf. 110:F04015 — corrects the MB95 Eq. 20 coefficient to 0.7 (from the
+#' 0.35 print).
+#' Menut, L. (2008) J. Geophys. Res. 113:D16201 — Weibull sub-grid wind
+#' distribution around the hourly mean with shape k = 4 (`WEIBULL_SHAPE`).
 #' Owen, P.R. (1964) J. Fluid Mech. 20:225; White, B.R. (1979) J. Geophys.
 #' Res. 84:4643 — saltation flux forms.
 #' Raupach, M.R., Gillette, D.A. & Leys, J.F. (1993) \doi{10.1029/92JD01922}
@@ -321,14 +329,15 @@ dust_flux <- function(
   kappa <- DUST_CONSTANTS$KAPPA     # von Karman constant
   z     <- DUST_CONSTANTS$Z_REF     # reference height (m)
 
-  # ---- Smooth-bed roughness + MB95 drag partition (Eqs 18-19) -------------- #
+  # ---- Smooth-bed roughness + MB95 drag partition (Eq. 20) ----------------- #
   # z0 = NULL (default) derives the smooth erodible-bed roughness d/30, i.e.
   # no non-erodible-element drag partition (feff = 1 exactly, bit-identical to
   # the smooth-bed path). A caller-supplied z0 at or below z0_smooth is treated
   # the same way. A z0 *above* z0_smooth represents non-erodible roughness
   # sharing the shear stress with the erodible bed: only the efficient
   # fraction feff of u* reaches the bed, raised here as a threshold divisor
-  # (Marticorena & Bergametti 1995, Eqs 18-19; lengths in cm; z0s = z0_smooth
+  # (Marticorena & Bergametti 1995, Eq. 20, with the King et al. 2005
+  # corrected coefficient; lengths in cm; z0s = z0_smooth
   # is the erodible-element roughness, X = MB95_DP_X_CM the internal
   # boundary-layer height). The fit is not global physics -- feff can go
   # negative at large z0/z0s (screening only; see @section Idealisations) --
