@@ -28,21 +28,25 @@ from the v3.0 friction-velocity defaults \code{0.30} and \code{1.05} m/s divided
 mobile as dry film; they differ only in how water suppresses them (film
 sheds surface water and keeps a residual, penalty 0.7; absorbent paper is
 fully vetoed once soaked, penalty 1.0). \code{rigid} (bottles, cans) needs a
-far stronger gust to move and is barely held down by water. The 12 m/s
-threshold matches the one direct measurement: Mellink, van Emmerik &
-Mani (2024, Sci. Rep. 14:3898) found uncapped PET bottles on grass
-mobilized only above a 12.4 m/s 10 m-equivalent wind, at speeds where
-bags were 100\% mobile; bottle mobilization was still well short of
-saturation at their top tested speed (~15 m/s), so the 25 m/s
-\code{gust_reference} is untested but consistent. Their rain runs saw water
-bead off bottles while pinning bags and wrappers down — a small
+far stronger gust to move and is barely held down by water. Measured
+PET-bottle mobilization onsets span roughly 4-19 m/s across ground
+cover: Al Khoeriyah & Sembiring (2023, IOP Conf. Ser. Earth Environ.
+Sci. 1257:012007) found paved-surface onsets converting to ~4-6 m/s,
+while Mellink, van Emmerik & Mani (2024, Sci. Rep. 14:3898) found
+uncapped bottles on grass mobilized only above a 12.4 m/s
+10 m-equivalent wind (~14-19 m/s under this model's own z0 = 5 cm
+convention), at speeds where bags were 100\% mobile. The 12 m/s
+\code{gust_threshold} sits at the rough-ground (grass-like) end of that
+measured range, not the paved extreme — a hazard-conservative choice,
+not a universal one. Bottle mobilization was still well short of
+saturation at Mellink's top tested speed (~15 m/s), so the 25 m/s
+\code{gust_reference} is untested but consistent (no comparable upper bound
+exists in the literature). Mellink's rain runs saw water bead off
+bottles while pinning bags and wrappers down — a small
 \code{saturation_penalty} (0.15) is qualitatively right but unquantified.
-Caveats: on paved ground the onset drops to ~4-6 m/s (12 m/s is a
-rough-ground value, not universal); no wind-mobilization data exist for
-metal cans (the bottle analogy carries them); and under this model's
-own z0 = 5 cm height convention the Mellink onsets convert to
-~14-19 m/s, so 12 m/s sits at the hazard-conservative end.
-Literature-anchored first estimates, not a site calibration.}
+Caveat: no wind-mobilization data exist for metal cans (the bottle
+analogy carries them). Literature-anchored first estimates, not a
+site calibration.}
 \item{SATURATION_ONSET}{Normalised surface wetness at which the material
 saturation penalty begins to ramp in — full penalty lands at wetness 1.
 0.8. Uncalibrated placeholder.}
