@@ -197,6 +197,141 @@ test_that("supplying wind_speed directly differs from post-correction API value"
 })
 
 # ---------------------------------------------------------------------------
+# 7b. wind_height: supplied wind corrected from its measurement height
+# ---------------------------------------------------------------------------
+twl_wind <- function(wind_speed, wind_height = NULL, n = 1L, verbose = FALSE) {
+  generate_twl(
+    datetime      = make_dt("2024-06-15 10:00:00") + 3600 * (seq_len(n) - 1L),
+    latitude      = -31.95, longitude = 115.86,
+    temp          = 38, wind_speed = wind_speed, RH = 50,
+    direct_solar  = 0, diffuse_solar = 0, pressure = 1013,
+    wind_height   = wind_height, verbose = verbose
+  )
+}
+
+test_that("wind height factor follows the log profile (10 m ~0.667, 2 m ~0.869, 1 m = 1)", {
+  expect_equal(.wind_height_factor(10), log(1 / 0.01) / log(10 / 0.01))
+  expect_equal(.wind_height_factor(10), 0.667, tolerance = 1e-3)
+  expect_equal(.wind_height_factor(2), 0.869, tolerance = 1e-3)
+  expect_equal(.wind_height_factor(1), 1)
+})
+
+test_that("supplied wind at wind_height = 10 matches the Open-Meteo (10 m) path", {
+  local_mocked_bindings(
+    fetch_openmeteo = function(datetime, latitude, longitude, fields,
+                               verbose = FALSE) {
+      stopifnot(identical(fields, "wind_speed_10m"))
+      list(wind_speed_10m = rep(2.5, length(datetime)))
+    }
+  )
+  twl_api <- generate_twl(
+    datetime = make_dt("2024-06-15 10:00:00"),
+    latitude = -31.95, longitude = 115.86,
+    temp = 38, wind_speed = NULL, RH = 50,
+    direct_solar = 0, diffuse_solar = 0, pressure = 1013, verbose = FALSE
+  )
+  expect_equal(twl_wind(2.5, wind_height = 10), twl_api, tolerance = 1e-10)
+})
+
+test_that("wind_height = 2 applies the ~0.869 factor to supplied wind", {
+  expect_equal(
+    twl_wind(2, wind_height = 2),
+    twl_wind(2 * log(1 / 0.01) / log(2 / 0.01)),
+    tolerance = 1e-10
+  )
+  expect_lt(twl_wind(2, wind_height = 2), twl_wind(2))
+})
+
+test_that("default wind_height = NULL leaves supplied wind uncorrected", {
+  expect_equal(twl_wind(1.5), twl_wind(1.5, wind_height = 1), tolerance = 1e-10)
+  expect_identical(
+    twl_wind(1.5),
+    generate_twl(
+      datetime = make_dt("2024-06-15 10:00:00"),
+      latitude = -31.95, longitude = 115.86,
+      temp = 38, wind_speed = 1.5, RH = 50,
+      direct_solar = 0, diffuse_solar = 0, pressure = 1013, verbose = FALSE
+    )
+  )
+})
+
+test_that("vector wind_height is recycled with wind_speed (mixed sources)", {
+  ws <- c(2, 2, 3)
+  hs <- c(2, 10, 1)
+  mixed <- twl_wind(ws, wind_height = hs, n = 3L)
+  singles <- vapply(seq_along(ws), function(i) {
+    units::drop_units(twl_wind(ws[i], wind_height = hs[i]))
+  }, numeric(1))
+  expect_equal(units::drop_units(mixed), singles, tolerance = 1e-10)
+  # scalar height recycles over vector wind
+  expect_equal(
+    twl_wind(c(2, 3), wind_height = 10, n = 2L),
+    twl_wind(c(2, 3), wind_height = c(10, 10), n = 2L)
+  )
+})
+
+test_that("wind_height accepts a units length (converted to metres)", {
+  expect_equal(
+    twl_wind(2, wind_height = units::set_units(200, "cm")),
+    twl_wind(2, wind_height = 2)
+  )
+  expect_error(
+    twl_wind(2, wind_height = units::set_units(2, "s")),
+    class = "meteoHazard_input_error"
+  )
+})
+
+test_that("clamp to [0.2, 4.0] m/s applies after the height correction", {
+  # 5 m/s at 10 m -> 3.33 m/s at body level: inside the clamp, so it differs
+  # from 5 m/s supplied at body level (clamped to 4.0).
+  expect_equal(twl_wind(5, wind_height = 10), twl_wind(5 * .wind_height_factor(10)),
+               tolerance = 1e-10)
+  expect_false(isTRUE(all.equal(twl_wind(5, wind_height = 10), twl_wind(5))))
+})
+
+test_that("wind_height validation errors", {
+  err <- "meteoHazard_input_error"
+  expect_error(twl_wind(2, wind_height = "10"), class = err)
+  expect_error(twl_wind(2, wind_height = 0.01), class = err)   # == z0
+  expect_error(twl_wind(2, wind_height = 0), class = err)
+  expect_error(twl_wind(2, wind_height = -2), class = err)
+  expect_error(twl_wind(2, wind_height = Inf), class = err)
+  expect_error(twl_wind(2, wind_height = NA), class = err)     # NA with non-NA wind
+  expect_error(twl_wind(c(2, 2, 2), wind_height = c(2, 10), n = 3L), class = err)
+})
+
+test_that("NA wind_height is allowed where wind_speed is NA", {
+  res <- twl_wind(c(2, NA), wind_height = c(10, NA), n = 2L)
+  expect_false(is.na(res[1]))
+  expect_true(is.na(res[2]))
+  expect_equal(res[1], twl_wind(2, wind_height = 10))
+})
+
+test_that("wind_height with API-fetched wind is ignored with a warning", {
+  local_mocked_bindings(
+    fetch_openmeteo = function(datetime, latitude, longitude, fields,
+                               verbose = FALSE) {
+      list(wind_speed_10m = rep(2.5, length(datetime)))
+    }
+  )
+  call_api <- function(...) generate_twl(
+    datetime = make_dt("2024-06-15 10:00:00"),
+    latitude = -31.95, longitude = 115.86,
+    temp = 38, RH = 50, direct_solar = 0, diffuse_solar = 0,
+    pressure = 1013, verbose = FALSE, ...
+  )
+  expect_warning(res <- call_api(wind_height = 2), class = "meteoHazard_input_warning")
+  expect_equal(res, call_api())
+})
+
+test_that("verbose reports the wind height correction for supplied wind", {
+  msgs <- capture_messages(twl_wind(2, wind_height = 10, verbose = TRUE))
+  expect_true(any(grepl("wind height correction to supplied wind", msgs)))
+  expect_false(any(grepl("wind height correction",
+                         capture_messages(twl_wind(2, verbose = TRUE)))))
+})
+
+# ---------------------------------------------------------------------------
 # 8. trad (MRT) formula: with zero solar, globe_temp ≈ air temp,
 #    and trad should be very close to air temp (within 1 C)
 # ---------------------------------------------------------------------------

@@ -21,7 +21,8 @@ generate_twl(
   max_core_temp = 38.2,
   max_sweat_rate = 0.67,
   convert_pressure = TRUE,
-  verbose = TRUE
+  verbose = TRUE,
+  wind_height = NULL
 )
 }
 \arguments{
@@ -34,7 +35,8 @@ generate_twl(
 \item{temp}{Dry bulb air temperature in degrees Celsius, or \code{NULL} to
 fetch from Open-Meteo.}
 
-\item{wind_speed}{Wind speed in m/s, or \code{NULL} to fetch from Open-Meteo.}
+\item{wind_speed}{Wind speed in m/s, or \code{NULL} to fetch from Open-Meteo.
+See the \emph{Wind height} section and \code{wind_height}.}
 
 \item{RH}{Relative humidity in percent, or \code{NULL} to fetch from
 Open-Meteo.}
@@ -69,6 +71,16 @@ pressure from hPa to kPa. API-fetched pressure (Open-Meteo
 
 \item{verbose}{If \code{TRUE} (the default), show progress and diagnostic
 messages.}
+
+\item{wind_height}{Height (m) at which the supplied \code{wind_speed} was
+measured, used to correct it to body level (~1 m); see the \emph{Wind height}
+section. Numeric (or a \pkg{units} length) of length 1 or
+\code{length(datetime)}, recycled with \code{wind_speed}, so one call can mix wind
+from different sources. Values must be finite and greater than the
+roughness length (0.01 m); \code{NA} is allowed only where \code{wind_speed} is
+\code{NA}. Use \code{10} for forecast (10 m) wind and the anemometer height for
+station wind. \code{NULL} (the default) applies no correction to supplied wind.
+Ignored (with a warning) when \code{wind_speed} is \code{NULL}.}
 }
 \value{
 A \pkg{units} vector of TWL values in W/m^2 (a genuine physical
@@ -87,12 +99,6 @@ retrieved from the \href{https://open-meteo.com/}{Open-Meteo API} using the
 provided \code{datetime}, \code{latitude} and \code{longitude}. An internet connection
 is required for auto-fetching.
 
-Open-Meteo returns wind speed at 10 m height (\code{wind_speed_10m}). This is
-corrected to approximately 1 m (body level) using a logarithmic wind
-profile with roughness length z0 = 0.01 m (open terrain), giving a
-correction factor of \code{ln(1/z0) / ln(10/z0)} ≈ 0.667. Supply \code{wind_speed}
-directly (already at body level) to skip this correction.
-
 TWL categories (from Brake & Bates 2002):
 \itemize{
 \item > 220 W/m^2: Unrestricted work
@@ -101,9 +107,35 @@ TWL categories (from Brake & Bates 2002):
 \item < 115 W/m^2: Withdrawal required
 }
 }
+\section{Wind height}{
+
+The heat balance uses wind at body level (~1 m). Wind measured at height
+\code{z} (m) is corrected to body level with a logarithmic wind profile with
+roughness length z0 = 0.01 m (open terrain):
+\code{v_1m = v_z * ln(1 / z0) / ln(z / z0)}. The factor is ≈ 0.667 for
+\code{z = 10} and ≈ 0.869 for \code{z = 2}.
+\itemize{
+\item Wind fetched from Open-Meteo (\code{wind_speed = NULL}) is \code{wind_speed_10m}
+and is always corrected from 10 m (\code{wind_height} is ignored, with a
+warning).
+\item Supplied \code{wind_speed} is corrected from \code{wind_height} when given. Pass
+\code{wind_height = 10} for forecast / reanalysis wind (BOM, Open-Meteo,
+\code{meteoTidy::met_wide()}), which is conventionally 10 m wind, and the
+anemometer height for station wind (e.g. \code{2} for a 2 m mast).
+\item With \code{wind_height = NULL} (the default), supplied \code{wind_speed} is taken
+to be already at body level and is not corrected (the behaviour of
+earlier versions). Passing 10 m wind this way overstates wind cooling
+and so overstates TWL.
+}
+
+After correction, wind speed is constrained to 0.2--4.0 m/s (the range
+recommended by Brake & Bates).
+}
+
 \section{Units}{
 
-The dimensional weather inputs (\code{temp} degC, \code{wind_speed} m/s, \code{direct_solar}
+The dimensional weather inputs (\code{temp} degC, \code{wind_speed} m/s, \code{wind_height}
+m, \code{direct_solar}
 / \code{diffuse_solar} W/m^2, \code{pressure}, \code{wet_bulb} degC) and \code{max_core_temp}
 (degC) may each be supplied as a bare numeric in the documented unit or as a
 \pkg{units} object, which is converted automatically (a dimensionally

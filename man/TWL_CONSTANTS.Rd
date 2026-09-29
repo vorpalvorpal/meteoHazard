@@ -5,7 +5,7 @@
 \alias{TWL_CONSTANTS}
 \title{Physical and physiological constants for TWL calculation}
 \format{
-An object of class \code{list} of length 11.
+An object of class \code{list} of length 14.
 }
 \usage{
 TWL_CONSTANTS
@@ -44,6 +44,14 @@ metabolic rate falls below physiologically plausible levels.}
 \item{TWL_CEILING}{Upper clamp on the returned TWL, 380 W/m^2.
 Corresponds to the upper bound of the published Brake & Bates (2002)
 TWL regime chart.}
+\item{BODY_HEIGHT}{Reference height for body-level wind in the TWL
+heat balance, 1 m. Wind measured at another height is corrected to
+this height with a logarithmic profile (see \code{\link[=generate_twl]{generate_twl()}}).}
+\item{WIND_Z0}{Aerodynamic roughness length for the TWL wind height
+correction, 0.01 m (open terrain). Wind at height \code{z} is scaled by
+\code{ln(BODY_HEIGHT / WIND_Z0) / ln(z / WIND_Z0)}.}
+\item{OPENMETEO_WIND_HEIGHT}{Measurement height of Open-Meteo's
+\code{wind_speed_10m}, 10 m.}
 }
 }
 \keyword{internal}
