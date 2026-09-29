@@ -106,7 +106,11 @@
 #' `relative_humidity_2m`, `pressure_msl`, `precipitation`,
 #' `soil_moisture_0_to_1cm`, `soil_moisture_1_to_3cm`), returns `NA` for that
 #' hour, with one summary warning of class `meteoHazard_missing_input` per
-#' call; callers need not pre-filter complete rows. (Before 0.4.0 such hours
+#' call; callers need not pre-filter complete rows. Invalid non-missing values
+#' still error (from 0.4.0 odour checks ranges as the other hazards do: negative
+#' wind speed, radiation, mixing height, rain or pressure; wind direction outside
+#' `[0, 360]`; cloud cover or relative humidity outside `[0, 100]`; soil
+#' moisture outside `[0, 1]`). (Before 0.4.0 missing hours
 #' were silently filled with per-field fallbacks, e.g. an `NA` wind treated as
 #' calm, and returned a value.) The model is sequential -- the nocturnal
 #' cold-pool accumulation, the 3-hour pressure tendency and the rainfall
@@ -155,6 +159,7 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
   met_data <- .odour_normalise_met(met_data)
+  .odour_assert_ranges(met_data)
   miss <- .odour_missing_rows(met_data, required_cols)
 
   vs <- ventilation_state(met_data, terrain = terrain, stability = stability,
@@ -223,6 +228,39 @@ ODOUR_OPTIONAL_MET_COLS <- c(
 .odour_missing_rows <- function(met_data, required_cols) {
   cols <- union(required_cols, intersect(ODOUR_OPTIONAL_MET_COLS, names(met_data)))
   .missing_cols_rows(met_data, cols)
+}
+
+
+# Physical-range validation for the odour met columns that are present, with
+# the same bounds the dust / litter / TWL layers apply (NA passes: a missing
+# value is handled by the NA policy, not treated as invalid). Called after
+# .odour_normalise_met(), so the values are in canonical units.
+ODOUR_MET_RANGES <- list(
+  wind_speed_10m         = c(0, Inf),
+  wind_speed_80m         = c(0, Inf),
+  wind_speed_120m        = c(0, Inf),
+  wind_speed_180m        = c(0, Inf),
+  wind_direction_10m     = c(0, 360),
+  wind_direction_80m     = c(0, 360),
+  wind_direction_120m    = c(0, 360),
+  wind_direction_180m    = c(0, 360),
+  direct_radiation       = c(0, Inf),
+  cloud_cover            = c(0, 100),
+  boundary_layer_height  = c(0, Inf),
+  relative_humidity_2m   = c(0, 100),
+  precipitation          = c(0, Inf),
+  soil_moisture_0_to_1cm = c(0, 1),
+  soil_moisture_1_to_3cm = c(0, 1),
+  pressure_msl           = c(0, Inf)
+)
+.odour_assert_ranges <- function(met_data) {
+  for (col in intersect(names(ODOUR_MET_RANGES), names(met_data))) {
+    rng <- ODOUR_MET_RANGES[[col]]
+    checkmate::assert_numeric(met_data[[col]], lower = rng[1], upper = rng[2],
+                              any.missing = TRUE,
+                              .var.name = paste0("met_data$", col))
+  }
+  invisible(met_data)
 }
 
 

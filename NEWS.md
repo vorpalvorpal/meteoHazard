@@ -44,6 +44,14 @@ return (see *Behaviour changes*); every signature change is additive.
   downstream, and the four hazards should agree on what a missing hour
   means. The optional multi-level wind columns (`wind_speed_80m`, ...) stay
   NA-tolerant. `ventilation_state()` itself is unchanged.
+* **Odour range checks:** `odour_hazard()`, `odour_exposure()` and
+  `odour_risk()` previously did not validate input ranges at all (a negative
+  wind speed or RH of 150 produced a number). They now error, as dust,
+  litter and TWL do, on negative wind speed (any level), direct radiation,
+  boundary-layer height, precipitation or MSL pressure; wind direction
+  outside `[0, 360]`; cloud cover or relative humidity outside `[0, 100]`;
+  and soil moisture outside `[0, 1]`. `NA` is not invalid: it follows the
+  missing-input policy above.
 * **TWL:** `generate_twl()` already returned `NA` for rows with `NA`
   weather, but now also warns; an `NA` `wind_height` beside a known wind is
   a missing input (NA row) instead of an error; and an `NA` `datetime`,
