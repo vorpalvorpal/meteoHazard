@@ -90,6 +90,14 @@
 #'     \item{`sensitive_receptor`}{Logical: a hit sensitive sector is open.}
 #'   }
 #'
+#' @section Missing values:
+#' An hour with `NA` in `hazard`, `wind_direction_10m` or (refined mode)
+#' `mean_wind` returns `NA` in every output column; the other hours are
+#' computed exactly as with complete data (each hour is independent). One
+#' summary warning of class `meteoHazard_missing_input` is issued per call.
+#' Non-missing invalid values (negative hazard, direction outside `[0, 360]`)
+#' still error.
+#'
 #' @references
 #' NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 #' (2nd edn). Barrier-class guidance informing `permeability`.
@@ -122,9 +130,9 @@ litter_exposure <- function(
   # upper bound of 100 would make the exposure layer reject legitimate hazard
   # values produced with a non-default entrainment_max.
   n <- length(hazard)
-  checkmate::assert_numeric(hazard, lower = 0, any.missing = FALSE, min.len = 1)
+  checkmate::assert_numeric(hazard, lower = 0, any.missing = TRUE, min.len = 1)
   checkmate::assert_numeric(wind_direction_10m, lower = 0, upper = 360,
-                            any.missing = FALSE, len = n)
+                            any.missing = TRUE, len = n)
 
   # ---- Validate scalar parameters ------------------------------------------ #
   # direction_tol plays the role of the odour module's forecast wind-direction
@@ -157,8 +165,41 @@ litter_exposure <- function(
   refined <- !is.null(mean_wind) && !is.null(reach_per_ms)
   if (refined) {
     mean_wind <- .drop_to(mean_wind, "m/s", arg = "mean_wind")
-    checkmate::assert_numeric(mean_wind, lower = 0, any.missing = FALSE, len = n)
+    checkmate::assert_numeric(mean_wind, lower = 0, any.missing = TRUE, len = n)
     checkmate::assert_number(reach_per_ms, lower = .Machine$double.eps)
+  }
+
+  # ---- Missing inputs: NA rows, the rest computed as normal ----------------- #
+  # Each hour is independent here, so compute the complete hours on their own
+  # and return an all-NA row for each hour with a missing input (one summary
+  # warning; see @section Missing values).
+  miss <- .missing_rows(n, hazard, wind_direction_10m, if (refined) mean_wind)
+  if (any(miss)) {
+    out <- data.frame(
+      exposure           = rep(NA_real_, n),
+      zone               = factor(rep(NA_character_, n),
+                                  levels = c("within_face", "on_site", "off_site"),
+                                  ordered = TRUE),
+      directional_factor = NA_real_,
+      leaves_site        = NA,
+      sensitive_receptor = NA
+    )
+    if (!all(miss)) {
+      out[!miss, ] <- litter_exposure(
+        hazard               = hazard[!miss],
+        wind_direction_10m   = wind_direction_10m[!miss],
+        site                 = site,
+        direction_tol        = direction_tol,
+        p_open_min           = p_open_min,
+        move_threshold       = move_threshold,
+        offsite_threshold    = offsite_threshold,
+        default_permeability = default_permeability,
+        mean_wind            = if (refined) mean_wind[!miss],
+        reach_per_ms         = if (refined) reach_per_ms
+      )
+    }
+    .warn_missing_rows(miss, "litter_exposure")
+    return(out)
   }
 
   # ---- Get source and barrier features ------------------------------------- #

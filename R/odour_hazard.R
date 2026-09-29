@@ -100,6 +100,34 @@
 #'   tendency and 24-hour rainfall lookback assume it -- and a warning is issued
 #'   if they are not (the computation proceeds on row order regardless).
 #'
+#' @section Negative radiation:
+#' Open-Meteo's dawn hours can carry a negative `diffuse_radiation` beside a
+#' positive `direct_radiation` (e.g. 85 and -62 W/m^2, shortwave 23). When
+#' `diffuse_radiation` is present the two are rebalanced keeping their sum (the
+#' negative component set to 0 and folded into the other, floored at 0);
+#' without it a slightly negative `direct_radiation` is clamped to 0. One
+#' message of class `meteoHazard_input_adjusted` reports it per call; a total
+#' below -5 W/m^2 still errors.
+#'
+#' @section Missing values:
+#' An hour with `NA` in a required column, or in one of the optional
+#' generation / cold-pool columns that is present (`temperature_2m`,
+#' `relative_humidity_2m`, `pressure_msl`, `precipitation`,
+#' `soil_moisture_0_to_1cm`, `soil_moisture_1_to_3cm`), returns `NA` for that
+#' hour, with one summary warning of class `meteoHazard_missing_input` per
+#' call; callers need not pre-filter complete rows. Invalid non-missing values
+#' still error (from 0.4.0 odour checks ranges as the other hazards do: negative
+#' wind speed, radiation, mixing height, rain or pressure; wind direction outside
+#' `[0, 360]`; cloud cover or relative humidity outside `[0, 100]`; soil
+#' moisture outside `[0, 1]`). (Before 0.4.0 missing hours
+#' were silently filled with per-field fallbacks, e.g. an `NA` wind treated as
+#' calm, and returned a value.) The model is sequential -- the nocturnal
+#' cold-pool accumulation, the 3-hour pressure tendency and the rainfall
+#' lookback carry state from hour to hour -- so the missing hour still enters
+#' that state through [ventilation_state()]'s documented fallbacks, and hours
+#' shortly after a gap can differ from a complete-data run. The optional
+#' multi-level wind columns (`wind_speed_80m`, ...) stay NA-tolerant.
+#'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
 #'   [odour_risk()] for the combined convenience wrapper.
 #' @param terrain An [mh_terrain()] object, or `NULL` (default). When supplied,
@@ -140,6 +168,9 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
   met_data <- .odour_normalise_met(met_data)
+  met_data <- .odour_rebalance_radiation(met_data, "odour_hazard")
+  .odour_assert_ranges(met_data)
+  miss <- .odour_missing_rows(met_data, required_cols)
 
   vs <- ventilation_state(met_data, terrain = terrain, stability = stability,
                           shelter = shelter, shelter_h_mix = shelter_h_mix,
@@ -150,7 +181,12 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
     (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
 
-  .odour_hazard_raw(G, vs) / hazard_ref
+  out <- .odour_hazard_raw(G, vs) / hazard_ref
+  # Hours with a missing input are returned as NA (see @section Missing
+  # values).
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "odour_hazard")
+  out
 }
 
 
@@ -185,6 +221,71 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     }
   }
   met_data
+}
+
+
+# ---- Missing-input rows ----------------------------------------------------- #
+# Rows with NA in a required column, or in an optional generation/pool column
+# that is present (and so used), are returned as NA by odour_hazard() and
+# odour_exposure(). The optional multi-level wind columns (wind_*_80m etc.)
+# are excluded: they only feed the residual-wind estimate, which is
+# NA-tolerant by design.
+ODOUR_OPTIONAL_MET_COLS <- c(
+  "temperature_2m", "relative_humidity_2m", "pressure_msl",
+  "precipitation", "soil_moisture_0_to_1cm", "soil_moisture_1_to_3cm"
+)
+
+.odour_missing_rows <- function(met_data, required_cols) {
+  cols <- union(required_cols, intersect(ODOUR_OPTIONAL_MET_COLS, names(met_data)))
+  .missing_cols_rows(met_data, cols)
+}
+
+
+# Rebalance negative direct / diffuse radiation (see .rebalance_radiation());
+# diffuse_radiation is optional for odour. Non-numeric columns are left for
+# the range check to report.
+.odour_rebalance_radiation <- function(met_data, fn) {
+  if (!is.numeric(met_data$direct_radiation)) return(met_data)
+  dif <- if ("diffuse_radiation" %in% names(met_data)) {
+    .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
+  }
+  rb <- .rebalance_radiation(met_data$direct_radiation, dif, fn = fn)
+  met_data$direct_radiation <- rb$direct
+  if (!is.null(dif)) met_data$diffuse_radiation <- rb$diffuse
+  met_data
+}
+
+
+# Physical-range validation for the odour met columns that are present, with
+# the same bounds the dust / litter / TWL layers apply (NA passes: a missing
+# value is handled by the NA policy, not treated as invalid). Called after
+# .odour_normalise_met(), so the values are in canonical units.
+ODOUR_MET_RANGES <- list(
+  wind_speed_10m         = c(0, Inf),
+  wind_speed_80m         = c(0, Inf),
+  wind_speed_120m        = c(0, Inf),
+  wind_speed_180m        = c(0, Inf),
+  wind_direction_10m     = c(0, 360),
+  wind_direction_80m     = c(0, 360),
+  wind_direction_120m    = c(0, 360),
+  wind_direction_180m    = c(0, 360),
+  direct_radiation       = c(0, Inf),
+  cloud_cover            = c(0, 100),
+  boundary_layer_height  = c(0, Inf),
+  relative_humidity_2m   = c(0, 100),
+  precipitation          = c(0, Inf),
+  soil_moisture_0_to_1cm = c(0, 1),
+  soil_moisture_1_to_3cm = c(0, 1),
+  pressure_msl           = c(0, Inf)
+)
+.odour_assert_ranges <- function(met_data) {
+  for (col in intersect(names(ODOUR_MET_RANGES), names(met_data))) {
+    rng <- ODOUR_MET_RANGES[[col]]
+    checkmate::assert_numeric(met_data[[col]], lower = rng[1], upper = rng[2],
+                              any.missing = TRUE,
+                              .var.name = paste0("met_data$", col))
+  }
+  invisible(met_data)
 }
 
 

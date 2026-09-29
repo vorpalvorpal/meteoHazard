@@ -121,6 +121,16 @@ boundary reports \code{on_site} with \code{leaves_site = TRUE}.
 }
 }
 
+\section{Missing values}{
+
+An hour with \code{NA} in \code{hazard}, \code{wind_direction_10m} or (refined mode)
+\code{mean_wind} returns \code{NA} in every output column; the other hours are
+computed exactly as with complete data (each hour is independent). One
+summary warning of class \code{meteoHazard_missing_input} is issued per call.
+Non-missing invalid values (negative hazard, direction outside \verb{[0, 360]})
+still error.
+}
+
 \references{
 NSW EPA (2016). \emph{Environmental Guidelines: Solid Waste Landfills}
 (2nd edn). Barrier-class guidance informing \code{permeability}.

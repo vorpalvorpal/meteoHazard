@@ -40,7 +40,9 @@ transport ramp and \code{reach_per_ms} should be calibrated jointly — see
 \code{\link[=litter_hazard_vec]{litter_hazard_vec()}} and \code{\link[=litter_exposure]{litter_exposure()}}.}
 
 \item{...}{Additional hazard calibration parameters forwarded to
-\code{\link[=litter_hazard]{litter_hazard()}} (e.g. \code{rain_threshold}, \code{material}, \code{gust_threshold}).}
+\code{\link[=litter_hazard]{litter_hazard()}} (e.g. \code{rain_threshold}, \code{material}, \code{gust_threshold}),
+plus \code{verbose} (report a derived \code{shortwave_radiation} when
+\code{use_wetness_state = TRUE}).}
 }
 \value{
 The \code{\link[=litter_exposure]{litter_exposure()}} data frame (\code{exposure}, \code{zone},
@@ -59,6 +61,16 @@ This is the entry point for the common case; use \code{\link[=litter_exposure]{l
 if you already have a hazard vector. Mapping the relative exposure onto an
 operational index is a site-specific calibration step (issues #11/#8).
 }
+\section{Missing values}{
+
+An hour with \code{NA} in any column the hazard or exposure layer requires
+returns \code{NA} in every output column, with one summary warning of class
+\code{meteoHazard_missing_input} per call, so callers need not pre-filter
+complete rows. The other hours are exactly as with complete data (except
+after a gap when \code{use_wetness_state = TRUE}; see \code{\link[=litter_hazard]{litter_hazard()}}).
+Non-missing invalid values still error.
+}
+
 \seealso{
 \code{\link[=litter_hazard]{litter_hazard()}}, \code{\link[=litter_exposure]{litter_exposure()}}, \code{\link[=odour_risk]{odour_risk()}}.
 }

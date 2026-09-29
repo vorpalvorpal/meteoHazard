@@ -159,8 +159,8 @@ test_that("generate_twl rejects a weather input tagged with incompatible units",
 # ---------------------------------------------------------------------------
 # 6. NA propagation: NA input produces NA output
 # ---------------------------------------------------------------------------
-test_that("NA in temperature propagates to NA TWL", {
-  result <- generate_twl(
+test_that("NA in temperature propagates to NA TWL, with the missing-input warning", {
+  expect_warning(result <- generate_twl(
     datetime      = make_dt(c("2024-06-15 10:00:00", "2024-06-15 11:00:00")),
     latitude      = -31.95,
     longitude     = 115.86,
@@ -171,7 +171,7 @@ test_that("NA in temperature propagates to NA TWL", {
     diffuse_solar = c(0, 0),
     pressure      = c(1013, 1013),
     verbose       = FALSE
-  )
+  ), class = "meteoHazard_missing_input")
   expect_true(is.na(result[1]))
   expect_false(is.na(result[2]))
 })
@@ -296,12 +296,16 @@ test_that("wind_height validation errors", {
   expect_error(twl_wind(2, wind_height = 0), class = err)
   expect_error(twl_wind(2, wind_height = -2), class = err)
   expect_error(twl_wind(2, wind_height = Inf), class = err)
-  expect_error(twl_wind(2, wind_height = NA), class = err)     # NA with non-NA wind
+  # An NA height beside a known wind is a missing input (NA row + warning),
+  # not an error (0.4.0): see test-na-policy.R.
   expect_error(twl_wind(c(2, 2, 2), wind_height = c(2, 10), n = 3L), class = err)
 })
 
 test_that("NA wind_height is allowed where wind_speed is NA", {
-  res <- twl_wind(c(2, NA), wind_height = c(10, NA), n = 2L)
+  expect_warning(
+    res <- twl_wind(c(2, NA), wind_height = c(10, NA), n = 2L),
+    class = "meteoHazard_missing_input"
+  )
   expect_false(is.na(res[1]))
   expect_true(is.na(res[2]))
   expect_equal(res[1], twl_wind(2, wind_height = 10))

@@ -155,10 +155,10 @@ describe("litter_exposure() on the mh_site model (basic-mode regression)", {
     expect_error(litter_exposure(c(50, 60), 270, site))
   })
 
-  it("errors on missing values in hazard or wind direction", {
+  it("returns NA (with a classed warning) for missing hazard or wind direction", {
     site <- .make_demo_mh_site()
-    expect_error(litter_exposure(c(50, NA), c(270, 270), site))
-    expect_error(litter_exposure(c(50, 60), c(270, NA),  site))
+    expect_warning(litter_exposure(c(50, NA), c(270, 270), site), class = "meteoHazard_missing_input")
+    expect_warning(litter_exposure(c(50, 60), c(270, NA),  site), class = "meteoHazard_missing_input")
   })
 
   it("errors (classed) when move_threshold is not below offsite_threshold", {

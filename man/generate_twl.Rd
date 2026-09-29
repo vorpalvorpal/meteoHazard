@@ -45,7 +45,11 @@ Open-Meteo.}
 fetch from Open-Meteo.}
 
 \item{diffuse_solar}{Diffuse sky solar radiation in W/m^2, or \code{NULL} to
-fetch from Open-Meteo.}
+fetch from Open-Meteo. Where either component is negative (Open-Meteo's
+dawn hours can give e.g. direct 85, diffuse -62 W/m^2) the two are
+rebalanced keeping their sum (the negative one set to 0 and folded into the
+other, floored at 0), with one message of class
+\code{meteoHazard_input_adjusted}; only a sum below -5 W/m^2 errors.}
 
 \item{pressure}{Barometric pressure in hPa (or kPa if \code{convert_pressure = FALSE}), or \code{NULL} to fetch from Open-Meteo.}
 
@@ -77,8 +81,9 @@ measured, used to correct it to body level (~1 m); see the \emph{Wind height}
 section. Numeric (or a \pkg{units} length) of length 1 or
 \code{length(datetime)}, recycled with \code{wind_speed}, so one call can mix wind
 from different sources. Values must be finite and greater than the
-roughness length (0.01 m); \code{NA} is allowed only where \code{wind_speed} is
-\code{NA}. Use \code{10} for forecast (10 m) wind and the anemometer height for
+roughness length (0.01 m); an \code{NA} height is a missing input, so that
+row's TWL is \code{NA} (see \emph{Missing values}; before 0.4.0 an \code{NA} height
+beside a known wind was an error). Use \code{10} for forecast (10 m) wind and the anemometer height for
 station wind. \code{NULL} (the default) applies no correction to supplied wind.
 Ignored (with a warning) when \code{wind_speed} is \code{NULL}.}
 }
@@ -130,6 +135,20 @@ and so overstates TWL.
 
 After correction, wind speed is constrained to 0.2--4.0 m/s (the range
 recommended by Brake & Bates).
+}
+
+\section{Missing values}{
+
+\code{NULL} and \code{NA} mean different things. A \code{NULL} weather argument is fetched
+from Open-Meteo; an \code{NA} element of a supplied vector is a missing input
+and is never fetched. A row with \code{NA} in any per-row input (\code{datetime},
+\code{latitude}, \code{longitude}, the six weather inputs, a used \code{wind_height}, or a
+supplied \code{wet_bulb}) returns \code{NA} TWL for that row only; every other row is
+computed exactly as with complete data (rows are independent). One summary
+warning of class \code{meteoHazard_missing_input} is issued per call, so callers
+need not pre-filter complete rows. Non-missing invalid values (RH outside
+\verb{[0, 100]}, negative wind or radiation, non-positive pressure, ...) still
+error.
 }
 
 \section{Units}{

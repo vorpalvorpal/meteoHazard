@@ -35,6 +35,15 @@
 #' `relative_humidity_2m` are taken as plain numerics (degC, %). The
 #' returned wetness state is dimensionless and is a plain numeric.
 #'
+#' @section Missing values:
+#' An hour with `NA` in any input returns `NA`, with one summary warning of
+#' class `meteoHazard_missing_input` per call. The sequential state carries
+#' across the gap: if that hour's rain is known to reach `wetness_set_precip`
+#' the surface still resets to wet, otherwise the state is held unchanged (no
+#' drying is applied for the unknown hour). Hours after a gap can therefore
+#' differ slightly from a complete-data run. Non-missing invalid values
+#' (negative rain/wind/radiation, RH outside `[0, 100]`) still error.
+#'
 #' @param precipitation Numeric vector. Hourly precipitation (mm),
 #'   Open-Meteo `precipitation`. Drives the rain-reset trigger.
 #' @param temperature_2m Numeric vector. Air temperature at 2 m (degC),
@@ -116,12 +125,12 @@ litter_wetness_vec <- function(
   # (sub-zero air temperatures are physically valid and litter can still be
   # present on a frozen/damp surface).
   n <- length(precipitation)
-  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
-  checkmate::assert_numeric(temperature_2m, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = TRUE, min.len = 1)
+  checkmate::assert_numeric(temperature_2m, any.missing = TRUE, len = n)
   checkmate::assert_numeric(relative_humidity_2m, lower = 0, upper = 100,
-                            any.missing = FALSE, len = n)
-  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, len = n)
-  checkmate::assert_numeric(shortwave_radiation, lower = 0, any.missing = FALSE, len = n)
+                            any.missing = TRUE, len = n)
+  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = TRUE, len = n)
+  checkmate::assert_numeric(shortwave_radiation, lower = 0, any.missing = TRUE, len = n)
 
   # ---- Validate parameters -------------------------------------------------- #
   checkmate::assert_number(wetness_set_precip, lower = 0)
@@ -154,18 +163,27 @@ litter_wetness_vec <- function(
 
   # ---- Sequential state update (mirrors .dust_crust_factor's hourly loop) -- #
   # A rain hour hard-resets the surface to fully wet; otherwise the previous
-  # hour's wetness decays exponentially at this hour's drying rate.
+  # hour's wetness decays exponentially at this hour's drying rate. An hour
+  # with a missing input is returned as NA; the state carries across it: a
+  # known reset still resets, otherwise the state holds (no drying applied).
+  miss <- .missing_rows(n, precipitation, temperature_2m, relative_humidity_2m,
+                        wind_speed_10m, shortwave_radiation)
   w <- numeric(n)
   w_prev <- w0
   for (i in seq_len(n)) {
-    if (precipitation[i] >= wetness_set_precip) {
+    rain_known <- !is.na(precipitation[i])
+    if (rain_known && precipitation[i] >= wetness_set_precip) {
       w[i] <- 1
-    } else {
+    } else if (rain_known && !is.na(dry_rate[i])) {
       w[i] <- w_prev * exp(-dry_rate[i])
+    } else {
+      w[i] <- w_prev
     }
     w_prev <- w[i]
   }
 
+  w[miss] <- NA_real_
+  .warn_missing_rows(miss, "litter_wetness_vec")
   w
 }
 
@@ -180,9 +198,25 @@ litter_wetness_vec <- function(
 #'   in chronological order (the wetness state is sequential), containing at
 #'   least the columns `precipitation` (mm), `temperature_2m` (degC),
 #'   `relative_humidity_2m` (%), `wind_speed_10m` (m/s), and
-#'   `shortwave_radiation` (W/m^2).
+#'   `shortwave_radiation` (W/m^2). If `shortwave_radiation` is absent but
+#'   `direct_radiation` and `diffuse_radiation` (W/m^2, horizontal) are
+#'   present -- as from `meteoTidy::met_wide()` and many other feeds -- it is
+#'   derived as their sum (Open-Meteo's own definition of
+#'   `shortwave_radiation`); NA `shortwave_radiation` hours are filled the
+#'   same way. The sum is already right when Open-Meteo gives a negative
+#'   diffuse at dawn (85 + -62 = 23 W/m^2); a derived total just below 0
+#'   (down to -5 W/m^2) is clamped to 0 with a `meteoHazard_input_adjusted`
+#'   message, and a lower one errors.
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_wetness_vec()] (e.g. `wetness_set_precip`, `dry_rate_base`).
+#' @param verbose Logical (default `TRUE`). Report (as a message of class
+#'   `meteoHazard_derived_input`) when `shortwave_radiation` is derived from
+#'   `direct_radiation` + `diffuse_radiation`.
+#'
+#' @section Missing values:
+#' See [litter_wetness_vec()]: an hour with a missing input returns `NA`
+#' (one summary warning of class `meteoHazard_missing_input` per call) and the
+#' state carries across the gap.
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the litter-surface
 #'   wetness state (`[0, 1]`) for each forecast hour.
@@ -190,8 +224,10 @@ litter_wetness_vec <- function(
 #' @seealso [litter_wetness_vec()], [litter_hazard()] (`use_wetness_state =
 #'   TRUE`).
 #' @export
-litter_wetness <- function(met_data, ...) {
+litter_wetness <- function(met_data, ..., verbose = TRUE) {
   checkmate::assert_data_frame(met_data, min.rows = 1)
+  checkmate::assert_flag(verbose)
+  met_data <- .derive_shortwave(met_data, verbose = verbose, fn = "litter_wetness")
 
   required_cols <- c(
     "precipitation", "temperature_2m", "relative_humidity_2m",
@@ -202,18 +238,21 @@ litter_wetness <- function(met_data, ...) {
     info = paste0(
       "Required: precipitation (mm), temperature_2m (degC), ",
       "relative_humidity_2m (%), wind_speed_10m (m/s), ",
-      "shortwave_radiation (W/m^2)."
+      "shortwave_radiation (W/m^2) or both direct_radiation and ",
+      "diffuse_radiation (W/m^2) to derive it."
     )
   )
 
-  litter_wetness_vec(
+  out <- .muffle_missing_input(litter_wetness_vec(
     precipitation         = met_data$precipitation,
     temperature_2m        = met_data$temperature_2m,
     relative_humidity_2m  = met_data$relative_humidity_2m,
     wind_speed_10m        = met_data$wind_speed_10m,
     shortwave_radiation   = met_data$shortwave_radiation,
     ...
-  )
+  ))
+  .warn_missing_rows(is.na(out), "litter_wetness")
+  out
 }
 
 
@@ -227,4 +266,80 @@ litter_wetness <- function(met_data, ...) {
 .litter_vpd <- function(temperature_2m, relative_humidity_2m) {
   es <- 0.6108 * exp(17.27 * temperature_2m / (temperature_2m + 237.3))
   pmax(0, es * (1 - relative_humidity_2m / 100))
+}
+
+# Derive `shortwave_radiation` (W/m^2, global horizontal) as
+# direct_radiation + diffuse_radiation when it is absent, or fill its NA hours
+# from them, when both components are present. Open-Meteo defines its
+# shortwave_radiation as exactly this sum (direct and diffuse on the
+# horizontal plane), and many feeds (e.g. meteoTidy::met_wide()) carry only
+# the components. Returns met_data unchanged when there is nothing to derive;
+# the required-column check that follows still catches a frame with neither.
+.derive_shortwave <- function(met_data, verbose = TRUE, fn = "litter_wetness") {
+  parts <- c("direct_radiation", "diffuse_radiation")
+  if (!all(parts %in% names(met_data))) return(met_data)
+  direct  <- .drop_to(met_data$direct_radiation, "W/m^2", arg = "direct_radiation")
+  diffuse <- .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
+  has_sw  <- "shortwave_radiation" %in% names(met_data)
+  use     <- if (has_sw) {
+    is.na(.drop_to(met_data$shortwave_radiation, "W/m^2", arg = "shortwave_radiation"))
+  } else {
+    rep(TRUE, length(direct))
+  }
+  derived <- .derived_shortwave_total(ifelse(use, direct, NA_real_),
+                                      ifelse(use, diffuse, NA_real_), fn)
+
+  if (!has_sw) {
+    met_data$shortwave_radiation <- derived
+    if (verbose) {
+      cli::cli_inform(
+        "{.fn {fn}}: {.field shortwave_radiation} not supplied; derived as {.field direct_radiation} + {.field diffuse_radiation} (horizontal).",
+        class = "meteoHazard_derived_input"
+      )
+    }
+    return(met_data)
+  }
+
+  sw   <- .drop_to(met_data$shortwave_radiation, "W/m^2", arg = "shortwave_radiation")
+  fill <- is.na(sw) & !is.na(derived)
+  if (any(fill)) {
+    sw[fill] <- derived[fill]
+    met_data$shortwave_radiation <- sw
+    if (verbose) {
+      cli::cli_inform(
+        "{.fn {fn}}: filled {sum(fill)} missing {.field shortwave_radiation} hour{?s} with {.field direct_radiation} + {.field diffuse_radiation}.",
+        class = "meteoHazard_derived_input"
+      )
+    }
+  }
+  met_data
+}
+
+# The derived global horizontal total direct + diffuse. Open-Meteo's dawn hours
+# can carry a negative diffuse beside a positive direct (e.g. 85 + -62 = 23);
+# the sum is already the right shortwave, so the components need no
+# rebalancing here. A total just below zero (>= -RADIATION_NEGATIVE_TOL W/m^2)
+# is clamped to 0 with one `meteoHazard_input_adjusted` message; a clearly
+# negative total errors, via the same rule as .rebalance_radiation().
+.derived_shortwave_total <- function(direct, diffuse, fn) {
+  total <- direct + diffuse
+  rb <- withCallingHandlers(
+    .rebalance_radiation(direct, diffuse, fn = fn),
+    meteoHazard_input_adjusted = function(m) invokeRestart("muffleMessage")
+  )
+  new <- rb$direct + rb$diffuse
+  clamped <- which(!is.na(total) & new != total)
+  if (length(clamped) > 0L) {
+    shown <- clamped[seq_len(min(5L, length(clamped)))]
+    cli::cli_inform(
+      c(paste0("{.fn {fn}}: ", length(clamped), " derived shortwave_radiation hour",
+               if (length(clamped) == 1L) "" else "s",
+               " slightly below 0 (direct + diffuse) clamped to 0."),
+        "i" = paste0(paste(sprintf("row %d: %g", shown, total[shown]), collapse = "; "),
+                     if (length(clamped) > length(shown)) "; ..." else "", "."),
+        "i" = "Message class {.cls meteoHazard_input_adjusted}."),
+      class = "meteoHazard_input_adjusted"
+    )
+  }
+  new
 }

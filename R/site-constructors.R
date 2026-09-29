@@ -221,7 +221,7 @@ site_from_sectors <- function(sectors, centroid, ring_radius = 1000, epsg) {
     cli::cli_warn(
       c(
         "{.arg sectors} leaves {length(gap_bearings)} degree(s) of bearing uncovered.",
-        "i" = "Uncovered bearings include {.val {min(gap_bearings)}}°-{.val {max(gap_bearings)}}° (may wrap through north).",
+        "i" = "Uncovered bearings include {.val {min(gap_bearings)}}\u00b0-{.val {max(gap_bearings)}}\u00b0 (may wrap through north).",
         "i" = "Bearings not covered by any sector fall back to litter_exposure()'s default_permeability."
       ),
       class = "meteoHazard_litter_sector_gap"

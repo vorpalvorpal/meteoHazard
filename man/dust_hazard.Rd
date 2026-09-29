@@ -20,7 +20,8 @@ dust_hazard(
   rain_crust_threshold = 2,
   crust_factor_max = 3,
   crust_decay_hours = 72,
-  hours_since_last_rain = Inf
+  hours_since_last_rain = Inf,
+  gust_below_mean = c("error", "clamp")
 )
 }
 \arguments{
@@ -72,6 +73,12 @@ forecast window starts. Default \code{Inf} (no crust memory at row 1,
 reproducing the pre-v3 behaviour). Set to \code{0} if the forecast is known to
 start immediately after a crust-forming rain event; see @section Crust
 cold-start.}
+
+\item{gust_below_mean}{\code{"error"} (default) or \code{"clamp"}: what to do when a
+row has \code{wind_gusts_10m < wind_speed_10m}. \code{"error"} names the offending
+rows and values; \code{"clamp"} raises those gusts to the mean wind with one
+warning (class \code{meteoHazard_gust_clamped}), for both the flux and the
+\code{crust_decay = "saltation"} gate. See \code{\link[=dust_flux]{dust_flux()}}.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the crust-adjusted
@@ -131,6 +138,22 @@ control on an active landfill working face) are invisible to the gridded
 is the intended injection hook — e.g. a caller can locally raise the
 threshold multiplier during known watering hours before invoking
 \code{\link[=dust_flux]{dust_flux()}} directly.
+}
+
+\section{Missing values}{
+
+A row with \code{NA} in any required column (the columns listed under
+\code{met_data} for the chosen \code{crust}/\code{air_density}) returns \code{NA} for that row;
+with \code{crust = FALSE} every other row is exactly as with complete data. One
+summary warning of class \code{meteoHazard_missing_input} is issued per call, so
+callers need not pre-filter complete rows. Non-missing but invalid values
+(negative wind, soil moisture outside \verb{[0, 1]}, gust below the mean wind
+under the default \code{gust_below_mean = "error"},
+...) still error. With \code{crust = TRUE}
+the crust state carries across a missing hour: an \code{NA} precipitation hour
+is treated as not crust-forming (clock decay keeps counting), and with
+\code{crust_decay = "saltation"} an hour whose wind or moisture is missing
+does not advance the crust age (a known crust-forming rain still resets it).
 }
 
 \seealso{

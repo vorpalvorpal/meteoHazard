@@ -28,11 +28,21 @@
 #'   transport ramp and `reach_per_ms` should be calibrated jointly — see
 #'   [litter_hazard_vec()] and [litter_exposure()].
 #' @param ... Additional hazard calibration parameters forwarded to
-#'   [litter_hazard()] (e.g. `rain_threshold`, `material`, `gust_threshold`).
+#'   [litter_hazard()] (e.g. `rain_threshold`, `material`, `gust_threshold`),
+#'   plus `verbose` (report a derived `shortwave_radiation` when
+#'   `use_wetness_state = TRUE`).
 #'
 #' @return The [litter_exposure()] data frame (`exposure`, `zone`,
 #'   `directional_factor`, `leaves_site`, `sensitive_receptor`), one row per
 #'   forecast hour.
+#'
+#' @section Missing values:
+#' An hour with `NA` in any column the hazard or exposure layer requires
+#' returns `NA` in every output column, with one summary warning of class
+#' `meteoHazard_missing_input` per call, so callers need not pre-filter
+#' complete rows. The other hours are exactly as with complete data (except
+#' after a gap when `use_wetness_state = TRUE`; see [litter_hazard()]).
+#' Non-missing invalid values still error.
 #'
 #' @seealso [litter_hazard()], [litter_exposure()], [odour_risk()].
 #' @export
@@ -53,8 +63,11 @@ litter_risk <- function(met_data, site,
 
   # `...` carries hazard calibration params only (the exposure params are named
   # formals here), so it reaches litter_hazard() -> litter_hazard_vec() and not
-  # litter_exposure().
-  hazard <- litter_hazard(met_data, use_wetness_state = use_wetness_state, ...)
+  # litter_exposure(). Inner missing-input warnings are muffled; this function
+  # issues the one summary warning itself.
+  hazard <- .muffle_missing_input(
+    litter_hazard(met_data, use_wetness_state = use_wetness_state, ...)
+  )
 
   exp_args <- list(
     hazard               = hazard,
@@ -72,5 +85,7 @@ litter_risk <- function(met_data, site,
     exp_args$reach_per_ms <- reach_per_ms
   }
 
-  do.call(litter_exposure, exp_args)
+  out <- .muffle_missing_input(do.call(litter_exposure, exp_args))
+  .warn_missing_rows(is.na(out$exposure), "litter_risk")
+  out
 }

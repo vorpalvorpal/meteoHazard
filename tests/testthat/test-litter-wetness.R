@@ -108,12 +108,12 @@ describe("litter_wetness_vec()", {
       expect_true(all(out >= 0 & out <= 1))
     })
 
-    it("rejects missing values in any input", {
-      expect_error(litter_wetness_vec(c(0, NA), c(20, 20), c(50, 50), c(3, 3), c(300, 300)))
-      expect_error(litter_wetness_vec(c(0, 0), c(20, NA), c(50, 50), c(3, 3), c(300, 300)))
-      expect_error(litter_wetness_vec(c(0, 0), c(20, 20), c(50, NA), c(3, 3), c(300, 300)))
-      expect_error(litter_wetness_vec(c(0, 0), c(20, 20), c(50, 50), c(3, NA), c(300, 300)))
-      expect_error(litter_wetness_vec(c(0, 0), c(20, 20), c(50, 50), c(3, 3), c(300, NA)))
+    it("returns NA (with a classed warning) for a missing value in any input", {
+      expect_warning(litter_wetness_vec(c(0, NA), c(20, 20), c(50, 50), c(3, 3), c(300, 300)), class = "meteoHazard_missing_input")
+      expect_warning(litter_wetness_vec(c(0, 0), c(20, NA), c(50, 50), c(3, 3), c(300, 300)), class = "meteoHazard_missing_input")
+      expect_warning(litter_wetness_vec(c(0, 0), c(20, 20), c(50, NA), c(3, 3), c(300, 300)), class = "meteoHazard_missing_input")
+      expect_warning(litter_wetness_vec(c(0, 0), c(20, 20), c(50, 50), c(3, NA), c(300, 300)), class = "meteoHazard_missing_input")
+      expect_warning(litter_wetness_vec(c(0, 0), c(20, 20), c(50, 50), c(3, 3), c(300, NA)), class = "meteoHazard_missing_input")
     })
 
     it("rejects negative precipitation, wind speed, and shortwave radiation, and out-of-range humidity", {

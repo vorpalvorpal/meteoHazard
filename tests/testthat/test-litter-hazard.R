@@ -495,12 +495,12 @@ describe("litter_hazard_vec() [v3.1]", {
 
   describe("input validation", {
 
-    it("rejects missing values in any input (no NA imputation)", {
+    it("returns NA (with a classed warning) for missing values (no NA imputation)", {
       skip_if_no_litter_v3()
-      expect_error(litter_hazard_vec(c(12, NA), c(8, 8), c(0, 0), c(0.1, 0.1)))
-      expect_error(litter_hazard_vec(c(12, 12), c(8, NA), c(0, 0), c(0.1, 0.1)))
-      expect_error(litter_hazard_vec(c(12, 12), c(8, 8), c(0, NA), c(0.1, 0.1)))
-      expect_error(litter_hazard_vec(c(12, 12), c(8, 8), c(0, 0), c(0.1, NA)))
+      expect_warning(litter_hazard_vec(c(12, NA), c(8, 8), c(0, 0), c(0.1, 0.1)), class = "meteoHazard_missing_input")
+      expect_warning(litter_hazard_vec(c(12, 12), c(8, NA), c(0, 0), c(0.1, 0.1)), class = "meteoHazard_missing_input")
+      expect_warning(litter_hazard_vec(c(12, 12), c(8, 8), c(0, NA), c(0.1, 0.1)), class = "meteoHazard_missing_input")
+      expect_warning(litter_hazard_vec(c(12, 12), c(8, 8), c(0, 0), c(0.1, NA)), class = "meteoHazard_missing_input")
     })
 
     it("rejects inputs of differing length", {

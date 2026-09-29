@@ -1,6 +1,6 @@
 Package: meteoHazard
 Title: Meteorological Hazard Predictions for Waste Management
-Version: 0.3.1
+Version: 0.4.0
 Authors@R:
     person("R. Shannon", role = c("aut", "cre"),
            email = "burrows_51mustard@icloud.com")
@@ -13,6 +13,8 @@ Description: Turns meteorological data into management-relevant predictions and
 URL: https://github.com/vorpalvorpal/meteoHazard
 BugReports: https://github.com/vorpalvorpal/meteoHazard/issues
 License: MIT + file LICENSE
+Depends:
+    R (>= 4.1.0)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
@@ -24,6 +26,7 @@ Imports:
     purrr,
     S7,
     sf,
+    stats,
     units
 Suggests:
     elevatr,

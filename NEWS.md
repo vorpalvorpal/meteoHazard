@@ -1,3 +1,116 @@
+# meteoHazard 0.4.0
+
+Robustness for real forecast feeds (one missing hour, component-only
+radiation, a gust a fraction below the mean) and a clean `R CMD check`.
+Minor-version bump because missing inputs now change what three functions
+return (see *Behaviour changes*); every signature change is additive.
+
+## One missing-input (NA) policy for dust, litter, odour and TWL
+
+* `dust_hazard()`/`dust_flux()`, `litter_risk()` (and `litter_hazard()`,
+  `litter_hazard_vec()`, `litter_exposure()`, `litter_wetness()`,
+  `litter_wetness_vec()`), `odour_risk()`/`odour_exposure()`/
+  `odour_hazard()` and `generate_twl()` now share one rule: **a row with a
+  missing required input returns `NA` for that row only**, the other rows
+  are computed as normal, and **one** summary warning of class
+  `meteoHazard_missing_input` is raised per call (wrappers muffle their
+  inner layers, so a caller sees one). Genuinely invalid non-missing values
+  (negative wind or rain, RH > 100, soil moisture outside `[0, 1]`, a gust
+  below the mean, ...) still error. Each function documents the policy in a
+  new *Missing values* section.
+* Callers no longer need to pre-filter `complete.cases()` and splice results
+  back. Pre-filtering still works exactly as before.
+* Sequential state carries across a gap: the dust crust (`crust = TRUE`)
+  treats an `NA` rain hour as not crust-forming, and the saltation gate
+  does not advance on an hour with unknown wind; the litter wetness state
+  holds (a known reset still resets); odour's cold-pool / pressure-tendency
+  state still sees the missing hour through `ventilation_state()`'s
+  documented fallbacks. So with `crust = TRUE`, `use_wetness_state = TRUE`
+  or odour terrain descriptors, a few hours after a gap can differ slightly
+  from a complete-data run (on a real Blaxland frame: 4 hours, max relative
+  difference 3e-4, for odour). Without that state (the defaults for dust and
+  litter, and TWL always) every other row is identical.
+
+### Behaviour changes
+
+* **Dust, litter:** an `NA` input used to abort the whole call with a
+  checkmate error; it now gives `NA` rows plus the warning.
+* **Odour:** an `NA` in a required column, or in an optional generation /
+  cold-pool column that is present (`temperature_2m`,
+  `relative_humidity_2m`, `pressure_msl`, `precipitation`,
+  `soil_moisture_*`), used to be silently filled (e.g. `NA` wind treated as
+  calm, `NA` cloud as 50%) and returned a finite value; that hour is now
+  `NA`. Rationale: a made-up value is indistinguishable from a real one
+  downstream, and the four hazards should agree on what a missing hour
+  means. The optional multi-level wind columns (`wind_speed_80m`, ...) stay
+  NA-tolerant. `ventilation_state()` itself is unchanged.
+* **Odour range checks:** `odour_hazard()`, `odour_exposure()` and
+  `odour_risk()` previously did not validate input ranges at all (a negative
+  wind speed or RH of 150 produced a number). They now error, as dust,
+  litter and TWL do, on negative wind speed (any level), direct radiation,
+  boundary-layer height, precipitation or MSL pressure; wind direction
+  outside `[0, 360]`; cloud cover or relative humidity outside `[0, 100]`;
+  and soil moisture outside `[0, 1]`. `NA` is not invalid: it follows the
+  missing-input policy above.
+* **TWL:** `generate_twl()` already returned `NA` for rows with `NA`
+  weather, but now also warns; an `NA` `wind_height` beside a known wind is
+  a missing input (NA row) instead of an error; and an `NA` `datetime`,
+  `latitude` or `longitude` gives an NA row instead of crashing the solver.
+  `NULL` still means "fetch from Open-Meteo"; an `NA` element is never
+  fetched.
+
+## Litter wetness: `shortwave_radiation` derived from direct + diffuse
+
+* `litter_wetness()` and `litter_hazard(use_wetness_state = TRUE)` (and so
+  `litter_risk()`) derive a missing `shortwave_radiation` as
+  `direct_radiation + diffuse_radiation` (horizontal; Open-Meteo's own
+  definition) when both are present, as from `meteoTidy::met_wide()`, and
+  fill `NA` shortwave hours the same way. A message of class
+  `meteoHazard_derived_input` reports it; new `verbose = TRUE` arguments
+  (after `...`) turn it off.
+
+## Negative radiation from Open-Meteo: rebalanced, not rejected
+
+* Open-Meteo's dawn hours can carry a negative `diffuse_radiation` beside a
+  positive `direct_radiation`: Blaxland 2026-10-03 07:00 had direct 85,
+  diffuse -62, shortwave 23 W/m^2 (it appears to derive diffuse as shortwave
+  minus a direct that is out of step). `generate_twl()` rejected any negative
+  component, so one such hour stopped a whole TWL series.
+* `generate_twl()` (supplied or fetched radiation), `odour_hazard()`,
+  `odour_exposure()` and `odour_risk()` now rebalance the components keeping
+  the global horizontal total: where diffuse < 0, diffuse becomes 0 and
+  direct becomes `max(direct + diffuse, 0)`; where direct < 0 the same the
+  other way round (85 / -62 becomes 23 / 0). Odour without a
+  `diffuse_radiation` column clamps a slightly negative direct to 0. One
+  message of class `meteoHazard_input_adjusted` per call lists the hours. A
+  total below -5 W/m^2 is not rounding noise and still errors, naming the
+  rows.
+* Litter's derived `shortwave_radiation` (direct + diffuse) is already the
+  right total (23 in the example) so it is unchanged; a derived total just
+  below 0 (down to -5 W/m^2) is clamped to 0 with the same message class, and
+  a lower one errors.
+
+## Dust: gust below the mean wind
+
+* The check stays and stays the default, but the error now names each
+  offending row with its gust and mean values.
+* New `gust_below_mean = c("error", "clamp")` on `dust_flux()` and
+  `dust_hazard()` (last argument): `"clamp"` raises such gusts to the mean
+  wind with one warning of class `meteoHazard_gust_clamped` (applied to the
+  saltation crust gate too).
+
+## Check hygiene
+
+* `R CMD check`: 0 errors, 0 warnings. Non-ASCII characters in R string
+  literals are now `\u` escapes; `pgamma` is imported from `stats` (added
+  to Imports); `CLAUDE.md` is build-ignored; `Depends: R (>= 4.1.0)` is
+  declared (the code uses `|>` and `\(x)`). `RoxygenNote` stays 7.3.3 (the
+  version the man pages were last built with upstream).
+* The odour characterisation snapshot is re-pinned in the current testthat
+  heading format. Under the installed testthat the old headings no longer
+  matched, so those seven golden checks were being re-added rather than
+  compared; the pinned values are byte-identical.
+
 # meteoHazard 0.3.1
 
 ## TWL: `wind_height` for supplied wind

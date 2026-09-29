@@ -4,17 +4,29 @@
 \alias{litter_wetness}
 \title{Litter-surface wetness state for a forecast tibble}
 \usage{
-litter_wetness(met_data, ...)
+litter_wetness(met_data, ..., verbose = TRUE)
 }
 \arguments{
 \item{met_data}{A tibble (or data frame) with one row per hourly timestep,
 in chronological order (the wetness state is sequential), containing at
 least the columns \code{precipitation} (mm), \code{temperature_2m} (degC),
 \code{relative_humidity_2m} (\%), \code{wind_speed_10m} (m/s), and
-\code{shortwave_radiation} (W/m^2).}
+\code{shortwave_radiation} (W/m^2). If \code{shortwave_radiation} is absent but
+\code{direct_radiation} and \code{diffuse_radiation} (W/m^2, horizontal) are
+present -- as from \code{meteoTidy::met_wide()} and many other feeds -- it is
+derived as their sum (Open-Meteo's own definition of
+\code{shortwave_radiation}); NA \code{shortwave_radiation} hours are filled the
+same way. The sum is already right when Open-Meteo gives a negative
+diffuse at dawn (85 + -62 = 23 W/m^2); a derived total just below 0
+(down to -5 W/m^2) is clamped to 0 with a \code{meteoHazard_input_adjusted}
+message, and a lower one errors.}
 
 \item{...}{Additional calibration parameters forwarded to
 \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} (e.g. \code{wetness_set_precip}, \code{dry_rate_base}).}
+
+\item{verbose}{Logical (default \code{TRUE}). Report (as a message of class
+\code{meteoHazard_derived_input}) when \code{shortwave_radiation} is derived from
+\code{direct_radiation} + \code{diffuse_radiation}.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the litter-surface
@@ -25,6 +37,13 @@ Computes the hourly litter-surface wetness state (\code{\link[=litter_wetness_ve
 for each row of a meteorological forecast tibble. Wraps the vector API,
 accepting a tibble with named columns rather than individual vectors.
 }
+\section{Missing values}{
+
+See \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}: an hour with a missing input returns \code{NA}
+(one summary warning of class \code{meteoHazard_missing_input} per call) and the
+state carries across the gap.
+}
+
 \seealso{
 \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}, \code{\link[=litter_hazard]{litter_hazard()}} (\code{use_wetness_state = TRUE}).
 }
