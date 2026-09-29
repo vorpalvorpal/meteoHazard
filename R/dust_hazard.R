@@ -621,7 +621,7 @@ dust_hazard <- function(
     met_data, required_cols, arg = "met_data",
     info = paste0(
       "Required: wind_speed_10m (m/s), wind_gusts_10m (m/s), ",
-      "soil_moisture_0_to_1cm (m³/m³)",
+      "soil_moisture_0_to_1cm (m\u00b3/m\u00b3)",
       if (crust) ", precipitation (mm)" else "",
       if (air_density == "met") ", temperature_2m (degC), surface_pressure (hPa)." else "."
     )

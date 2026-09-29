@@ -512,7 +512,7 @@ litter_hazard <- function(met_data, use_wetness_state = FALSE, ..., verbose = TR
       met_data, required_cols, arg = "met_data",
       info = paste0(
         "Required: wind_gusts_10m (m/s), wind_speed_10m (m/s), ",
-        "precipitation (mm), soil_moisture_0_to_1cm (m³/m³)."
+        "precipitation (mm), soil_moisture_0_to_1cm (m\u00b3/m\u00b3)."
       )
     )
 
