@@ -36,6 +36,12 @@ describe("shortwave_radiation derived from direct + diffuse", {
     expect_identical(out, ref)
   })
 
+  it("derives it from a tibble without tibble's unknown-column warning", {
+    met <- dplyr::as_tibble(.na_met())
+    expect_no_warning(suppressMessages(litter_wetness(met)))
+    expect_no_warning(suppressMessages(litter_hazard(met, use_wetness_state = TRUE)))
+  })
+
   it("still errors when neither shortwave nor direct + diffuse is present", {
     met <- .na_met()
     met$diffuse_radiation <- NULL

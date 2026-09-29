@@ -278,7 +278,7 @@ litter_wetness <- function(met_data, ..., verbose = TRUE) {
   derived <- .drop_to(met_data$direct_radiation, "W/m^2", arg = "direct_radiation") +
     .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
 
-  if (is.null(met_data$shortwave_radiation)) {
+  if (!"shortwave_radiation" %in% names(met_data)) {
     met_data$shortwave_radiation <- derived
     if (verbose) {
       cli::cli_inform(
