@@ -107,8 +107,8 @@ test_that("heavy rain suppresses hazard via W_rain (soluble-limit odorant)", {
 })
 
 # ── NA handling / robustness ────────────────────────────────────────────────
-test_that("an all-NA row returns NA with a classed warning (0.3.2 NA policy)", {
-  # Before 0.3.2 the per-field fallbacks returned a finite value here; a
+test_that("an all-NA row returns NA with a classed warning (0.4.0 NA policy)", {
+  # Before 0.4.0 the per-field fallbacks returned a finite value here; a
   # missing hour is now reported as NA rather than a made-up hazard.
   d <- mh(
     wind_speed_10m = NA_real_, direct_radiation = NA_real_, cloud_cover = NA_real_,

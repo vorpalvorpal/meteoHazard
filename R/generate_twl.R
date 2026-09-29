@@ -68,7 +68,7 @@
 #'   `length(datetime)`, recycled with `wind_speed`, so one call can mix wind
 #'   from different sources. Values must be finite and greater than the
 #'   roughness length (0.01 m); an `NA` height is a missing input, so that
-#'   row's TWL is `NA` (see *Missing values*; before 0.3.2 an `NA` height
+#'   row's TWL is `NA` (see *Missing values*; before 0.4.0 an `NA` height
 #'   beside a known wind was an error). Use `10` for forecast (10 m) wind and the anemometer height for
 #'   station wind. `NULL` (the default) applies no correction to supplied wind.
 #'   Ignored (with a warning) when `wind_speed` is `NULL`.

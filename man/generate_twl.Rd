@@ -78,7 +78,7 @@ section. Numeric (or a \pkg{units} length) of length 1 or
 \code{length(datetime)}, recycled with \code{wind_speed}, so one call can mix wind
 from different sources. Values must be finite and greater than the
 roughness length (0.01 m); an \code{NA} height is a missing input, so that
-row's TWL is \code{NA} (see \emph{Missing values}; before 0.3.2 an \code{NA} height
+row's TWL is \code{NA} (see \emph{Missing values}; before 0.4.0 an \code{NA} height
 beside a known wind was an error). Use \code{10} for forecast (10 m) wind and the anemometer height for
 station wind. \code{NULL} (the default) applies no correction to supplied wind.
 Ignored (with a warning) when \code{wind_speed} is \code{NULL}.}

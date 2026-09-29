@@ -297,7 +297,7 @@ test_that("wind_height validation errors", {
   expect_error(twl_wind(2, wind_height = -2), class = err)
   expect_error(twl_wind(2, wind_height = Inf), class = err)
   # An NA height beside a known wind is a missing input (NA row + warning),
-  # not an error (0.3.2): see test-na-policy.R.
+  # not an error (0.4.0): see test-na-policy.R.
   expect_error(twl_wind(c(2, 2, 2), wind_height = c(2, 10), n = 3L), class = err)
 })
 
