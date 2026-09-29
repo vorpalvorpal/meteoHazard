@@ -104,8 +104,8 @@ return (see *Behaviour changes*); every signature change is additive.
 * `R CMD check`: 0 errors, 0 warnings. Non-ASCII characters in R string
   literals are now `\u` escapes; `pgamma` is imported from `stats` (added
   to Imports); `CLAUDE.md` is build-ignored; `Depends: R (>= 4.1.0)` is
-  declared (the code uses `|>` and `\(x)`); `RoxygenNote` matches the
-  installed roxygen2 (7.3.2).
+  declared (the code uses `|>` and `\(x)`). `RoxygenNote` stays 7.3.3 (the
+  version the man pages were last built with upstream).
 * The odour characterisation snapshot is re-pinned in the current testthat
   heading format. Under the installed testthat the old headings no longer
   matched, so those seven golden checks were being re-added rather than
