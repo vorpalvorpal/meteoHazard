@@ -84,7 +84,7 @@
 #'   moisture correction still uses the true `clay_percent`.
 #' @param wind_speed_10m Numeric vector. Hourly mean wind speed at 10 m (m/s).
 #' @param wind_gusts_10m Numeric vector. Peak gust at 10 m (m/s). Must be
-#'   `>= wind_speed_10m` at every hour.
+#'   `>= wind_speed_10m` at every hour (see `gust_below_mean`).
 #' @param soil_moisture Numeric vector. Volumetric water content of the top
 #'   0--1 cm layer (m^3/m^3), in `0`–`1`.
 #' @param d50 Modal grain diameter of the erodible surface (m), or `NULL`
@@ -141,6 +141,12 @@
 #' @param surface_pressure Numeric vector or `NULL` (default). Surface
 #'   (station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
 #'   `surface_pressure`. See `temperature_2m`.
+#' @param gust_below_mean What to do when `wind_gusts_10m < wind_speed_10m`
+#'   at an hour (physically impossible, but forecast feeds occasionally
+#'   report a gust a fraction below the hourly mean). `"error"` (default)
+#'   aborts with a classed `meteoHazard_input_error` naming the offending rows
+#'   and values; `"clamp"` raises each such gust to the mean wind and warns
+#'   once (class `meteoHazard_gust_clamped`), naming the rows.
 #'
 #' @return Numeric vector, one value per hour, proportional to the
 #'   instantaneous vertical dust mass-flux rate (relative units, unscaled;
@@ -209,8 +215,10 @@ dust_flux <- function(
   weibull_shape        = DUST_CONSTANTS$WEIBULL_SHAPE,
   threshold_multiplier = 1,
   temperature_2m       = NULL,
-  surface_pressure     = NULL
+  surface_pressure     = NULL,
+  gust_below_mean      = c("error", "clamp")
 ) {
+  gust_below_mean <- match.arg(gust_below_mean)
   # ---- Normalise dimensional inputs (bare = documented unit; units = converted) #
   # clay_percent, soil_moisture (m^3/m^3 ratio) and gust_factor are dimensionless
   # and taken as-is; the returned flux is in relative units (plain numeric).
@@ -297,13 +305,8 @@ dust_flux <- function(
   # values); every check below skips them.
   miss <- .missing_rows(n, wind_speed_10m, wind_gusts_10m, soil_moisture,
                         threshold_multiplier, temperature_2m, surface_pressure)
-  bad_gust <- which(wind_gusts_10m < wind_speed_10m)
-  if (length(bad_gust) > 0) {
-    cli::cli_abort(c(
-      "{.arg wind_gusts_10m} must be >= {.arg wind_speed_10m} at every hour.",
-      "x" = "Row(s) {.val {bad_gust}} have gust < mean wind."
-    ), class = "meteoHazard_input_error")
-  }
+  wind_gusts_10m <- .dust_gust_below_mean(wind_speed_10m, wind_gusts_10m,
+                                          gust_below_mean, fn = "dust_flux")
 
   # ---- temperature_2m / surface_pressure air-density seam ------------------- #
   # Both supplied -> per-hour rho_a from the ideal gas law (`* 100` is
@@ -514,7 +517,8 @@ dust_flux <- function(
 #' with `crust = FALSE` every other row is exactly as with complete data. One
 #' summary warning of class `meteoHazard_missing_input` is issued per call, so
 #' callers need not pre-filter complete rows. Non-missing but invalid values
-#' (negative wind, soil moisture outside `[0, 1]`, gust below the mean wind,
+#' (negative wind, soil moisture outside `[0, 1]`, gust below the mean wind
+#' under the default `gust_below_mean = "error"`,
 #' ...) still error. With `crust = TRUE`
 #' the crust state carries across a missing hour: an `NA` precipitation hour
 #' is treated as not crust-forming (clock decay keeps counting), and with
@@ -562,6 +566,11 @@ dust_flux <- function(
 #'   reproducing the pre-v3 behaviour). Set to `0` if the forecast is known to
 #'   start immediately after a crust-forming rain event; see @section Crust
 #'   cold-start.
+#' @param gust_below_mean `"error"` (default) or `"clamp"`: what to do when a
+#'   row has `wind_gusts_10m < wind_speed_10m`. `"error"` names the offending
+#'   rows and values; `"clamp"` raises those gusts to the mean wind with one
+#'   warning (class `meteoHazard_gust_clamped`), for both the flux and the
+#'   `crust_decay = "saltation"` gate. See [dust_flux()].
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the crust-adjusted
 #'   **relative dust flux** for each forecast hour (same units as [dust_flux()];
@@ -586,8 +595,10 @@ dust_hazard <- function(
   rain_crust_threshold = 2,
   crust_factor_max     = 3,
   crust_decay_hours    = 72,
-  hours_since_last_rain = Inf
+  hours_since_last_rain = Inf,
+  gust_below_mean      = c("error", "clamp")
 ) {
+  gust_below_mean <- match.arg(gust_below_mean)
   # Normalise the dimensional scalars (bare = documented unit; units = converted).
   # met_data wind columns are normalised inside dust_flux(); crust_factor_max and
   # crust_decay_hours are dimensionless / in hours and taken as-is.
@@ -620,6 +631,15 @@ dust_hazard <- function(
   # Missing values); one summary warning here, the inner dust_flux() one is
   # muffled.
   miss <- .missing_cols_rows(met_data, required_cols)
+
+  # Gust below the mean wind: resolved once here (error naming the rows, or
+  # clamp with one warning) so the saltation crust gate and dust_flux() see
+  # the same gusts; dust_flux() then finds nothing left to report.
+  met_data$wind_gusts_10m <- .dust_gust_below_mean(
+    .drop_to(met_data$wind_speed_10m, "m/s", arg = "wind_speed_10m"),
+    .drop_to(met_data$wind_gusts_10m, "m/s", arg = "wind_gusts_10m"),
+    gust_below_mean, fn = "dust_hazard"
+  )
 
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
   crust_mult <- if (!crust) {
@@ -743,6 +763,41 @@ dust_hazard <- function(
   U_fm <- pmax(wind_speed_10m, gust_factor * wind_gusts_10m)
   a    <- DUST_CONSTANTS$KAPPA / log(DUST_CONSTANTS$Z_REF / z0)
   a * U_fm
+}
+
+# Gust below the mean wind (bare m/s vectors, same length). A gust below the
+# hourly mean is physically impossible but forecast feeds occasionally report
+# one a fraction low. mode "error" aborts naming the offending rows and values;
+# "clamp" raises those gusts to the mean with one classed warning. NA rows are
+# skipped (the missing-input policy handles them). Returns the (possibly
+# clamped) gusts.
+.dust_gust_below_mean <- function(wind_speed_10m, wind_gusts_10m, mode, fn) {
+  bad <- which(wind_gusts_10m < wind_speed_10m)
+  if (length(bad) == 0L) return(wind_gusts_10m)
+
+  shown  <- bad[seq_len(min(10L, length(bad)))]
+  detail <- paste0(
+    paste(sprintf("row %d (gust %s < mean %s)", shown,
+                  signif(wind_gusts_10m[shown], 4), signif(wind_speed_10m[shown], 4)),
+          collapse = ", "),
+    if (length(bad) > length(shown)) sprintf(", and %d more", length(bad) - length(shown)) else "",
+    " (m/s)."
+  )
+  if (mode == "error") {
+    cli::cli_abort(c(
+      "{.arg wind_gusts_10m} must be >= {.arg wind_speed_10m} at every hour.",
+      "x" = paste0(length(bad), " row", if (length(bad) > 1L) "s" else "",
+                   " with gust < mean wind: ", detail),
+      "i" = "Use {.code gust_below_mean = \"clamp\"} to raise such gusts to the mean wind instead."
+    ), class = "meteoHazard_input_error")
+  }
+  cli::cli_warn(c(
+    paste0("{.fn {fn}}: raised ", length(bad), " gust", if (length(bad) > 1L) "s" else "",
+           " below the mean wind up to the mean (gust_below_mean = \"clamp\")."),
+    "i" = detail
+  ), class = "meteoHazard_gust_clamped")
+  wind_gusts_10m[bad] <- wind_speed_10m[bad]
+  wind_gusts_10m
 }
 
 # Per-hour crust threshold multiplier (clock decay). age = hours since the

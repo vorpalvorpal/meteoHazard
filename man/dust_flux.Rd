@@ -18,7 +18,8 @@ dust_flux(
   weibull_shape = DUST_CONSTANTS$WEIBULL_SHAPE,
   threshold_multiplier = 1,
   temperature_2m = NULL,
-  surface_pressure = NULL
+  surface_pressure = NULL,
+  gust_below_mean = c("error", "clamp")
 )
 }
 \arguments{
@@ -35,7 +36,7 @@ moisture correction still uses the true \code{clay_percent}.}
 \item{wind_speed_10m}{Numeric vector. Hourly mean wind speed at 10 m (m/s).}
 
 \item{wind_gusts_10m}{Numeric vector. Peak gust at 10 m (m/s). Must be
-\verb{>= wind_speed_10m} at every hour.}
+\verb{>= wind_speed_10m} at every hour (see \code{gust_below_mean}).}
 
 \item{soil_moisture}{Numeric vector. Volumetric water content of the top
 0--1 cm layer (m^3/m^3), in \code{0}–\code{1}.}
@@ -101,6 +102,13 @@ mistakes).}
 \item{surface_pressure}{Numeric vector or \code{NULL} (default). Surface
 (station-level, not mean-sea-level) air pressure (hPa), Open-Meteo
 \code{surface_pressure}. See \code{temperature_2m}.}
+
+\item{gust_below_mean}{What to do when \code{wind_gusts_10m < wind_speed_10m}
+at an hour (physically impossible, but forecast feeds occasionally
+report a gust a fraction below the hourly mean). \code{"error"} (default)
+aborts with a classed \code{meteoHazard_input_error} naming the offending rows
+and values; \code{"clamp"} raises each such gust to the mean wind and warns
+once (class \code{meteoHazard_gust_clamped}), naming the rows.}
 }
 \value{
 Numeric vector, one value per hour, proportional to the
