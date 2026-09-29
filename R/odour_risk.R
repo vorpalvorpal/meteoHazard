@@ -25,6 +25,15 @@
 #' @return A numeric matrix (`nrow(met_data)` x n_receptors) of relative odour
 #'   concentration; see [odour_exposure()].
 #'
+#' @section Negative radiation:
+#' Open-Meteo's dawn hours can carry a negative `diffuse_radiation` beside a
+#' positive `direct_radiation` (e.g. 85 and -62 W/m^2, shortwave 23). When
+#' `diffuse_radiation` is present the two are rebalanced keeping their sum (the
+#' negative component set to 0 and folded into the other, floored at 0);
+#' without it a slightly negative `direct_radiation` is clamped to 0. One
+#' message of class `meteoHazard_input_adjusted` reports it per call; a total
+#' below -5 W/m^2 still errors.
+#'
 #' @section Missing values:
 #' An hour with `NA` in a required column, or in one of the optional
 #' generation / cold-pool columns that is present (`temperature_2m`,

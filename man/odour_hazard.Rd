@@ -124,6 +124,17 @@ stable nights -- see \code{\link[=ventilation_state]{ventilation_state()}}.}
 }
 }
 
+\section{Negative radiation}{
+
+Open-Meteo's dawn hours can carry a negative \code{diffuse_radiation} beside a
+positive \code{direct_radiation} (e.g. 85 and -62 W/m^2, shortwave 23). When
+\code{diffuse_radiation} is present the two are rebalanced keeping their sum (the
+negative component set to 0 and folded into the other, floored at 0);
+without it a slightly negative \code{direct_radiation} is clamped to 0. One
+message of class \code{meteoHazard_input_adjusted} reports it per call; a total
+below -5 W/m^2 still errors.
+}
+
 \section{Missing values}{
 
 An hour with \code{NA} in a required column, or in one of the optional

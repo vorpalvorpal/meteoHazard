@@ -69,6 +69,27 @@ return (see *Behaviour changes*); every signature change is additive.
   `meteoHazard_derived_input` reports it; new `verbose = TRUE` arguments
   (after `...`) turn it off.
 
+## Negative radiation from Open-Meteo: rebalanced, not rejected
+
+* Open-Meteo's dawn hours can carry a negative `diffuse_radiation` beside a
+  positive `direct_radiation`: Blaxland 2026-10-03 07:00 had direct 85,
+  diffuse -62, shortwave 23 W/m^2 (it appears to derive diffuse as shortwave
+  minus a direct that is out of step). `generate_twl()` rejected any negative
+  component, so one such hour stopped a whole TWL series.
+* `generate_twl()` (supplied or fetched radiation), `odour_hazard()`,
+  `odour_exposure()` and `odour_risk()` now rebalance the components keeping
+  the global horizontal total: where diffuse < 0, diffuse becomes 0 and
+  direct becomes `max(direct + diffuse, 0)`; where direct < 0 the same the
+  other way round (85 / -62 becomes 23 / 0). Odour without a
+  `diffuse_radiation` column clamps a slightly negative direct to 0. One
+  message of class `meteoHazard_input_adjusted` per call lists the hours. A
+  total below -5 W/m^2 is not rounding noise and still errors, naming the
+  rows.
+* Litter's derived `shortwave_radiation` (direct + diffuse) is already the
+  right total (23 in the example) so it is unchanged; a derived total just
+  below 0 (down to -5 W/m^2) is clamped to 0 with the same message class, and
+  a lower one errors.
+
 ## Dust: gust below the mean wind
 
 * The check stays and stays the default, but the error now names each

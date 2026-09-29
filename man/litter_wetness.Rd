@@ -16,7 +16,10 @@ least the columns \code{precipitation} (mm), \code{temperature_2m} (degC),
 present -- as from \code{meteoTidy::met_wide()} and many other feeds -- it is
 derived as their sum (Open-Meteo's own definition of
 \code{shortwave_radiation}); NA \code{shortwave_radiation} hours are filled the
-same way.}
+same way. The sum is already right when Open-Meteo gives a negative
+diffuse at dawn (85 + -62 = 23 W/m^2); a derived total just below 0
+(down to -5 W/m^2) is clamped to 0 with a \code{meteoHazard_input_adjusted}
+message, and a lower one errors.}
 
 \item{...}{Additional calibration parameters forwarded to
 \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} (e.g. \code{wetness_set_precip}, \code{dry_rate_base}).}

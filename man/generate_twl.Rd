@@ -45,7 +45,11 @@ Open-Meteo.}
 fetch from Open-Meteo.}
 
 \item{diffuse_solar}{Diffuse sky solar radiation in W/m^2, or \code{NULL} to
-fetch from Open-Meteo.}
+fetch from Open-Meteo. Where either component is negative (Open-Meteo's
+dawn hours can give e.g. direct 85, diffuse -62 W/m^2) the two are
+rebalanced keeping their sum (the negative one set to 0 and folded into the
+other, floored at 0), with one message of class
+\code{meteoHazard_input_adjusted}; only a sum below -5 W/m^2 errors.}
 
 \item{pressure}{Barometric pressure in hPa (or kPa if \code{convert_pressure = FALSE}), or \code{NULL} to fetch from Open-Meteo.}
 

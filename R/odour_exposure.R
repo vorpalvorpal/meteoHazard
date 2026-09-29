@@ -85,6 +85,15 @@
 #' US EPA (1995). \emph{User's Guide for the Industrial Source Complex (ISC3)
 #'   Dispersion Models}.
 #'
+#' @section Negative radiation:
+#' Open-Meteo's dawn hours can carry a negative `diffuse_radiation` beside a
+#' positive `direct_radiation` (e.g. 85 and -62 W/m^2, shortwave 23). When
+#' `diffuse_radiation` is present the two are rebalanced keeping their sum (the
+#' negative component set to 0 and folded into the other, floored at 0);
+#' without it a slightly negative `direct_radiation` is clamped to 0. One
+#' message of class `meteoHazard_input_adjusted` reports it per call; a total
+#' below -5 W/m^2 still errors.
+#'
 #' @section Missing values:
 #' An hour with `NA` in a required column, or in one of the optional
 #' generation / cold-pool columns that is present (`temperature_2m`,
@@ -125,6 +134,7 @@ odour_exposure <- function(met_data, site,
   )
   .assert_required_cols(met_data, required_cols, arg = "met_data")
   met_data <- .odour_normalise_met(met_data)
+  met_data <- .odour_rebalance_radiation(met_data, "odour_exposure")
   .odour_assert_ranges(met_data)
   miss <- .odour_missing_rows(met_data, required_cols)
 

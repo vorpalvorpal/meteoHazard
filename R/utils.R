@@ -97,3 +97,81 @@
     meteoHazard_missing_input = function(w) invokeRestart("muffleWarning")
   )
 }
+
+
+# ---- Negative radiation components ----------------------------------------- #
+# Open-Meteo's dawn / dusk hours can carry a negative diffuse_radiation beside
+# a positive direct_radiation (e.g. direct 85, diffuse -62, shortwave 23 W/m^2:
+# it appears to derive diffuse = shortwave - direct with direct out of step).
+# Rebalance the components so the global horizontal total direct + diffuse is
+# kept: a negative diffuse is set to 0 and folded into direct (floored at 0),
+# then a negative direct is set to 0 and folded into diffuse (floored at 0).
+# A total below -RADIATION_NEGATIVE_TOL W/m^2 is not rounding noise and still
+# errors. `diffuse` may be NULL (odour without a diffuse column): a negative
+# direct within the tolerance is then clamped to 0. NA is left to the
+# missing-input policy. Emits one `meteoHazard_input_adjusted` message when
+# anything changed. Returns list(direct, diffuse).
+RADIATION_NEGATIVE_TOL <- 5
+
+.rebalance_radiation <- function(direct, diffuse = NULL, fn,
+                                 direct_name = "direct_radiation",
+                                 diffuse_name = "diffuse_radiation") {
+  has_dif <- !is.null(diffuse)
+  dif <- if (has_dif) diffuse else rep(NA_real_, length(direct))
+
+  total <- ifelse(is.na(direct), 0, direct) + ifelse(is.na(dif), 0, dif)
+  known <- !is.na(direct) & (!has_dif | !is.na(dif))
+  bad   <- known & total < -RADIATION_NEGATIVE_TOL
+  if (any(bad)) {
+    rows  <- which(bad)
+    shown <- rows[seq_len(min(5L, length(rows)))]
+    what  <- if (has_dif) {
+      sprintf("row %d (%s %g + %s %g = %g)", shown, direct_name, direct[shown],
+              diffuse_name, dif[shown], total[shown])
+    } else {
+      sprintf("row %d (%s %g)", shown, direct_name, direct[shown])
+    }
+    cli::cli_abort(
+      c(paste0("{.fn {fn}}: radiation is clearly negative (below -",
+               RADIATION_NEGATIVE_TOL, " W/m^2) in ", length(rows), " row",
+               if (length(rows) == 1L) "" else "s", "."),
+        "x" = paste0(paste(what, collapse = ", "),
+                     if (length(rows) > length(shown)) ", ..." else "", ".")),
+      class = "meteoHazard_input_error"
+    )
+  }
+
+  new_dir <- direct
+  new_dif <- dif
+  i <- !is.na(new_dif) & new_dif < 0
+  new_dir[i] <- pmax(direct[i] + new_dif[i], 0)
+  new_dif[i] <- 0
+  j <- !is.na(new_dir) & new_dir < 0
+  new_dif[j] <- pmax(new_dif[j] + new_dir[j], 0)
+  new_dir[j] <- 0
+  changed <- which(i | j)
+
+  if (length(changed) > 0L) {
+    shown <- changed[seq_len(min(5L, length(changed)))]
+    what  <- if (has_dif) {
+      sprintf("row %d: %g + %g -> %g + %g", shown, direct[shown], dif[shown],
+              new_dir[shown], new_dif[shown])
+    } else {
+      sprintf("row %d: %g -> %g", shown, direct[shown], new_dir[shown])
+    }
+    cli::cli_inform(
+      c(paste0("{.fn {fn}}: ", length(changed), " hour",
+               if (length(changed) == 1L) "" else "s",
+               " with negative radiation adjusted",
+               if (has_dif) paste0(" (", direct_name, " + ", diffuse_name,
+                                   " rebalanced, total kept).")
+               else paste0(" (", direct_name, " clamped to 0)."),
+               ""),
+        "i" = paste0(paste(what, collapse = "; "),
+                     if (length(changed) > length(shown)) "; ..." else "", "."),
+        "i" = "Message class {.cls meteoHazard_input_adjusted}."),
+      class = "meteoHazard_input_adjusted"
+    )
+  }
+  list(direct = new_dir, diffuse = if (has_dif) new_dif else NULL)
+}

@@ -203,7 +203,10 @@ litter_wetness_vec <- function(
 #'   present -- as from `meteoTidy::met_wide()` and many other feeds -- it is
 #'   derived as their sum (Open-Meteo's own definition of
 #'   `shortwave_radiation`); NA `shortwave_radiation` hours are filled the
-#'   same way.
+#'   same way. The sum is already right when Open-Meteo gives a negative
+#'   diffuse at dawn (85 + -62 = 23 W/m^2); a derived total just below 0
+#'   (down to -5 W/m^2) is clamped to 0 with a `meteoHazard_input_adjusted`
+#'   message, and a lower one errors.
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_wetness_vec()] (e.g. `wetness_set_precip`, `dry_rate_base`).
 #' @param verbose Logical (default `TRUE`). Report (as a message of class
@@ -275,10 +278,18 @@ litter_wetness <- function(met_data, ..., verbose = TRUE) {
 .derive_shortwave <- function(met_data, verbose = TRUE, fn = "litter_wetness") {
   parts <- c("direct_radiation", "diffuse_radiation")
   if (!all(parts %in% names(met_data))) return(met_data)
-  derived <- .drop_to(met_data$direct_radiation, "W/m^2", arg = "direct_radiation") +
-    .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
+  direct  <- .drop_to(met_data$direct_radiation, "W/m^2", arg = "direct_radiation")
+  diffuse <- .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
+  has_sw  <- "shortwave_radiation" %in% names(met_data)
+  use     <- if (has_sw) {
+    is.na(.drop_to(met_data$shortwave_radiation, "W/m^2", arg = "shortwave_radiation"))
+  } else {
+    rep(TRUE, length(direct))
+  }
+  derived <- .derived_shortwave_total(ifelse(use, direct, NA_real_),
+                                      ifelse(use, diffuse, NA_real_), fn)
 
-  if (!"shortwave_radiation" %in% names(met_data)) {
+  if (!has_sw) {
     met_data$shortwave_radiation <- derived
     if (verbose) {
       cli::cli_inform(
@@ -302,4 +313,33 @@ litter_wetness <- function(met_data, ..., verbose = TRUE) {
     }
   }
   met_data
+}
+
+# The derived global horizontal total direct + diffuse. Open-Meteo's dawn hours
+# can carry a negative diffuse beside a positive direct (e.g. 85 + -62 = 23);
+# the sum is already the right shortwave, so the components need no
+# rebalancing here. A total just below zero (>= -RADIATION_NEGATIVE_TOL W/m^2)
+# is clamped to 0 with one `meteoHazard_input_adjusted` message; a clearly
+# negative total errors, via the same rule as .rebalance_radiation().
+.derived_shortwave_total <- function(direct, diffuse, fn) {
+  total <- direct + diffuse
+  rb <- withCallingHandlers(
+    .rebalance_radiation(direct, diffuse, fn = fn),
+    meteoHazard_input_adjusted = function(m) invokeRestart("muffleMessage")
+  )
+  new <- rb$direct + rb$diffuse
+  clamped <- which(!is.na(total) & new != total)
+  if (length(clamped) > 0L) {
+    shown <- clamped[seq_len(min(5L, length(clamped)))]
+    cli::cli_inform(
+      c(paste0("{.fn {fn}}: ", length(clamped), " derived shortwave_radiation hour",
+               if (length(clamped) == 1L) "" else "s",
+               " slightly below 0 (direct + diffuse) clamped to 0."),
+        "i" = paste0(paste(sprintf("row %d: %g", shown, total[shown]), collapse = "; "),
+                     if (length(clamped) > length(shown)) "; ..." else "", "."),
+        "i" = "Message class {.cls meteoHazard_input_adjusted}."),
+      class = "meteoHazard_input_adjusted"
+    )
+  }
+  new
 }

@@ -44,7 +44,11 @@
 #' @param direct_solar Direct beam solar radiation in W/m^2, or `NULL` to
 #'   fetch from Open-Meteo.
 #' @param diffuse_solar Diffuse sky solar radiation in W/m^2, or `NULL` to
-#'   fetch from Open-Meteo.
+#'   fetch from Open-Meteo. Where either component is negative (Open-Meteo's
+#'   dawn hours can give e.g. direct 85, diffuse -62 W/m^2) the two are
+#'   rebalanced keeping their sum (the negative one set to 0 and folded into the
+#'   other, floored at 0), with one message of class
+#'   `meteoHazard_input_adjusted`; only a sum below -5 W/m^2 errors.
 #' @param pressure Barometric pressure in hPa (or kPa if `convert_pressure =
 #'   FALSE`), or `NULL` to fetch from Open-Meteo.
 #' @param wet_bulb Natural (unventilated) wet bulb temperature in degrees
@@ -227,12 +231,6 @@ generate_twl <- function(datetime,
       .check_wind_height(wind_height, wind_speed, n)
     }
   }
-  if (!is.null(direct_solar) && any(direct_solar < 0, na.rm = TRUE)) {
-    cli::cli_abort("`direct_solar` values must be >= 0.", class = "meteoHazard_input_error")
-  }
-  if (!is.null(diffuse_solar) && any(diffuse_solar < 0, na.rm = TRUE)) {
-    cli::cli_abort("`diffuse_solar` values must be >= 0.", class = "meteoHazard_input_error")
-  }
   if (!is.null(pressure) && any(pressure <= 0, na.rm = TRUE)) {
     cli::cli_abort("`pressure` values must be > 0.", class = "meteoHazard_input_error")
   }
@@ -311,6 +309,15 @@ generate_twl <- function(datetime,
   diffuse_solar <- rep_len(diffuse_solar, n_obs)
   pressure <- rep_len(pressure, n_obs)
   if (!is.null(wet_bulb)) wet_bulb <- rep_len(wet_bulb, n_obs)
+
+  # Negative radiation components (Open-Meteo dawn hours, supplied or
+  # fetched): rebalance keeping direct + diffuse; error only when the total is
+  # clearly negative. See .rebalance_radiation().
+  rb <- .rebalance_radiation(direct_solar, diffuse_solar, fn = "generate_twl",
+                             direct_name = "direct_solar",
+                             diffuse_name = "diffuse_solar")
+  direct_solar  <- rb$direct
+  diffuse_solar <- rb$diffuse
 
   if (verbose) {
     cli_h1("TWL Calculation")
