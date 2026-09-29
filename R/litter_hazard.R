@@ -427,7 +427,9 @@ litter_hazard_vec <- function(
 #'   TRUE`, also requires the five columns consumed by [litter_wetness_vec()]:
 #'   `temperature_2m` (degC), `relative_humidity_2m` (%), `shortwave_radiation`
 #'   (W/m^2), `wind_speed_10m`, and `precipitation` (the latter two already
-#'   required above).
+#'   required above). A missing `shortwave_radiation` is derived from
+#'   `direct_radiation` + `diffuse_radiation` when both are present (see
+#'   [litter_wetness()]).
 #' @param use_wetness_state Logical. Default `FALSE` (uses
 #'   `soil_moisture_0_to_1cm` directly, as in earlier package versions). When
 #'   `TRUE`, the litter-specific wetness state ([litter_wetness_vec()], run
@@ -440,6 +442,10 @@ litter_hazard_vec <- function(
 #'   path -- that call always uses its own defaults, so a hazard-side
 #'   calibration override (e.g. a custom `rain_threshold` for the hazard's
 #'   rain gate) cannot accidentally perturb the wetness-reset dynamics.
+#' @param verbose Logical (default `TRUE`). With `use_wetness_state = TRUE`,
+#'   report (as a message of class `meteoHazard_derived_input`) when
+#'   `shortwave_radiation` is derived from `direct_radiation` +
+#'   `diffuse_radiation`.
 #'
 #' @section Missing values:
 #' A row with `NA` in any required column returns `NA` for that row, with one
@@ -456,13 +462,15 @@ litter_hazard_vec <- function(
 #'
 #' @seealso [litter_hazard_vec()], [litter_wetness_vec()], [litter_exposure()].
 #' @export
-litter_hazard <- function(met_data, use_wetness_state = FALSE, ...) {
+litter_hazard <- function(met_data, use_wetness_state = FALSE, ..., verbose = TRUE) {
   checkmate::assert_data_frame(met_data, min.rows = 1)
   checkmate::assert_flag(use_wetness_state)
+  checkmate::assert_flag(verbose)
 
   always_required <- c("wind_gusts_10m", "wind_speed_10m", "precipitation")
 
   if (use_wetness_state) {
+    met_data <- .derive_shortwave(met_data, verbose = verbose, fn = "litter_hazard")
     wetness_required <- c(
       "temperature_2m", "relative_humidity_2m", "shortwave_radiation",
       "wind_speed_10m", "precipitation"
@@ -473,7 +481,8 @@ litter_hazard <- function(met_data, use_wetness_state = FALSE, ...) {
       info = paste0(
         "use_wetness_state = TRUE requires wind_gusts_10m (m/s), ",
         "wind_speed_10m (m/s), precipitation (mm), temperature_2m (degC), ",
-        "relative_humidity_2m (%), and shortwave_radiation (W/m²)."
+        "relative_humidity_2m (%), and shortwave_radiation (W/m^2) or both ",
+        "direct_radiation and diffuse_radiation (W/m^2) to derive it."
       )
     )
 

@@ -198,9 +198,22 @@ litter_wetness_vec <- function(
 #'   in chronological order (the wetness state is sequential), containing at
 #'   least the columns `precipitation` (mm), `temperature_2m` (degC),
 #'   `relative_humidity_2m` (%), `wind_speed_10m` (m/s), and
-#'   `shortwave_radiation` (W/m^2).
+#'   `shortwave_radiation` (W/m^2). If `shortwave_radiation` is absent but
+#'   `direct_radiation` and `diffuse_radiation` (W/m^2, horizontal) are
+#'   present -- as from `meteoTidy::met_wide()` and many other feeds -- it is
+#'   derived as their sum (Open-Meteo's own definition of
+#'   `shortwave_radiation`); NA `shortwave_radiation` hours are filled the
+#'   same way.
 #' @param ... Additional calibration parameters forwarded to
 #'   [litter_wetness_vec()] (e.g. `wetness_set_precip`, `dry_rate_base`).
+#' @param verbose Logical (default `TRUE`). Report (as a message of class
+#'   `meteoHazard_derived_input`) when `shortwave_radiation` is derived from
+#'   `direct_radiation` + `diffuse_radiation`.
+#'
+#' @section Missing values:
+#' See [litter_wetness_vec()]: an hour with a missing input returns `NA`
+#' (one summary warning of class `meteoHazard_missing_input` per call) and the
+#' state carries across the gap.
 #'
 #' @return Numeric vector of length `nrow(met_data)`, the litter-surface
 #'   wetness state (`[0, 1]`) for each forecast hour.
@@ -208,8 +221,10 @@ litter_wetness_vec <- function(
 #' @seealso [litter_wetness_vec()], [litter_hazard()] (`use_wetness_state =
 #'   TRUE`).
 #' @export
-litter_wetness <- function(met_data, ...) {
+litter_wetness <- function(met_data, ..., verbose = TRUE) {
   checkmate::assert_data_frame(met_data, min.rows = 1)
+  checkmate::assert_flag(verbose)
+  met_data <- .derive_shortwave(met_data, verbose = verbose, fn = "litter_wetness")
 
   required_cols <- c(
     "precipitation", "temperature_2m", "relative_humidity_2m",
@@ -220,18 +235,21 @@ litter_wetness <- function(met_data, ...) {
     info = paste0(
       "Required: precipitation (mm), temperature_2m (degC), ",
       "relative_humidity_2m (%), wind_speed_10m (m/s), ",
-      "shortwave_radiation (W/m^2)."
+      "shortwave_radiation (W/m^2) or both direct_radiation and ",
+      "diffuse_radiation (W/m^2) to derive it."
     )
   )
 
-  litter_wetness_vec(
+  out <- .muffle_missing_input(litter_wetness_vec(
     precipitation         = met_data$precipitation,
     temperature_2m        = met_data$temperature_2m,
     relative_humidity_2m  = met_data$relative_humidity_2m,
     wind_speed_10m        = met_data$wind_speed_10m,
     shortwave_radiation   = met_data$shortwave_radiation,
     ...
-  )
+  ))
+  .warn_missing_rows(is.na(out), "litter_wetness")
+  out
 }
 
 
@@ -245,4 +263,43 @@ litter_wetness <- function(met_data, ...) {
 .litter_vpd <- function(temperature_2m, relative_humidity_2m) {
   es <- 0.6108 * exp(17.27 * temperature_2m / (temperature_2m + 237.3))
   pmax(0, es * (1 - relative_humidity_2m / 100))
+}
+
+# Derive `shortwave_radiation` (W/m^2, global horizontal) as
+# direct_radiation + diffuse_radiation when it is absent, or fill its NA hours
+# from them, when both components are present. Open-Meteo defines its
+# shortwave_radiation as exactly this sum (direct and diffuse on the
+# horizontal plane), and many feeds (e.g. meteoTidy::met_wide()) carry only
+# the components. Returns met_data unchanged when there is nothing to derive;
+# the required-column check that follows still catches a frame with neither.
+.derive_shortwave <- function(met_data, verbose = TRUE, fn = "litter_wetness") {
+  parts <- c("direct_radiation", "diffuse_radiation")
+  if (!all(parts %in% names(met_data))) return(met_data)
+  derived <- .drop_to(met_data$direct_radiation, "W/m^2", arg = "direct_radiation") +
+    .drop_to(met_data$diffuse_radiation, "W/m^2", arg = "diffuse_radiation")
+
+  if (is.null(met_data$shortwave_radiation)) {
+    met_data$shortwave_radiation <- derived
+    if (verbose) {
+      cli::cli_inform(
+        "{.fn {fn}}: {.field shortwave_radiation} not supplied; derived as {.field direct_radiation} + {.field diffuse_radiation} (horizontal).",
+        class = "meteoHazard_derived_input"
+      )
+    }
+    return(met_data)
+  }
+
+  sw   <- .drop_to(met_data$shortwave_radiation, "W/m^2", arg = "shortwave_radiation")
+  fill <- is.na(sw) & !is.na(derived)
+  if (any(fill)) {
+    sw[fill] <- derived[fill]
+    met_data$shortwave_radiation <- sw
+    if (verbose) {
+      cli::cli_inform(
+        "{.fn {fn}}: filled {sum(fill)} missing {.field shortwave_radiation} hour{?s} with {.field direct_radiation} + {.field diffuse_radiation}.",
+        class = "meteoHazard_derived_input"
+      )
+    }
+  }
+  met_data
 }

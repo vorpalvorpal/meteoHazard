@@ -40,7 +40,9 @@ transport ramp and \code{reach_per_ms} should be calibrated jointly — see
 \code{\link[=litter_hazard_vec]{litter_hazard_vec()}} and \code{\link[=litter_exposure]{litter_exposure()}}.}
 
 \item{...}{Additional hazard calibration parameters forwarded to
-\code{\link[=litter_hazard]{litter_hazard()}} (e.g. \code{rain_threshold}, \code{material}, \code{gust_threshold}).}
+\code{\link[=litter_hazard]{litter_hazard()}} (e.g. \code{rain_threshold}, \code{material}, \code{gust_threshold}),
+plus \code{verbose} (report a derived \code{shortwave_radiation} when
+\code{use_wetness_state = TRUE}).}
 }
 \value{
 The \code{\link[=litter_exposure]{litter_exposure()}} data frame (\code{exposure}, \code{zone},

@@ -28,7 +28,9 @@
 #'   transport ramp and `reach_per_ms` should be calibrated jointly — see
 #'   [litter_hazard_vec()] and [litter_exposure()].
 #' @param ... Additional hazard calibration parameters forwarded to
-#'   [litter_hazard()] (e.g. `rain_threshold`, `material`, `gust_threshold`).
+#'   [litter_hazard()] (e.g. `rain_threshold`, `material`, `gust_threshold`),
+#'   plus `verbose` (report a derived `shortwave_radiation` when
+#'   `use_wetness_state = TRUE`).
 #'
 #' @return The [litter_exposure()] data frame (`exposure`, `zone`,
 #'   `directional_factor`, `leaves_site`, `sensitive_receptor`), one row per

@@ -4,7 +4,7 @@
 \alias{litter_hazard}
 \title{Litter hazard index for a forecast tibble}
 \usage{
-litter_hazard(met_data, use_wetness_state = FALSE, ...)
+litter_hazard(met_data, use_wetness_state = FALSE, ..., verbose = TRUE)
 }
 \arguments{
 \item{met_data}{A tibble (or data frame) with one row per hourly timestep.
@@ -13,7 +13,9 @@ Always requires \code{wind_gusts_10m} (m/s), \code{wind_speed_10m} (m/s), and
 requires \code{soil_moisture_0_to_1cm} (m^3/m^3). When \code{use_wetness_state = TRUE}, also requires the five columns consumed by \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}:
 \code{temperature_2m} (degC), \code{relative_humidity_2m} (\%), \code{shortwave_radiation}
 (W/m^2), \code{wind_speed_10m}, and \code{precipitation} (the latter two already
-required above).}
+required above). A missing \code{shortwave_radiation} is derived from
+\code{direct_radiation} + \code{diffuse_radiation} when both are present (see
+\code{\link[=litter_wetness]{litter_wetness()}}).}
 
 \item{use_wetness_state}{Logical. Default \code{FALSE} (uses
 \code{soil_moisture_0_to_1cm} directly, as in earlier package versions). When
@@ -28,6 +30,11 @@ internal \code{\link[=litter_wetness_vec]{litter_wetness_vec()}} call in the \co
 path -- that call always uses its own defaults, so a hazard-side
 calibration override (e.g. a custom \code{rain_threshold} for the hazard's
 rain gate) cannot accidentally perturb the wetness-reset dynamics.}
+
+\item{verbose}{Logical (default \code{TRUE}). With \code{use_wetness_state = TRUE},
+report (as a message of class \code{meteoHazard_derived_input}) when
+\code{shortwave_radiation} is derived from \code{direct_radiation} +
+\code{diffuse_radiation}.}
 }
 \value{
 Numeric vector of length \code{nrow(met_data)}, the relative litter hazard
