@@ -1,4 +1,27 @@
-# meteoHazard (development version)
+# meteoHazard 0.3.1
+
+## TWL: `wind_height` for supplied wind
+
+* `generate_twl()` gains `wind_height` (m): the height at which a supplied
+  `wind_speed` was measured. Supplied wind is now corrected to body level
+  (~1 m) with the same log profile already used for Open-Meteo wind,
+  `v_1m = v_z * ln(1/z0) / ln(z/z0)` (z0 = 0.01 m): factor ~0.667 at 10 m,
+  ~0.869 at 2 m. Pass `10` for forecast / reanalysis wind (BOM, Open-Meteo,
+  `meteoTidy::met_wide()`) and the anemometer height for station wind.
+  Scalar or vector (recycled with `wind_speed`, so one call can mix sources);
+  accepts a `units` length; must be finite and > z0, `NA` only where
+  `wind_speed` is `NA`. The 0.2--4.0 m/s clamp is applied after correction.
+* Backward compatible: the default `wind_height = NULL` treats supplied wind
+  as already at body level (no correction), exactly as before; callers
+  passing 10 m wind this way overstate wind cooling and hence TWL, and
+  should now pass `wind_height = 10`. API-fetched wind keeps its 10 m
+  correction; `wind_height` is ignored (with a
+  `meteoHazard_input_warning`) when `wind_speed` is fetched. `wind_height`
+  is the last argument, so positional calls are unaffected.
+* New internal constants `TWL_CONSTANTS$BODY_HEIGHT` (1 m),
+  `TWL_CONSTANTS$WIND_Z0` (0.01 m) and
+  `TWL_CONSTANTS$OPENMETEO_WIND_HEIGHT` (10 m) replace the inline literals.
+* `DESCRIPTION` version brought in line with `NEWS.md` (it still read 0.1.0).
 
 ## Dust hazard v4
 

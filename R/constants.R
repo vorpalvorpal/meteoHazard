@@ -32,6 +32,14 @@
 #'   \item{TWL_CEILING}{Upper clamp on the returned TWL, 380 W/m^2.
 #'     Corresponds to the upper bound of the published Brake & Bates (2002)
 #'     TWL regime chart.}
+#'   \item{BODY_HEIGHT}{Reference height for body-level wind in the TWL
+#'     heat balance, 1 m. Wind measured at another height is corrected to
+#'     this height with a logarithmic profile (see [generate_twl()]).}
+#'   \item{WIND_Z0}{Aerodynamic roughness length for the TWL wind height
+#'     correction, 0.01 m (open terrain). Wind at height `z` is scaled by
+#'     `ln(BODY_HEIGHT / WIND_Z0) / ln(z / WIND_Z0)`.}
+#'   \item{OPENMETEO_WIND_HEIGHT}{Measurement height of Open-Meteo's
+#'     `wind_speed_10m`, 10 m.}
 #' }
 #' @keywords internal
 TWL_CONSTANTS <- list(
@@ -45,7 +53,10 @@ TWL_CONSTANTS <- list(
   AIR_KINEMATIC_VISCOSITY   = 1.5e-5, # m^2/s at ~300 K; globe + wick Re
   LATENT_HEAT_TWL_KJ        = 2430, # kJ/kg at skin temp ~30 °C
   TWL_FLOOR                 = 60, # W/m^2, lower clamp on TWL
-  TWL_CEILING               = 380 # W/m^2, upper clamp on TWL
+  TWL_CEILING               = 380, # W/m^2, upper clamp on TWL
+  BODY_HEIGHT               = 1, # m, body-level reference height for wind
+  WIND_Z0                   = 0.01, # m, roughness length for wind height correction
+  OPENMETEO_WIND_HEIGHT     = 10 # m, height of Open-Meteo wind_speed_10m
 )
 
 #' Constants for the odour hazard and exposure model

@@ -10,11 +10,27 @@
 #' provided `datetime`, `latitude` and `longitude`. An internet connection
 #' is required for auto-fetching.
 #'
-#' Open-Meteo returns wind speed at 10 m height (`wind_speed_10m`). This is
-#' corrected to approximately 1 m (body level) using a logarithmic wind
-#' profile with roughness length z0 = 0.01 m (open terrain), giving a
-#' correction factor of `ln(1/z0) / ln(10/z0)` ≈ 0.667. Supply `wind_speed`
-#' directly (already at body level) to skip this correction.
+#' @section Wind height:
+#' The heat balance uses wind at body level (~1 m). Wind measured at height
+#' `z` (m) is corrected to body level with a logarithmic wind profile with
+#' roughness length z0 = 0.01 m (open terrain):
+#' `v_1m = v_z * ln(1 / z0) / ln(z / z0)`. The factor is ≈ 0.667 for
+#' `z = 10` and ≈ 0.869 for `z = 2`.
+#'
+#' * Wind fetched from Open-Meteo (`wind_speed = NULL`) is `wind_speed_10m`
+#'   and is always corrected from 10 m (`wind_height` is ignored, with a
+#'   warning).
+#' * Supplied `wind_speed` is corrected from `wind_height` when given. Pass
+#'   `wind_height = 10` for forecast / reanalysis wind (BOM, Open-Meteo,
+#'   `meteoTidy::met_wide()`), which is conventionally 10 m wind, and the
+#'   anemometer height for station wind (e.g. `2` for a 2 m mast).
+#' * With `wind_height = NULL` (the default), supplied `wind_speed` is taken
+#'   to be already at body level and is not corrected (the behaviour of
+#'   earlier versions). Passing 10 m wind this way overstates wind cooling
+#'   and so overstates TWL.
+#'
+#' After correction, wind speed is constrained to 0.2--4.0 m/s (the range
+#' recommended by Brake & Bates).
 #'
 #' @param datetime POSIXct datetime vector (required).
 #' @param latitude Latitude in decimal degrees (required).
@@ -22,6 +38,7 @@
 #' @param temp Dry bulb air temperature in degrees Celsius, or `NULL` to
 #'   fetch from Open-Meteo.
 #' @param wind_speed Wind speed in m/s, or `NULL` to fetch from Open-Meteo.
+#'   See the *Wind height* section and `wind_height`.
 #' @param RH Relative humidity in percent, or `NULL` to fetch from
 #'   Open-Meteo.
 #' @param direct_solar Direct beam solar radiation in W/m^2, or `NULL` to
@@ -45,13 +62,23 @@
 #'   `surface_pressure`) is always converted hPa→kPa regardless of this flag.
 #' @param verbose If `TRUE` (the default), show progress and diagnostic
 #'   messages.
+#' @param wind_height Height (m) at which the supplied `wind_speed` was
+#'   measured, used to correct it to body level (~1 m); see the *Wind height*
+#'   section. Numeric (or a \pkg{units} length) of length 1 or
+#'   `length(datetime)`, recycled with `wind_speed`, so one call can mix wind
+#'   from different sources. Values must be finite and greater than the
+#'   roughness length (0.01 m); `NA` is allowed only where `wind_speed` is
+#'   `NA`. Use `10` for forecast (10 m) wind and the anemometer height for
+#'   station wind. `NULL` (the default) applies no correction to supplied wind.
+#'   Ignored (with a warning) when `wind_speed` is `NULL`.
 #'
 #' @return A \pkg{units} vector of TWL values in W/m^2 (a genuine physical
 #'   quantity). Use [categorise_twl()] / [twl_colour()] (both units-aware) to
 #'   map it to zones, or `units::drop_units()` for a bare numeric.
 #'
 #' @section Units:
-#' The dimensional weather inputs (`temp` degC, `wind_speed` m/s, `direct_solar`
+#' The dimensional weather inputs (`temp` degC, `wind_speed` m/s, `wind_height`
+#' m, `direct_solar`
 #' / `diffuse_solar` W/m^2, `pressure`, `wet_bulb` degC) and `max_core_temp`
 #' (degC) may each be supplied as a bare numeric in the documented unit or as a
 #' \pkg{units} object, which is converted automatically (a dimensionally
@@ -90,7 +117,8 @@ generate_twl <- function(datetime,
                          max_core_temp = 38.2,
                          max_sweat_rate = 0.67,
                          convert_pressure = TRUE,
-                         verbose = TRUE) {
+                         verbose = TRUE,
+                         wind_height = NULL) {
   # --- Input validation (runs BEFORE any API call) ---
   # All range checks use na.rm = TRUE so NA values propagate rather than error.
   n <- length(datetime)
@@ -166,6 +194,25 @@ generate_twl <- function(datetime,
   }
   if (!is.null(wind_speed) && any(wind_speed < 0, na.rm = TRUE)) {
     cli::cli_abort("`wind_speed` values must be >= 0.", class = "meteoHazard_input_error")
+  }
+  # wind_height: the measurement height of the SUPPLIED wind_speed. Only
+  # meaningful when wind_speed is supplied; API wind is always 10 m.
+  if (!is.null(wind_height)) {
+    # A bare all-NA logical (e.g. `NA`) is accepted as numeric NA.
+    if (is.logical(wind_height) && all(is.na(wind_height))) {
+      wind_height <- as.numeric(wind_height)
+    }
+    wind_height <- .drop_to(wind_height, "m", arg = "wind_height")
+    if (is.null(wind_speed)) {
+      cli::cli_warn(
+        c("`wind_height` is ignored because `wind_speed` is fetched from Open-Meteo.",
+          "i" = "Open-Meteo wind is always corrected from {TWL_CONSTANTS$OPENMETEO_WIND_HEIGHT} m."),
+        class = "meteoHazard_input_warning"
+      )
+      wind_height <- NULL
+    } else {
+      .check_wind_height(wind_height, wind_speed, n)
+    }
   }
   if (!is.null(direct_solar) && any(direct_solar < 0, na.rm = TRUE)) {
     cli::cli_abort("`direct_solar` values must be >= 0.", class = "meteoHazard_input_error")
@@ -275,17 +322,28 @@ generate_twl <- function(datetime,
     }
   }
 
-  # Apply log-profile wind height correction for API-sourced wind speed.
-  # Open-Meteo supplies wind_speed_10m (at 10 m); Brake & Bates use wind at
-  # body level (~1 m). Log-profile with roughness length z0 = 0.01 m gives:
-  #   v_1m = v_10m * ln(1/z0) / ln(10/z0)  =  v_10m * 0.667
+  # Apply log-profile wind height correction. Brake & Bates use wind at body
+  # level (~1 m). Open-Meteo supplies wind_speed_10m (at 10 m), so API wind is
+  # always corrected from 10 m; supplied wind is corrected from `wind_height`
+  # when given (NULL = already at body level, no correction). With roughness
+  # length z0 = 0.01 m:
+  #   v_1m = v_z * ln(1/z0) / ln(z/z0)   (z = 10 -> 0.667; z = 2 -> 0.869)
   if (wind_from_api) {
-    WIND_HEIGHT_FACTOR <- log(1 / 0.01) / log(10 / 0.01) # ≈ 0.667
-    wind_speed <- wind_speed * WIND_HEIGHT_FACTOR
-    if (verbose) {
-      cli_alert_info(
-        "Applied 10 m -> 1 m wind height correction (factor {round(WIND_HEIGHT_FACTOR, 3)})"
+    wind_height <- TWL_CONSTANTS$OPENMETEO_WIND_HEIGHT
+  }
+  if (!is.null(wind_height)) {
+    wind_height <- rep_len(wind_height, n_obs)
+    height_factor <- .wind_height_factor(wind_height)
+    wind_speed <- wind_speed * height_factor
+    heights <- sort(unique(wind_height[!is.na(wind_height)]))
+    if (verbose && length(heights) > 0L) {
+      source_lbl <- if (wind_from_api) "Open-Meteo" else "supplied"
+      corr_lbl <- paste0(
+        heights, " m -> ", TWL_CONSTANTS$BODY_HEIGHT, " m (factor ",
+        round(.wind_height_factor(heights), 3), ")",
+        collapse = "; "
       )
+      cli_alert_info("Applied wind height correction to {source_lbl} wind: {corr_lbl}")
     }
   }
 
@@ -444,4 +502,42 @@ generate_twl <- function(datetime,
 
   # TWL is a genuine physical quantity -> return as a units object (W/m^2).
   units::set_units(TWL, "W/m2")
+}
+
+# Log-profile factor that scales wind measured at height `z` (m) to body
+# height: ln(BODY_HEIGHT / z0) / ln(z / z0). Vectorised; NA in, NA out.
+.wind_height_factor <- function(z) {
+  z0 <- TWL_CONSTANTS$WIND_Z0
+  log(TWL_CONSTANTS$BODY_HEIGHT / z0) / log(z / z0)
+}
+
+# Validate a (bare numeric, metres) `wind_height` against the supplied
+# `wind_speed`: numeric, length 1 or n, finite and > z0, NA only where
+# wind_speed is NA (after recycling both to n).
+.check_wind_height <- function(wind_height, wind_speed, n) {
+  z0 <- TWL_CONSTANTS$WIND_Z0
+  hlen <- length(wind_height)
+  if (!is.numeric(wind_height) || !(hlen == 1L || hlen == n)) {
+    cli::cli_abort(
+      "`wind_height` must be numeric with length 1 or length(datetime) ({n}).",
+      class = "meteoHazard_input_error"
+    )
+  }
+  h <- rep_len(wind_height, n)
+  ws <- rep_len(wind_speed, n)
+  h_na <- is.na(h)
+  if (any(h_na & !is.na(ws))) {
+    cli::cli_abort(
+      "`wind_height` may be NA only where `wind_speed` is NA.",
+      class = "meteoHazard_input_error"
+    )
+  }
+  h_ok <- h[!h_na]
+  if (any(!is.finite(h_ok) | h_ok <= z0)) {
+    cli::cli_abort(
+      "`wind_height` values must be finite and greater than the roughness length ({z0} m).",
+      class = "meteoHazard_input_error"
+    )
+  }
+  invisible(TRUE)
 }
