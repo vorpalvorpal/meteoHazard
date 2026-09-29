@@ -96,6 +96,14 @@
 #' is not a fixed cap — an inflated `entrainment_max` legitimately
 #' exceeds it.
 #'
+#' @section Missing values:
+#' A row with `NA` in `wind_gusts_10m`, `wind_speed_10m`, `precipitation` or
+#' the surface-wetness input in use (`wetness` or `soil_moisture_0_to_1cm`)
+#' returns `NA` for that row only; the other rows are unaffected (the index is
+#' computed hour by hour). One summary warning of class
+#' `meteoHazard_missing_input` is issued per call. Non-missing invalid values
+#' (negative wind or rain, wetness outside `[0, 1]`, ...) still error.
+#'
 #' @param wind_gusts_10m Numeric vector. Peak wind gust at 10 m (m/s),
 #'   Open-Meteo `wind_gusts_10m` (fetch with `&wind_speed_unit=ms`). Drives
 #'   entrainment.
@@ -230,9 +238,9 @@ litter_hazard_vec <- function(
 
   # ---- Validate meteorological inputs (complete, non-negative, aligned) ---- #
   n <- length(wind_gusts_10m)
-  checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = FALSE, min.len = 1)
-  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, len = n)
-  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = TRUE, min.len = 1)
+  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = TRUE, len = n)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = TRUE, len = n)
 
   material <- match.arg(material)
 
@@ -271,11 +279,15 @@ litter_hazard_vec <- function(
   }
 
   if (have_wet) {
-    checkmate::assert_numeric(wetness, lower = 0, upper = 1, any.missing = FALSE, len = n)
+    checkmate::assert_numeric(wetness, lower = 0, upper = 1, any.missing = TRUE, len = n)
   } else {
     checkmate::assert_numeric(soil_moisture_0_to_1cm, lower = 0, upper = 1,
-                              any.missing = FALSE, len = n)
+                              any.missing = TRUE, len = n)
   }
+  # Rows with a missing met input are returned as NA (see @section Missing
+  # values).
+  miss <- .missing_rows(n, wind_gusts_10m, wind_speed_10m, precipitation,
+                        if (have_wet) wetness else soil_moisture_0_to_1cm)
 
   # ---- Validate parameters and the ordering constraints --------------------- #
   checkmate::assert_number(gust_threshold, lower = 0)
@@ -394,7 +406,10 @@ litter_hazard_vec <- function(
   # fixed 0-100 cap (issue #11) -- an inflated entrainment_max legitimately
   # exceeds 100. Site-specific tiers come from calibration tooling (issues
   # #11/#8).
-  E * transport * rain_gate
+  out <- E * transport * rain_gate
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "litter_hazard_vec")
+  out
 }
 
 
@@ -426,6 +441,15 @@ litter_hazard_vec <- function(
 #'   calibration override (e.g. a custom `rain_threshold` for the hazard's
 #'   rain gate) cannot accidentally perturb the wetness-reset dynamics.
 #'
+#' @section Missing values:
+#' A row with `NA` in any required column returns `NA` for that row, with one
+#' summary warning of class `meteoHazard_missing_input` per call; callers need
+#' not pre-filter complete rows. Non-missing invalid values still error. With
+#' `use_wetness_state = FALSE` every other row is exactly as with complete
+#' data. With `use_wetness_state = TRUE` the sequential wetness state carries
+#' across a missing hour (see [litter_wetness_vec()]), so hours after the gap
+#' can differ slightly from a complete-data run.
+#'
 #' @return Numeric vector of length `nrow(met_data)`, the relative litter hazard
 #'   index for each forecast hour (see [litter_hazard_vec()]). Issue #11 removed
 #'   the fixed 0-100 scale across hazards in favour of physical/relative outputs.
@@ -454,22 +478,25 @@ litter_hazard <- function(met_data, use_wetness_state = FALSE, ...) {
     )
 
     # litter_wetness_vec() runs with its own defaults here; `...` below
-    # is forwarded to litter_hazard_vec() only.
-    wetness <- litter_wetness_vec(
-      precipitation         = met_data$precipitation,
-      temperature_2m        = met_data$temperature_2m,
-      relative_humidity_2m  = met_data$relative_humidity_2m,
-      wind_speed_10m        = met_data$wind_speed_10m,
-      shortwave_radiation   = met_data$shortwave_radiation
-    )
+    # is forwarded to litter_hazard_vec() only. Inner missing-input warnings
+    # are muffled: this function issues the one summary warning itself.
+    out <- .muffle_missing_input({
+      wetness <- litter_wetness_vec(
+        precipitation         = met_data$precipitation,
+        temperature_2m        = met_data$temperature_2m,
+        relative_humidity_2m  = met_data$relative_humidity_2m,
+        wind_speed_10m        = met_data$wind_speed_10m,
+        shortwave_radiation   = met_data$shortwave_radiation
+      )
 
-    litter_hazard_vec(
-      wind_gusts_10m = met_data$wind_gusts_10m,
-      wind_speed_10m = met_data$wind_speed_10m,
-      precipitation  = met_data$precipitation,
-      wetness        = wetness,
-      ...
-    )
+      litter_hazard_vec(
+        wind_gusts_10m = met_data$wind_gusts_10m,
+        wind_speed_10m = met_data$wind_speed_10m,
+        precipitation  = met_data$precipitation,
+        wetness        = wetness,
+        ...
+      )
+    })
   } else {
     required_cols <- c(always_required, "soil_moisture_0_to_1cm")
     .assert_required_cols(
@@ -480,12 +507,17 @@ litter_hazard <- function(met_data, use_wetness_state = FALSE, ...) {
       )
     )
 
-    litter_hazard_vec(
+    out <- .muffle_missing_input(litter_hazard_vec(
       wind_gusts_10m         = met_data$wind_gusts_10m,
       wind_speed_10m         = met_data$wind_speed_10m,
       precipitation          = met_data$precipitation,
       soil_moisture_0_to_1cm = met_data$soil_moisture_0_to_1cm,
       ...
-    )
+    ))
   }
+
+  miss <- .missing_cols_rows(met_data, required_cols)
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "litter_hazard")
+  out
 }

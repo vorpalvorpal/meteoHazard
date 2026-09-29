@@ -40,6 +40,17 @@ of a meteorological forecast tibble. Wraps the vector API, accepting a tibble
 with named columns rather than individual vectors. Two column contracts are
 supported, selected by \code{use_wetness_state}.
 }
+\section{Missing values}{
+
+A row with \code{NA} in any required column returns \code{NA} for that row, with one
+summary warning of class \code{meteoHazard_missing_input} per call; callers need
+not pre-filter complete rows. Non-missing invalid values still error. With
+\code{use_wetness_state = FALSE} every other row is exactly as with complete
+data. With \code{use_wetness_state = TRUE} the sequential wetness state carries
+across a missing hour (see \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}), so hours after the gap
+can differ slightly from a complete-data run.
+}
+
 \seealso{
 \code{\link[=litter_hazard_vec]{litter_hazard_vec()}}, \code{\link[=litter_wetness_vec]{litter_wetness_vec()}}, \code{\link[=litter_exposure]{litter_exposure()}}.
 }

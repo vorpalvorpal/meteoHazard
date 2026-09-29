@@ -107,7 +107,9 @@ test_that("heavy rain suppresses hazard via W_rain (soluble-limit odorant)", {
 })
 
 # ── NA handling / robustness ────────────────────────────────────────────────
-test_that("an all-NA row yields a finite, conservative hazard (no NA out)", {
+test_that("an all-NA row returns NA with a classed warning (0.3.2 NA policy)", {
+  # Before 0.3.2 the per-field fallbacks returned a finite value here; a
+  # missing hour is now reported as NA rather than a made-up hazard.
   d <- mh(
     wind_speed_10m = NA_real_, direct_radiation = NA_real_, cloud_cover = NA_real_,
     boundary_layer_height = NA_real_, temperature_2m = NA_real_,
@@ -115,9 +117,8 @@ test_that("an all-NA row yields a finite, conservative hazard (no NA out)", {
     relative_humidity_2m = NA_real_,
     soil_moisture_0_to_1cm = NA_real_, soil_moisture_1_to_3cm = NA_real_
   )
-  h <- odour_hazard(d)
-  expect_false(is.na(h))
-  expect_gt(h, 0)
+  expect_warning(h <- odour_hazard(d), class = "meteoHazard_missing_input")
+  expect_true(is.na(h))
 })
 
 test_that("a zero boundary-layer height yields a finite hazard, not Inf", {

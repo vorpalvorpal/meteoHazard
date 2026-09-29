@@ -85,6 +85,21 @@
 #' US EPA (1995). \emph{User's Guide for the Industrial Source Complex (ISC3)
 #'   Dispersion Models}.
 #'
+#' @section Missing values:
+#' An hour with `NA` in a required column, or in one of the optional
+#' generation / cold-pool columns that is present (`temperature_2m`,
+#' `relative_humidity_2m`, `pressure_msl`, `precipitation`,
+#' `soil_moisture_0_to_1cm`, `soil_moisture_1_to_3cm`), returns `NA` for that
+#' hour, with one summary warning of class `meteoHazard_missing_input` per
+#' call; callers need not pre-filter complete rows. (Before 0.3.2 such hours
+#' were silently filled with per-field fallbacks, e.g. an `NA` wind treated as
+#' calm, and returned a value.) The model is sequential -- the nocturnal
+#' cold-pool accumulation, the 3-hour pressure tendency and the rainfall
+#' lookback carry state from hour to hour -- so the missing hour still enters
+#' that state through [ventilation_state()]'s documented fallbacks, and hours
+#' shortly after a gap can differ from a complete-data run. The optional
+#' multi-level wind columns (`wind_speed_80m`, ...) stay NA-tolerant.
+#'
 #' @seealso [odour_hazard()], [odour_risk()], [ventilation_state()], [mh_site()]
 #' @export
 odour_exposure <- function(met_data, site,
@@ -106,6 +121,7 @@ odour_exposure <- function(met_data, site,
   )
   .assert_required_cols(met_data, required_cols, arg = "met_data")
   met_data <- .odour_normalise_met(met_data)
+  miss <- .odour_missing_rows(met_data, required_cols)
 
   # ---- Validate site ------------------------------------------------------ #
   if (!S7::S7_inherits(site, mh_site)) {
@@ -326,6 +342,11 @@ odour_exposure <- function(met_data, site,
   # (forthcoming calibration tooling, issues #11/#8).
   c_total <- if (descriptors) c_sum_matrix + c_terrain_matrix else c_sum_matrix
   colnames(c_total) <- as.character(receptors$id)
+  # Hours with a missing input are returned as NA rows (see @section
+  # Missing values). Their NA inputs still reach the sequential state
+  # through ventilation_state()'s documented per-field fallbacks.
+  c_total[miss, ] <- NA_real_
+  .warn_missing_rows(miss, "odour_exposure")
   c_total
 }
 

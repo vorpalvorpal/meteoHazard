@@ -229,6 +229,16 @@ is not a fixed cap — an inflated \code{entrainment_max} legitimately
 exceeds it.
 }
 
+\section{Missing values}{
+
+A row with \code{NA} in \code{wind_gusts_10m}, \code{wind_speed_10m}, \code{precipitation} or
+the surface-wetness input in use (\code{wetness} or \code{soil_moisture_0_to_1cm})
+returns \code{NA} for that row only; the other rows are unaffected (the index is
+computed hour by hour). One summary warning of class
+\code{meteoHazard_missing_input} is issued per call. Non-missing invalid values
+(negative wind or rain, wetness outside \verb{[0, 1]}, ...) still error.
+}
+
 \references{
 EPA (2006). AP-42, Section 13.2.5: Industrial Wind Erosion. Supplies the
 threshold-gated excess-power \emph{shape} of the entrainment CDF (not its

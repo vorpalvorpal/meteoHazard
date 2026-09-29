@@ -133,6 +133,21 @@ threshold multiplier during known watering hours before invoking
 \code{\link[=dust_flux]{dust_flux()}} directly.
 }
 
+\section{Missing values}{
+
+A row with \code{NA} in any required column (the columns listed under
+\code{met_data} for the chosen \code{crust}/\code{air_density}) returns \code{NA} for that row;
+with \code{crust = FALSE} every other row is exactly as with complete data. One
+summary warning of class \code{meteoHazard_missing_input} is issued per call, so
+callers need not pre-filter complete rows. Non-missing but invalid values
+(negative wind, soil moisture outside \verb{[0, 1]}, gust below the mean wind,
+...) still error. With \code{crust = TRUE}
+the crust state carries across a missing hour: an \code{NA} precipitation hour
+is treated as not crust-forming (clock decay keeps counting), and with
+\code{crust_decay = "saltation"} an hour whose wind or moisture is missing
+does not advance the crust age (a known crust-forming rain still resets it).
+}
+
 \seealso{
 \code{\link[=dust_flux]{dust_flux()}}.
 }

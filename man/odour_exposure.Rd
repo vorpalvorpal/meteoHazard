@@ -90,6 +90,23 @@ automatically; mismatch errors). Bearings and angles are in degrees and
 taken as-is.
 }
 
+\section{Missing values}{
+
+An hour with \code{NA} in a required column, or in one of the optional
+generation / cold-pool columns that is present (\code{temperature_2m},
+\code{relative_humidity_2m}, \code{pressure_msl}, \code{precipitation},
+\code{soil_moisture_0_to_1cm}, \code{soil_moisture_1_to_3cm}), returns \code{NA} for that
+hour, with one summary warning of class \code{meteoHazard_missing_input} per
+call; callers need not pre-filter complete rows. (Before 0.3.2 such hours
+were silently filled with per-field fallbacks, e.g. an \code{NA} wind treated as
+calm, and returned a value.) The model is sequential -- the nocturnal
+cold-pool accumulation, the 3-hour pressure tendency and the rainfall
+lookback carry state from hour to hour -- so the missing hour still enters
+that state through \code{\link[=ventilation_state]{ventilation_state()}}'s documented fallbacks, and hours
+shortly after a gap can differ from a complete-data run. The optional
+multi-level wind columns (\code{wind_speed_80m}, ...) stay NA-tolerant.
+}
+
 \references{
 Briggs, G.A. (1973). \emph{Diffusion Estimation for Small Emissions}. NOAA.
 US EPA (1995). \emph{User's Guide for the Industrial Source Complex (ISC3)

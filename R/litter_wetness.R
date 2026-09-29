@@ -35,6 +35,15 @@
 #' `relative_humidity_2m` are taken as plain numerics (degC, %). The
 #' returned wetness state is dimensionless and is a plain numeric.
 #'
+#' @section Missing values:
+#' An hour with `NA` in any input returns `NA`, with one summary warning of
+#' class `meteoHazard_missing_input` per call. The sequential state carries
+#' across the gap: if that hour's rain is known to reach `wetness_set_precip`
+#' the surface still resets to wet, otherwise the state is held unchanged (no
+#' drying is applied for the unknown hour). Hours after a gap can therefore
+#' differ slightly from a complete-data run. Non-missing invalid values
+#' (negative rain/wind/radiation, RH outside `[0, 100]`) still error.
+#'
 #' @param precipitation Numeric vector. Hourly precipitation (mm),
 #'   Open-Meteo `precipitation`. Drives the rain-reset trigger.
 #' @param temperature_2m Numeric vector. Air temperature at 2 m (degC),
@@ -116,12 +125,12 @@ litter_wetness_vec <- function(
   # (sub-zero air temperatures are physically valid and litter can still be
   # present on a frozen/damp surface).
   n <- length(precipitation)
-  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
-  checkmate::assert_numeric(temperature_2m, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = TRUE, min.len = 1)
+  checkmate::assert_numeric(temperature_2m, any.missing = TRUE, len = n)
   checkmate::assert_numeric(relative_humidity_2m, lower = 0, upper = 100,
-                            any.missing = FALSE, len = n)
-  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, len = n)
-  checkmate::assert_numeric(shortwave_radiation, lower = 0, any.missing = FALSE, len = n)
+                            any.missing = TRUE, len = n)
+  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = TRUE, len = n)
+  checkmate::assert_numeric(shortwave_radiation, lower = 0, any.missing = TRUE, len = n)
 
   # ---- Validate parameters -------------------------------------------------- #
   checkmate::assert_number(wetness_set_precip, lower = 0)
@@ -154,18 +163,27 @@ litter_wetness_vec <- function(
 
   # ---- Sequential state update (mirrors .dust_crust_factor's hourly loop) -- #
   # A rain hour hard-resets the surface to fully wet; otherwise the previous
-  # hour's wetness decays exponentially at this hour's drying rate.
+  # hour's wetness decays exponentially at this hour's drying rate. An hour
+  # with a missing input is returned as NA; the state carries across it: a
+  # known reset still resets, otherwise the state holds (no drying applied).
+  miss <- .missing_rows(n, precipitation, temperature_2m, relative_humidity_2m,
+                        wind_speed_10m, shortwave_radiation)
   w <- numeric(n)
   w_prev <- w0
   for (i in seq_len(n)) {
-    if (precipitation[i] >= wetness_set_precip) {
+    rain_known <- !is.na(precipitation[i])
+    if (rain_known && precipitation[i] >= wetness_set_precip) {
       w[i] <- 1
-    } else {
+    } else if (rain_known && !is.na(dry_rate[i])) {
       w[i] <- w_prev * exp(-dry_rate[i])
+    } else {
+      w[i] <- w_prev
     }
     w_prev <- w[i]
   }
 
+  w[miss] <- NA_real_
+  .warn_missing_rows(miss, "litter_wetness_vec")
   w
 }
 

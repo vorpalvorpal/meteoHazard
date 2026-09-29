@@ -94,11 +94,15 @@ describe("dust_flux() [v2]", {
     expect_error(dust_flux(20L, 10, 0, 20, 0.02, z0 = 12))
   })
 
-  it("rejects out-of-range clay, soil moisture, and missing values", {
+  it("rejects out-of-range clay and soil moisture; NA rows return NA", {
     skip_if_no_dust_v2()
     expect_error(dust_flux(20L, 150, 0, 16, 0.02))   # clay > 100
     expect_error(dust_flux(20L, 10, 0, 16, 1.5))     # soil moisture > 1
-    expect_error(dust_flux(20L, 10, c(0, NA), c(16, 16), c(0.02, 0.02)))
+    expect_warning(
+      out <- dust_flux(20L, 10, c(0, NA), c(16, 16), c(0.02, 0.02)),
+      class = "meteoHazard_missing_input"
+    )
+    expect_true(is.na(out[2]))
   })
 
   # ---- T1: smooth-bed roughness (z0 default NULL -> d/30) ------------------ #

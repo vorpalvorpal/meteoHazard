@@ -25,6 +25,21 @@
 #' @return A numeric matrix (`nrow(met_data)` x n_receptors) of relative odour
 #'   concentration; see [odour_exposure()].
 #'
+#' @section Missing values:
+#' An hour with `NA` in a required column, or in one of the optional
+#' generation / cold-pool columns that is present (`temperature_2m`,
+#' `relative_humidity_2m`, `pressure_msl`, `precipitation`,
+#' `soil_moisture_0_to_1cm`, `soil_moisture_1_to_3cm`), returns `NA` for that
+#' hour, with one summary warning of class `meteoHazard_missing_input` per
+#' call; callers need not pre-filter complete rows. (Before 0.3.2 such hours
+#' were silently filled with per-field fallbacks, e.g. an `NA` wind treated as
+#' calm, and returned a value.) The model is sequential -- the nocturnal
+#' cold-pool accumulation, the 3-hour pressure tendency and the rainfall
+#' lookback carry state from hour to hour -- so the missing hour still enters
+#' that state through [ventilation_state()]'s documented fallbacks, and hours
+#' shortly after a gap can differ from a complete-data run. The optional
+#' multi-level wind columns (`wind_speed_80m`, ...) stay NA-tolerant.
+#'
 #' @seealso [odour_exposure()], [odour_hazard()], [ventilation_state()].
 #' @export
 odour_risk <- function(met_data, site,

@@ -106,6 +106,17 @@ incompatible unit is an error). \code{temperature_2m} and
 returned wetness state is dimensionless and is a plain numeric.
 }
 
+\section{Missing values}{
+
+An hour with \code{NA} in any input returns \code{NA}, with one summary warning of
+class \code{meteoHazard_missing_input} per call. The sequential state carries
+across the gap: if that hour's rain is known to reach \code{wetness_set_precip}
+the surface still resets to wet, otherwise the state is held unchanged (no
+drying is applied for the unknown hour). Hours after a gap can therefore
+differ slightly from a complete-data run. Non-missing invalid values
+(negative rain/wind/radiation, RH outside \verb{[0, 100]}) still error.
+}
+
 \references{
 McColl, K. A. et al. (2017). Global characterization of surface
 soil-moisture drydowns. \emph{Nature Geoscience} 10, 100-104.

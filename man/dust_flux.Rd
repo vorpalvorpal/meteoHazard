@@ -188,6 +188,15 @@ implemented here.
 }
 }
 
+\section{Missing values}{
+
+A row with \code{NA} in \code{wind_speed_10m}, \code{wind_gusts_10m}, \code{soil_moisture},
+\code{threshold_multiplier} or (when supplied) \code{temperature_2m}/
+\code{surface_pressure} returns \code{NA} for that row only, with one summary warning
+of class \code{meteoHazard_missing_input} per call. Non-missing invalid values
+still error. See \code{\link[=dust_hazard]{dust_hazard()}}.
+}
+
 \references{
 Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304} — threshold friction
 velocity (\code{A_N}, \code{gamma}).

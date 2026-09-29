@@ -67,14 +67,27 @@
 #'   section. Numeric (or a \pkg{units} length) of length 1 or
 #'   `length(datetime)`, recycled with `wind_speed`, so one call can mix wind
 #'   from different sources. Values must be finite and greater than the
-#'   roughness length (0.01 m); `NA` is allowed only where `wind_speed` is
-#'   `NA`. Use `10` for forecast (10 m) wind and the anemometer height for
+#'   roughness length (0.01 m); an `NA` height is a missing input, so that
+#'   row's TWL is `NA` (see *Missing values*; before 0.3.2 an `NA` height
+#'   beside a known wind was an error). Use `10` for forecast (10 m) wind and the anemometer height for
 #'   station wind. `NULL` (the default) applies no correction to supplied wind.
 #'   Ignored (with a warning) when `wind_speed` is `NULL`.
 #'
 #' @return A \pkg{units} vector of TWL values in W/m^2 (a genuine physical
 #'   quantity). Use [categorise_twl()] / [twl_colour()] (both units-aware) to
 #'   map it to zones, or `units::drop_units()` for a bare numeric.
+#'
+#' @section Missing values:
+#' `NULL` and `NA` mean different things. A `NULL` weather argument is fetched
+#' from Open-Meteo; an `NA` element of a supplied vector is a missing input
+#' and is never fetched. A row with `NA` in any per-row input (`datetime`,
+#' `latitude`, `longitude`, the six weather inputs, a used `wind_height`, or a
+#' supplied `wet_bulb`) returns `NA` TWL for that row only; every other row is
+#' computed exactly as with complete data (rows are independent). One summary
+#' warning of class `meteoHazard_missing_input` is issued per call, so callers
+#' need not pre-filter complete rows. Non-missing invalid values (RH outside
+#' `[0, 100]`, negative wind or radiation, non-positive pressure, ...) still
+#' error.
 #'
 #' @section Units:
 #' The dimensional weather inputs (`temp` degC, `wind_speed` m/s, `wind_height`
@@ -347,6 +360,11 @@ generate_twl <- function(datetime,
     }
   }
 
+  # Rows with a missing per-row input return NA (see @section Missing values).
+  # An NA wind_height has already made that row's corrected wind_speed NA.
+  miss <- .missing_rows(n_obs, datetime, latitude, longitude, temp, wind_speed,
+                        RH, direct_solar, diffuse_solar, pressure, wet_bulb)
+
   # Constrain wind speed to valid range (Brake & Bates recommend 0.2-4.0 m/s)
   wind_speed_orig <- wind_speed
   wind_speed <- pmax(0.2, pmin(4.0, wind_speed))
@@ -414,9 +432,10 @@ generate_twl <- function(datetime,
         cli_progress_update(id = pb_id, set = idx)
       }
 
-      # Return NA if inputs are NA
+      # Return NA if any per-row input is missing (incl. datetime / location)
       if (is.na(temp) || is.na(wind_speed) || is.na(RH) ||
-        is.na(direct_solar) || is.na(diffuse_solar) || is.na(pressure)) {
+        is.na(direct_solar) || is.na(diffuse_solar) || is.na(pressure) ||
+        miss[idx]) {
         return(NA_real_)
       }
 
@@ -500,6 +519,9 @@ generate_twl <- function(datetime,
     }
   }
 
+  TWL[miss] <- NA_real_
+  .warn_missing_rows(miss, "generate_twl")
+
   # TWL is a genuine physical quantity -> return as a units object (W/m^2).
   units::set_units(TWL, "W/m2")
 }
@@ -512,8 +534,7 @@ generate_twl <- function(datetime,
 }
 
 # Validate a (bare numeric, metres) `wind_height` against the supplied
-# `wind_speed`: numeric, length 1 or n, finite and > z0, NA only where
-# wind_speed is NA (after recycling both to n).
+# `wind_speed`: numeric, length 1 or n, and each non-NA value finite and > z0.
 .check_wind_height <- function(wind_height, wind_speed, n) {
   z0 <- TWL_CONSTANTS$WIND_Z0
   hlen <- length(wind_height)
@@ -523,16 +544,10 @@ generate_twl <- function(datetime,
       class = "meteoHazard_input_error"
     )
   }
+  # An NA height is a missing input (that row's TWL is NA; generate_twl()
+  # warns once), not an error.
   h <- rep_len(wind_height, n)
-  ws <- rep_len(wind_speed, n)
-  h_na <- is.na(h)
-  if (any(h_na & !is.na(ws))) {
-    cli::cli_abort(
-      "`wind_height` may be NA only where `wind_speed` is NA.",
-      class = "meteoHazard_input_error"
-    )
-  }
-  h_ok <- h[!h_na]
+  h_ok <- h[!is.na(h)]
   if (any(!is.finite(h_ok) | h_ok <= z0)) {
     cli::cli_abort(
       "`wind_height` values must be finite and greater than the roughness length ({z0} m).",

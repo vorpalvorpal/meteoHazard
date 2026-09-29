@@ -100,6 +100,21 @@
 #'   tendency and 24-hour rainfall lookback assume it -- and a warning is issued
 #'   if they are not (the computation proceeds on row order regardless).
 #'
+#' @section Missing values:
+#' An hour with `NA` in a required column, or in one of the optional
+#' generation / cold-pool columns that is present (`temperature_2m`,
+#' `relative_humidity_2m`, `pressure_msl`, `precipitation`,
+#' `soil_moisture_0_to_1cm`, `soil_moisture_1_to_3cm`), returns `NA` for that
+#' hour, with one summary warning of class `meteoHazard_missing_input` per
+#' call; callers need not pre-filter complete rows. (Before 0.3.2 such hours
+#' were silently filled with per-field fallbacks, e.g. an `NA` wind treated as
+#' calm, and returned a value.) The model is sequential -- the nocturnal
+#' cold-pool accumulation, the 3-hour pressure tendency and the rainfall
+#' lookback carry state from hour to hour -- so the missing hour still enters
+#' that state through [ventilation_state()]'s documented fallbacks, and hours
+#' shortly after a gap can differ from a complete-data run. The optional
+#' multi-level wind columns (`wind_speed_80m`, ...) stay NA-tolerant.
+#'
 #' @seealso [odour_exposure()] for the geometry-aware exposure layer, and
 #'   [odour_risk()] for the combined convenience wrapper.
 #' @param terrain An [mh_terrain()] object, or `NULL` (default). When supplied,
@@ -140,6 +155,7 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   .assert_numeric_cols(met_data, required_cols, arg = "met_data")
 
   met_data <- .odour_normalise_met(met_data)
+  miss <- .odour_missing_rows(met_data, required_cols)
 
   vs <- ventilation_state(met_data, terrain = terrain, stability = stability,
                           shelter = shelter, shelter_h_mix = shelter_h_mix,
@@ -150,7 +166,12 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
   hazard_ref <- ODOUR_CONSTANTS$PM_MAX /
     (ODOUR_CONSTANTS$U_CALM_FLOOR * ODOUR_CONSTANTS$H_MIX_FALLBACK_STABLE)
 
-  .odour_hazard_raw(G, vs) / hazard_ref
+  out <- .odour_hazard_raw(G, vs) / hazard_ref
+  # Hours with a missing input are returned as NA (see @section Missing
+  # values).
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "odour_hazard")
+  out
 }
 
 
@@ -185,6 +206,23 @@ odour_hazard <- function(met_data, stability = c("turner", "shear"),
     }
   }
   met_data
+}
+
+
+# ---- Missing-input rows ----------------------------------------------------- #
+# Rows with NA in a required column, or in an optional generation/pool column
+# that is present (and so used), are returned as NA by odour_hazard() and
+# odour_exposure(). The optional multi-level wind columns (wind_*_80m etc.)
+# are excluded: they only feed the residual-wind estimate, which is
+# NA-tolerant by design.
+ODOUR_OPTIONAL_MET_COLS <- c(
+  "temperature_2m", "relative_humidity_2m", "pressure_msl",
+  "precipitation", "soil_moisture_0_to_1cm", "soil_moisture_1_to_3cm"
+)
+
+.odour_missing_rows <- function(met_data, required_cols) {
+  cols <- union(required_cols, intersect(ODOUR_OPTIONAL_MET_COLS, names(met_data)))
+  .missing_cols_rows(met_data, cols)
 }
 
 

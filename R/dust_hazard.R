@@ -147,6 +147,13 @@
 #'   see @section Units); `0` where the wind does not exceed the (possibly
 #'   moisture/crust/roughness adjusted) threshold.
 #'
+#' @section Missing values:
+#' A row with `NA` in `wind_speed_10m`, `wind_gusts_10m`, `soil_moisture`,
+#' `threshold_multiplier` or (when supplied) `temperature_2m`/
+#' `surface_pressure` returns `NA` for that row only, with one summary warning
+#' of class `meteoHazard_missing_input` per call. Non-missing invalid values
+#' still error. See [dust_hazard()].
+#'
 #' @references
 #' Shao, Y. & Lu, H. (2000) \doi{10.1029/2000JD900304} — threshold friction
 #' velocity (`A_N`, `gamma`).
@@ -266,9 +273,9 @@ dust_flux <- function(
 
   checkmate::assert_number(clay_percent, lower = 0, upper = 100)
   n <- length(wind_speed_10m)
-  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = FALSE, min.len = 1)
-  checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = FALSE, len = n)
-  checkmate::assert_numeric(soil_moisture, lower = 0, upper = 1, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(wind_speed_10m, lower = 0, any.missing = TRUE, min.len = 1)
+  checkmate::assert_numeric(wind_gusts_10m, lower = 0, any.missing = TRUE, len = n)
+  checkmate::assert_numeric(soil_moisture, lower = 0, upper = 1, any.missing = TRUE, len = n)
   if (!is.null(z0)) {
     # z0 must sit strictly below the log-law reference height Z_REF (10 m),
     # or log(z/z0) is <= 0 and u* is undefined/negative.
@@ -279,17 +286,22 @@ dust_flux <- function(
   checkmate::assert_number(gust_factor, lower = 0, upper = 1)
   forcing <- match.arg(forcing)
   checkmate::assert_number(weibull_shape, lower = 1e-9)
-  checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = FALSE)
+  checkmate::assert_numeric(threshold_multiplier, lower = 0, any.missing = TRUE)
   if (!length(threshold_multiplier) %in% c(1L, n)) {
     cli::cli_abort(
       "{.arg threshold_multiplier} must have length 1 or {n}, not {length(threshold_multiplier)}.",
       class = "meteoHazard_input_error"
     )
   }
-  if (any(wind_gusts_10m < wind_speed_10m)) {
+  # Rows with a missing met input are returned as NA (see @section Missing
+  # values); every check below skips them.
+  miss <- .missing_rows(n, wind_speed_10m, wind_gusts_10m, soil_moisture,
+                        threshold_multiplier, temperature_2m, surface_pressure)
+  bad_gust <- which(wind_gusts_10m < wind_speed_10m)
+  if (length(bad_gust) > 0) {
     cli::cli_abort(c(
       "{.arg wind_gusts_10m} must be >= {.arg wind_speed_10m} at every hour.",
-      "x" = "Row(s) {.val {which(wind_gusts_10m < wind_speed_10m)}} have gust < mean wind."
+      "x" = "Row(s) {.val {bad_gust}} have gust < mean wind."
     ), class = "meteoHazard_input_error")
   }
 
@@ -308,14 +320,14 @@ dust_flux <- function(
     )
   }
   if (have_temp && have_press) {
-    checkmate::assert_numeric(temperature_2m, any.missing = FALSE, len = n)
-    checkmate::assert_numeric(surface_pressure, lower = 0, any.missing = FALSE, len = n)
+    checkmate::assert_numeric(temperature_2m, any.missing = TRUE, len = n)
+    checkmate::assert_numeric(surface_pressure, lower = 0, any.missing = TRUE, len = n)
     rho_a <- 100 * surface_pressure /
       (DUST_CONSTANTS$R_D * (temperature_2m + DUST_CONSTANTS$KELVIN_OFFSET))
-    if (any(rho_a < 0.8 | rho_a > 1.6)) {
+    if (any(rho_a < 0.8 | rho_a > 1.6, na.rm = TRUE)) {
       cli::cli_abort(
         c("Air density computed from {.arg temperature_2m}/{.arg surface_pressure} is outside the plausible range [0.8, 1.6] kg/m^3.",
-          "x" = "Computed range: [{signif(min(rho_a), 4)}, {signif(max(rho_a), 4)}] kg/m^3.",
+          "x" = "Computed range: [{signif(min(rho_a, na.rm = TRUE), 4)}, {signif(max(rho_a, na.rm = TRUE), 4)}] kg/m^3.",
           "i" = "Check units -- {.arg surface_pressure} is expected in hPa, not Pa."),
         class = "meteoHazard_input_error"
       )
@@ -440,7 +452,10 @@ dust_flux <- function(
     ), class = "meteoHazard_dust_clay_capped")
   }
 
-  alpha * Q
+  out <- alpha * Q
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "dust_flux")
+  out
 }
 
 
@@ -492,6 +507,19 @@ dust_flux <- function(
 #' is the intended injection hook — e.g. a caller can locally raise the
 #' threshold multiplier during known watering hours before invoking
 #' [dust_flux()] directly.
+#'
+#' @section Missing values:
+#' A row with `NA` in any required column (the columns listed under
+#' `met_data` for the chosen `crust`/`air_density`) returns `NA` for that row;
+#' with `crust = FALSE` every other row is exactly as with complete data. One
+#' summary warning of class `meteoHazard_missing_input` is issued per call, so
+#' callers need not pre-filter complete rows. Non-missing but invalid values
+#' (negative wind, soil moisture outside `[0, 1]`, gust below the mean wind,
+#' ...) still error. With `crust = TRUE`
+#' the crust state carries across a missing hour: an `NA` precipitation hour
+#' is treated as not crust-forming (clock decay keeps counting), and with
+#' `crust_decay = "saltation"` an hour whose wind or moisture is missing
+#' does not advance the crust age (a known crust-forming rain still resets it).
 #'
 #' @param met_data A tibble (or data frame), one row per hourly timestep, with at
 #'   least `wind_speed_10m` (m/s), `wind_gusts_10m` (m/s), and
@@ -588,6 +616,11 @@ dust_hazard <- function(
     )
   )
 
+  # Rows with a missing required input are returned as NA (see @section
+  # Missing values); one summary warning here, the inner dust_flux() one is
+  # muffled.
+  miss <- .missing_cols_rows(met_data, required_cols)
+
   # ---- Crust factor per hour (threshold multiplier) ------------------------ #
   crust_mult <- if (!crust) {
     1
@@ -670,7 +703,10 @@ dust_hazard <- function(
     met_args$surface_pressure <- met_data$surface_pressure
   }
 
-  do.call(dust_flux, c(common, met_args))
+  out <- .muffle_missing_input(do.call(dust_flux, c(common, met_args)))
+  out[miss] <- NA_real_
+  .warn_missing_rows(miss, "dust_hazard")
+  out
 }
 
 # TODO(dust-v3): T9 — add a receptor-aware dust_exposure() layer, mirroring
@@ -719,12 +755,13 @@ dust_hazard <- function(
 # 1982; Rice & McEwan 2001) -- see .dust_crust_factor_saltation() for the
 # saltation-gated alternative (WP4, `crust_decay = "saltation"`).
 .dust_crust_factor <- function(precipitation, threshold, factor_max, decay_hours, age0 = Inf) {
-  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = TRUE, min.len = 1)
   n   <- length(precipitation)
   age <- numeric(n)
   current <- age0
   for (i in seq_len(n)) {
-    if (precipitation[i] >= threshold) {
+    # An NA (unknown) precipitation hour is treated as not crust-forming.
+    if (!is.na(precipitation[i]) && precipitation[i] >= threshold) {
       current <- 0
     } else if (i > 1 && is.finite(current)) {
       current <- current + 1
@@ -755,9 +792,9 @@ dust_hazard <- function(
                                           threshold, factor_max, decay_hours,
                                           age0 = Inf) {
   n <- length(precipitation)
-  checkmate::assert_numeric(precipitation, lower = 0, any.missing = FALSE, min.len = 1)
-  checkmate::assert_numeric(u_star, any.missing = FALSE, len = n)
-  checkmate::assert_numeric(u_star_t_moist, lower = 0, any.missing = FALSE, len = n)
+  checkmate::assert_numeric(precipitation, lower = 0, any.missing = TRUE, min.len = 1)
+  checkmate::assert_numeric(u_star, any.missing = TRUE, len = n)
+  checkmate::assert_numeric(u_star_t_moist, lower = 0, any.missing = TRUE, len = n)
 
   mult <- numeric(n)
   current <- age0
@@ -768,12 +805,14 @@ dust_hazard <- function(
       1
     }
     u_star_t_i <- u_star_t_moist[i] * max(1, mult[i])
-    if (precipitation[i] >= threshold) {
+    if (!is.na(precipitation[i]) && precipitation[i] >= threshold) {
       current <- 0
-    } else if (u_star[i] > u_star_t_i) {
+    } else if (!is.na(u_star[i]) && !is.na(u_star_t_i) && u_star[i] > u_star_t_i) {
       current <- current + 1   # crust is being sandblasted
     }
     # else: calm/sub-threshold hour -- crust age holds (nothing abrading it).
+    # Unknown (NA) rain is treated as not crust-forming; an hour with unknown
+    # wind or moisture (NA u* or threshold) does not advance the age.
   }
   mult
 }
